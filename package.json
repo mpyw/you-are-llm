@@ -5,15 +5,16 @@
   "type": "module",
   "packageManager": "pnpm@12.5.1",
   "scripts": {
-    "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview",
-    "typecheck": "tsc -b",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "check:material": "node scripts/check-material.mjs src/materials/sessions/*.json",
+    "dev": "vite",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "check:material": "node scripts/check-material.mjs src/materials/sessions/*.json"
+    "material:report": "node scripts/material-report.mjs",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b"
   },
   "dependencies": {
     "@tanstack/react-router": "^1.170.38",
