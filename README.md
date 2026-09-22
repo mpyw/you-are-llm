@@ -43,7 +43,13 @@ below the next one, so the page keeps its height and a small screen stays playab
 | Japanese prose | Its kana reading, which an IME turns into the kanji |
 | Code and shell commands | The characters as they stand |
 
-Enter produces a newline. A key the engine rejects costs the combo and nothing else.
+Enter produces a newline, and Tab produces one step of indent. A key the engine rejects costs the
+combo and nothing else.
+
+Indent steps are measured from the session itself, so two space code takes one Tab per level and
+four space code takes one Tab per level too. The spaces still work if you would rather type them.
+Tab keeps moving focus everywhere else on the page, so it is only taken when an indent is actually
+due.
 
 The display tracks the run while it happens.
 

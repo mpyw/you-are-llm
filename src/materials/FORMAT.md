@@ -43,6 +43,10 @@ Each turn holds a `user` string and an `assistant` array of blocks.
 
 The `user` string is context. Nobody types it, so it can be as messy as a real person is.
 
+> [!IMPORTANT]
+> Indent code with spaces. A literal tab cannot be typed and the checker rejects one. The trainer
+> lets the typist press Tab for a step of indent, which it measures from the spaces you wrote.
+
 ## The reading rule
 
 The engine turns kana into keys. It cannot turn kanji into keys, because that is the direction an
