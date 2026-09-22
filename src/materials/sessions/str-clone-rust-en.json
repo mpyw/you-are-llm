@@ -2,7 +2,7 @@
   "id": "str-clone-rust-en",
   "title": "Trimming the clones out of render",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "rust",
   "summary": "Taking &str adds an allocation instead of removing one, so new goes to Into<String> and render writes into a buffer.",
   "files": [

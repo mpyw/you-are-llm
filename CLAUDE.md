@@ -112,3 +112,19 @@ it could not be finished on a Japanese keyboard.
 
 The fix belongs in the layout, next to the idea that `し` takes `si`, `shi` and `ci`. Do not special
 case it in the keyboard handler.
+
+## Symbol count is not difficulty
+
+The first grader counted keystrokes and charged double for Shift. By that measure PHP is the
+heaviest language in the set, ahead of Rust, which nobody who has typed both believes.
+
+The measure was not wrong, it was incomplete. PHP really does type more symbols per character: a
+`$` on every variable and an `->` on every call. But those are two shapes, learned once. Rust
+spends a similar weight across `&mut`, `::`, `<'a>`, `?`, `|x|` and more.
+
+`typing-load.mjs` multiplies volume by variety now, where variety is the effective number of
+distinct symbol shapes, two to the power of the entropy of their distribution. That last part is
+what makes `$` cheap however often it appears, and it is the part to keep if the model is ever
+rewritten. Tokens shared by most languages are excluded, because a bracket is muscle memory.
+
+Measured per session: Rust 18.1 shapes, PHP 13.3, Java 7.6.
