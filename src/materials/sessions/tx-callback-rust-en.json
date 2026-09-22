@@ -2,7 +2,7 @@
   "id": "tx-callback-rust-en",
   "title": "Handing a closure to transaction",
   "language": "en",
-  "difficulty": "veryhard",
+  "difficulty": "expertplus",
   "codeLanguage": "rust",
   "summary": "E0597 from a caller-chosen lifetime, a move to HRTB, E0507 once retries force FnMut, and a landing on BoxFuture.",
   "files": [

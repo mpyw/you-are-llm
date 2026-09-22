@@ -2,7 +2,7 @@
   "id": "arc-mutex-deadlock-rust-ja",
   "title": "bump の中で lock を二回取って固まる",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "rust",
   "summary": "Arc<Mutex<HashMap>> に合計のログを足したらデッドロックして、guard から数え直す。",
   "files": [

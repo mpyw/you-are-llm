@@ -2,7 +2,7 @@
   "id": "getter-setter-java-en",
   "title": "Every getter and setter, then a record",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "java",
   "summary": "Accessors written by hand for every new field, deleted at the end by one record.",
   "files": [

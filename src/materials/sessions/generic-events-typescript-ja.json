@@ -2,7 +2,7 @@
   "id": "generic-events-typescript-ja",
   "title": "イベント名から payload を引く",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "typescript",
   "summary": "keyof 制約で型を付け、推論を壊し、マップ型と条件型まで持っていく。",
   "files": [

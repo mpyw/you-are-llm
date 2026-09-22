@@ -2,7 +2,7 @@
   "id": "file-upload-php-ja",
   "title": "拡張子頼みのアップロードを finfo と保存名の作り直しで固める",
   "language": "ja",
-  "difficulty": "veryhard",
+  "difficulty": "expert",
   "codeLanguage": "php",
   "summary": "自己申告の拡張子をやめ、保存名を自前で作り、保存先が基準ディレクトリの外に出ないことまで確かめる。",
   "files": [

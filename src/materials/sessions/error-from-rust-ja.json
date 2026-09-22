@@ -2,7 +2,7 @@
   "id": "error-from-rust-ja",
   "title": "PORT のパースを ? で繋ぐ",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "rust",
   "summary": "決め打ちの 8080 を parse に替えて、エラー型に #[from] を一つ生やす。",
   "files": [

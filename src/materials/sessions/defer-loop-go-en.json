@@ -2,7 +2,7 @@
   "id": "defer-loop-go-en",
   "title": "Deferred in a loop, evaluated too early",
   "language": "en",
-  "difficulty": "veryhard",
+  "difficulty": "hard",
   "codeLanguage": "go",
   "summary": "too many open files, a timer that always reads 0s, transactions held open, and a swallowed Close.",
   "files": [

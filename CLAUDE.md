@@ -138,3 +138,16 @@ from `nextKeys`. Anywhere else it is left alone, and it is never counted as a mi
 The indent itself is an alternative spelling, the same machinery that lets `し` take `si`, `shi` and
 `ci`. A run of spaces at the start of a line is one chunk that accepts either the spaces or a tab.
 Do not add a special case to the keyboard handler for it.
+
+## Length is measured in symbols, not characters
+
+Counting every keystroke made PHP look hard. Its sessions are long, but the length comes from
+spelling out `htmlspecialchars` and `password_hash`, which is the easiest typing there is.
+
+The length term counts symbol keystrokes only, and its exponent is well under one so it stretches
+the score rather than driving it. What drives it is hardness per keystroke: the Shift share times
+the number of distinct symbol shapes.
+
+The result is the one that matches anyone who has typed both. No Rust session lands below Hard, no
+Java session lands above it, and the only Expert+ session is the Rust `transaction` that takes a
+closure, which scores 41.9 against 31.3 for the next one down.

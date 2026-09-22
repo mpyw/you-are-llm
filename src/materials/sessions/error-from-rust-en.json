@@ -2,7 +2,7 @@
   "id": "error-from-rust-en",
   "title": "Wire PORT parsing through ?",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "rust",
   "summary": "Swap the hardcoded 8080 for a parse and grow one #[from] variant on the error type.",
   "files": [

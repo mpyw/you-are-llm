@@ -2,7 +2,7 @@
   "id": "csrf-token-php-en",
   "title": "Move the CSRF token onto random_bytes and hash_equals",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "php",
   "summary": "Fix a guessable token and a loose check, then rename the key and make it single use.",
   "files": [

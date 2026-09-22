@@ -4,14 +4,17 @@
 //   node scripts/typing-load.mjs            report only
 //   node scripts/typing-load.mjs --apply    write the grades back
 //
-// Two things make a session hard to type, and counting only the first gets the
-// answer wrong. Volume is how many keys, charging double for the ones that need
-// Shift. Variety is how many different symbol shapes the fingers have to learn.
+// The score is how hard a session is per keystroke, stretched a little by how
+// much of it there is.
 //
-// PHP beats Rust on volume: every variable wears a `$` and every call an `->`.
-// It loses badly on variety, because those two tokens are most of what it asks
-// for. Rust spreads the same weight of symbols across `&mut`, `::`, `<'a>`, `?`
-// and a dozen more, and a dozen shapes cost more than two.
+// Hardness is the share of keys that need Shift, times the number of distinct
+// symbol shapes the session asks for. Shapes are what separate Rust from PHP:
+// PHP types more symbols, but `$` and `->` are most of them, learned once. Rust
+// spends the same weight across `&mut`, `::`, `<'a>`, `?` and a dozen others.
+//
+// Length counts symbol keystrokes rather than all of them. A session is not
+// harder for spelling out `htmlspecialchars`, which is the easiest kind of key
+// there is, and counting every character rewarded exactly that.
 
 import { readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -29,15 +32,19 @@ const NAME_UNDERSCORE = /(?<=[0-9A-Za-z])_(?=[0-9A-Za-z])/gu
 /** A token this many languages share is one every typist already knows. */
 const UNIVERSAL_AT = 7
 
-/** How much the variety of symbol shapes adds on top of the volume. */
-const VARIETY_WEIGHT = 0.02
+/** How much each distinct symbol shape adds to the hardness of a keystroke. */
+const VARIETY_WEIGHT = 0.05
 
-/** Upper bound of each tier, in weighted keystrokes per scenario. */
+/** How much the length of a session counts. Well under one, on purpose. */
+const LENGTH_EXPONENT = 0.45
+
+/** Upper bound of each tier. */
 const TIERS = [
-  { limit: 1100, name: 'easy' },
-  { limit: 2000, name: 'normal' },
-  { limit: 3200, name: 'hard' },
-  { limit: Infinity, name: 'veryhard' },
+  { limit: 11, name: 'easy' },
+  { limit: 16, name: 'normal' },
+  { limit: 22, name: 'hard' },
+  { limit: 34, name: 'expert' },
+  { limit: Infinity, name: 'expertplus' },
 ]
 
 function load() {
@@ -46,17 +53,24 @@ function load() {
     .map((name) => ({ file: name, data: JSON.parse(readFileSync(join(DIR, name), 'utf8')) }))
 }
 
-/** Weighted keystrokes: every key counts once, and a shifted key counts twice. */
-function volumeOf(session) {
-  let volume = 0
+const SYMBOL = new Set([...'`~!@#$%^&*()-=+[]{}\\|;:\'",.<>/?'])
+
+/** Keys, keys that need Shift, and keys that are punctuation rather than a name. */
+function countsOf(session) {
+  let keys = 0
+  let shifted = 0
+  let symbols = 0
   for (const turn of session.turns) {
     for (const block of turn.assistant) {
       const target = block.reading ?? block.body
-      volume += target.length
-      for (const char of target) if (SHIFTED.has(char)) volume += 1
+      keys += target.length
+      for (const char of target) if (SHIFTED.has(char)) shifted += 1
+      for (const char of target.replaceAll(NAME_UNDERSCORE, '\u0000')) {
+        if (SYMBOL.has(char)) symbols += 1
+      }
     }
   }
-  return volume
+  return { keys, shifted, symbols }
 }
 
 /** Symbol runs in the code of one session, counted. Prose has no shapes to learn. */
@@ -107,7 +121,10 @@ function varietyOf(session, universal) {
 }
 
 function effortOf(session, universal) {
-  return Math.round(volumeOf(session) * (1 + VARIETY_WEIGHT * varietyOf(session, universal)))
+  const { keys, shifted, symbols } = countsOf(session)
+  if (keys === 0) return 0
+  const hardness = (1 + shifted / keys) * (1 + VARIETY_WEIGHT * varietyOf(session, universal))
+  return Math.round(hardness * symbols ** LENGTH_EXPONENT * 10) / 10
 }
 
 /** The id may or may not still carry the difficulty. Both forms reduce to the topic. */
@@ -135,9 +152,10 @@ function group(sessions, universal) {
     .map(([key, entries]) => ({
       key,
       entries,
-      effort: Math.round(
-        entries.reduce((sum, e) => sum + effortOf(e.data, universal), 0) / entries.length,
-      ),
+      effort:
+        Math.round(
+          (entries.reduce((sum, e) => sum + effortOf(e.data, universal), 0) / entries.length) * 10,
+        ) / 10,
       variety: varietyOf(entries[0].data, universal),
     }))
     .sort((left, right) => left.effort - right.effort)
@@ -156,7 +174,7 @@ function report(rows) {
     const topic = key.slice(0, -(codeLanguage.length + 1))
     const arrow = now === next ? '' : `  ${now} -> ${next}`
     console.log(
-      `${String(effort).padStart(7)}${variety.toFixed(1).padStart(8)}  ` +
+      `${effort.toFixed(1).padStart(7)}${variety.toFixed(1).padStart(8)}  ` +
         `${codeLanguage.padEnd(11)}${topic.padEnd(24)}${next}${arrow}`,
     )
   }

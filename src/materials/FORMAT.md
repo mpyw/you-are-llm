@@ -29,7 +29,7 @@ Use `<topic>-<codeLanguage>-<language>` for the id, all lower case. An example i
 | `turns` | array | The conversation, in order |
 
 `codeLanguage` is one of `c`, `cpp`, `csharp`, `go`, `java`, `php`, `rust`, `typescript`.
-`difficulty` is one of `easy`, `normal`, `hard`, `veryhard`, and `scripts/typing-load.mjs` decides
+`difficulty` is one of `easy`, `normal`, `hard`, `expert`, `expertplus`, and `scripts/typing-load.mjs` decides
 it. Write whatever session you meant to write and let the script grade it.
 
 Each turn holds a `user` string and an `assistant` array of blocks.
@@ -88,19 +88,15 @@ across every language rather than within one, which is why Rust has no easy sess
 
 | Difficulty | Score | Sessions today |
 | --- | --- | --- |
-| `easy` | under 1100 | 13 |
-| `normal` | 1100 to 2000 | 16 |
-| `hard` | 2000 to 3200 | 12 |
-| `veryhard` | over 3200 | 7 |
+| `easy` | under 11 | 24 |
+| `normal` | 11 to 16 | 22 |
+| `hard` | 16 to 22 | 30 |
+| `expert` | 22 to 34 | 18 |
+| `expertplus` | over 34 | 2 |
 
-The score multiplies two things. Volume is the keystroke count, charging double for a key that
-needs Shift. Variety is how many different symbol shapes the session asks for, counting only the
-ones that are not shared by most languages.
-
-Variety is what stops volume from lying. PHP types more symbols than Rust, because every variable
-wears a `$` and every call an `->`, but those two shapes are most of what it asks for. Rust spreads
-the same weight across `&mut`, `::`, `<'a>`, `?` and a dozen others, and a dozen shapes cost more
-than two.
+The score is hardness per keystroke, stretched a little by length. Hardness is the share of keys
+needing Shift times the number of distinct symbol shapes. Length counts symbol keystrokes only,
+because a long identifier is the easiest thing on the keyboard.
 
 ```bash
 node scripts/typing-load.mjs            # what every session scores

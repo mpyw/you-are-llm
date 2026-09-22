@@ -2,7 +2,7 @@
   "id": "early-return-go-en",
   "title": "Flatten the staircase of error checks",
   "language": "en",
-  "difficulty": "easy",
+  "difficulty": "normal",
   "codeLanguage": "go",
   "summary": "Turn nested err == nil branches into early returns so the happy path sits at the left margin.",
   "files": [

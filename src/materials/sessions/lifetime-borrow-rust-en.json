@@ -2,7 +2,7 @@
   "id": "lifetime-borrow-rust-en",
   "title": "Going back and forth on get_or_insert",
   "language": "en",
-  "difficulty": "veryhard",
+  "difficulty": "expert",
   "codeLanguage": "rust",
   "summary": "Two rounds with the borrow checker, a &str rewrite, and a landing on Cow.",
   "files": [

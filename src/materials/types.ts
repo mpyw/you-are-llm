@@ -34,7 +34,7 @@ export type Language = 'ja' | 'en'
  * within one. Rust reaches for `&`, `<>` and `::` in its gentlest session, so
  * an easy Rust session does not exist. `scripts/typing-load.mjs` does the sums.
  */
-export type Difficulty = 'easy' | 'normal' | 'hard' | 'veryhard'
+export type Difficulty = 'easy' | 'normal' | 'hard' | 'expert' | 'expertplus'
 
 /** The language of the code under discussion. */
 export type CodeLanguage =
@@ -62,7 +62,8 @@ export const DIFFICULTY_LABELS: Readonly<Record<Difficulty, string>> = {
   easy: 'Easy',
   normal: 'Normal',
   hard: 'Hard',
-  veryhard: 'Very Hard',
+  expert: 'Expert',
+  expertplus: 'Expert+',
 }
 
 export interface Session {

@@ -2,7 +2,7 @@
   "id": "generic-events-typescript-en",
   "title": "Payload types keyed by event name",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "typescript",
   "summary": "Constrain with keyof, break inference, then push into mapped and conditional types.",
   "files": [

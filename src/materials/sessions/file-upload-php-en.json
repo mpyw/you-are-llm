@@ -2,7 +2,7 @@
   "id": "file-upload-php-en",
   "title": "Harden an upload that trusts the extension",
   "language": "en",
-  "difficulty": "veryhard",
+  "difficulty": "expert",
   "codeLanguage": "php",
   "summary": "Drop the self declared extension, build the stored name yourself, and prove the destination stays inside the base directory.",
   "files": [

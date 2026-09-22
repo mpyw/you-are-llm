@@ -10,7 +10,7 @@ const modules = import.meta.glob<unknown>('./sessions/*.json', {
   import: 'default',
 })
 
-const ORDER: readonly string[] = ['easy', 'normal', 'hard', 'veryhard']
+const ORDER: readonly string[] = ['easy', 'normal', 'hard', 'expert', 'expertplus']
 
 export const sessions: readonly Session[] = Object.keys(modules)
   .sort()

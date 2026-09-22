@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import process from 'node:process'
 
 const DIR = 'src/materials/sessions'
-const ORDER = ['easy', 'normal', 'hard', 'veryhard']
+const ORDER = ['easy', 'normal', 'hard', 'expert', 'expertplus']
 
 function load() {
   return readdirSync(DIR)

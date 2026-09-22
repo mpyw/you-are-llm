@@ -2,7 +2,7 @@
   "id": "tx-callback-rust-ja",
   "title": "transaction にクロージャを渡すまでの地獄",
   "language": "ja",
-  "difficulty": "veryhard",
+  "difficulty": "expertplus",
   "codeLanguage": "rust",
   "summary": "FnOnce のライフタイムで E0597、HRTB に直し、リトライで FnMut になり E0507、最後は BoxFuture。",
   "files": [

@@ -2,7 +2,7 @@
   "id": "getter-setter-java-ja",
   "title": "Getter と Setter を増やし続けた先に record がある",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "java",
   "summary": "フィールドを足すたびにアクセサを書かされ、最後に record にされて全部消える。",
   "files": [

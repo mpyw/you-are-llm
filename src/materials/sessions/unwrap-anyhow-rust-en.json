@@ -2,7 +2,7 @@
   "id": "unwrap-anyhow-rust-en",
   "title": "Move load_port off unwrap",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "rust",
   "summary": "Three unwraps become ? with context, then the missing line falls back to a default.",
   "files": [

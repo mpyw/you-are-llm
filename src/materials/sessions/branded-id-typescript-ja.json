@@ -2,7 +2,7 @@
   "id": "branded-id-typescript-ja",
   "title": "UserId と PostId を取り違えないようにする",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "typescript",
   "summary": "unique symbol のブランド型と型述語を入れ、satisfies で as const の推論を取り戻す。",
   "files": [

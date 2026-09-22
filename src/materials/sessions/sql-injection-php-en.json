@@ -2,7 +2,7 @@
   "id": "sql-injection-php-en",
   "title": "Move the search query onto placeholders",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "php",
   "summary": "Turn a concatenated SELECT into a prepared statement and allowlist the sort order.",
   "files": [

@@ -2,7 +2,7 @@
   "id": "early-return-go-ja",
   "title": "if err != nil の波動拳を平らにする",
   "language": "ja",
-  "difficulty": "easy",
+  "difficulty": "normal",
   "codeLanguage": "go",
   "summary": "階段状にネストした err == nil の分岐を、早期 return で左端に寄せる。",
   "files": [

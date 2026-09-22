@@ -2,7 +2,7 @@
   "id": "cancellation-token-csharp-en",
   "title": "Thread a CancellationToken through the sync",
   "language": "en",
-  "difficulty": "veryhard",
+  "difficulty": "expert",
   "codeLanguage": "csharp",
   "summary": "Add a CancellationToken after the fact, then settle how OperationCanceledException and a per warehouse timeout behave.",
   "files": [

@@ -2,7 +2,7 @@
   "id": "csrf-token-php-ja",
   "title": "CSRF トークンを random_bytes と hash_equals に寄せる",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "php",
   "summary": "予測できる発行と緩い照合を直し、キー名の変更と使い捨て化まで入れる。",
   "files": [

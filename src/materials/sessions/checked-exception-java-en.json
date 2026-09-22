@@ -2,7 +2,7 @@
   "id": "checked-exception-java-en",
   "title": "Stop swallowing the checked exception",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "easy",
   "codeLanguage": "java",
   "summary": "An IOException caught and turned into null, until the exception type changes mid-session.",
   "files": [

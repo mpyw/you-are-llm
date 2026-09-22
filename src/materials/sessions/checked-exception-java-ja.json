@@ -2,7 +2,7 @@
   "id": "checked-exception-java-ja",
   "title": "握りつぶしたチェック例外を直す",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "easy",
   "codeLanguage": "java",
   "summary": "IOException を catch して null を返していたのをやめ、途中で例外の種類が変わる。",
   "files": [

@@ -2,7 +2,7 @@
   "id": "defer-loop-go-ja",
   "title": "ループの中の defer と、評価が終わっている引数",
   "language": "ja",
-  "difficulty": "veryhard",
+  "difficulty": "hard",
   "codeLanguage": "go",
   "summary": "too many open files から始まり、いつも 0s のログ、開きっぱなしのトランザクション、握り潰した Close まで転がる。",
   "files": [

@@ -2,7 +2,7 @@
   "id": "unwrap-anyhow-rust-ja",
   "title": "load_port の unwrap を anyhow に寄せる",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "rust",
   "summary": "3 連続の unwrap を ? と context に置き換え、最後に既定値へ逃がす。",
   "files": [

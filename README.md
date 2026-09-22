@@ -14,7 +14,7 @@
 ## Status
 
 The trainer runs end to end. 96 sessions cover eight programming languages and two natural
-languages, graded from Easy to Very Hard. AZIK is not implemented yet.
+languages, graded from Easy to Expert+. AZIK is not implemented yet.
 
 ## Commands
 
@@ -127,7 +127,7 @@ Each session sits on three axes.
 | Axis | Values |
 | --- | --- |
 | Language | `ja`, `en` |
-| Difficulty | `easy`, `normal`, `hard`, `veryhard` |
+| Difficulty | `easy`, `normal`, `hard`, `expert`, `expertplus` |
 | Code language | C, C++, C#, Go, Java, PHP, Rust, TypeScript |
 
 Difficulty is measured, not chosen. `scripts/typing-load.mjs` scores every session across the whole
@@ -135,19 +135,24 @@ set rather than within one language, so Rust has no easy session at all.
 
 | Difficulty | Score | Sessions |
 | --- | --- | --- |
-| Easy | under 1100 | 13 |
-| Normal | 1100 to 2000 | 16 |
-| Hard | 2000 to 3200 | 12 |
-| Very Hard | over 3200 | 7 |
+| Easy | under 11 | 24 |
+| Normal | 11 to 16 | 22 |
+| Hard | 16 to 22 | 30 |
+| Expert | 22 to 34 | 18 |
+| Expert+ | over 34 | 2 |
 
-The score is volume times variety. Volume counts keystrokes and charges double for the ones that
-need Shift. Variety counts how many different symbol shapes the session asks for, ignoring the
-brackets and commas every language shares.
+The score is how hard a session is per keystroke, stretched a little by how much of it there is.
 
-Counting volume alone gets the answer wrong. PHP types more symbols per character than Rust does,
-because every variable wears a `$` and every call an `->`. Two shapes cover most of it. Rust spends
-the same weight on `&mut`, `::`, `<'a>`, `?` and a dozen more, and a dozen shapes are harder to
-learn than two.
+Hardness is the share of keys that need Shift, times the number of distinct symbol shapes the
+session asks for. Shapes are what separate Rust from PHP. PHP types more symbols, but `$` and `->`
+are most of them, learned once. Rust spends the same weight across `&mut`, `::`, `<'a>`, `?` and a
+dozen others.
+
+Length counts symbol keystrokes rather than all of them. A session is not harder for spelling out
+`htmlspecialchars`, which is the easiest kind of key there is.
+
+No Rust session comes out below Hard, and no Java one comes out above it. The only Expert+ session
+is the Rust `transaction` that takes a closure.
 
 The front page filters on all three, and a filtered view is a shareable URL.
 
