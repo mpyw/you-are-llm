@@ -886,7 +886,14 @@ h2 {
   font-variant-numeric: tabular-nums;
 }
 
-.result button {
+.result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+}
+
+.result-again {
   font: inherit;
   color: var(--text);
   background: transparent;
@@ -896,8 +903,40 @@ h2 {
   cursor: pointer;
 }
 
-.result button:hover {
+.result-again:hover {
   border-color: var(--accent);
+}
+
+.share {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.share-label {
+  margin-inline-end: 0.15rem;
+  color: var(--dim);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.share .chip {
+  font-family: var(--mono);
+  background: transparent;
+  cursor: pointer;
+  color: var(--dim);
+}
+
+.share button.chip[data-state='copied'] {
+  color: var(--done);
+  border-color: color-mix(in srgb, var(--done) 50%, var(--line));
+}
+
+.share button.chip[data-state='failed'] {
+  color: var(--error);
+  border-color: color-mix(in srgb, var(--error) 50%, var(--line));
 }
 
 /* Narrow screens: the header has to give the stage its room back. */

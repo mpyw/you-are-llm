@@ -57,7 +57,10 @@ The display tracks the run while it happens.
 A finished session is graded from S down to D. Speed alone does not earn a rank, because each tier
 has an accuracy floor as well.
 
-![The result panel showing an S rank, the time, the speed, the accuracy and the best combo](docs/screen-result.png)
+![The result panel showing an S rank, the run's figures and the share buttons](docs/screen-result.png)
+
+The result carries a share row. X and Bluesky get the rank and the figures with the link, Facebook
+takes the link alone because it accepts nothing else, and `Copy` puts both on the clipboard.
 
 Cues are synthesised through Web Audio rather than loaded, so they cost nothing to ship and fire
 with no delay. The key click climbs in pitch with the combo. `Sound on` in the header turns the lot

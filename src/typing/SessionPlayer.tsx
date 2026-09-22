@@ -6,6 +6,8 @@ import type { Block, Session } from '../materials'
 import { CODE_LANGUAGE_LABELS, DIFFICULTY_LABELS } from '../materials'
 import { Burst } from './Burst'
 import { Hud } from './Hud'
+import { ShareRow } from './ShareRow'
+import type { ShareCard } from './share'
 import { Speaker } from './Speaker'
 import type { Mood } from './TypingArea'
 import { TypingArea } from './TypingArea'
@@ -163,7 +165,12 @@ export function SessionPlayer({ session }: { readonly session: Session }) {
             top. On a wide one the grid moves the source file back to the left. */}
         <section className="stage-column">
           {done || step === undefined || state === null ? (
-            <Result tally={tally} bestCombo={progress.bestCombo} onRestart={restart} />
+            <Result
+              title={session.title}
+              tally={tally}
+              bestCombo={progress.bestCombo}
+              onRestart={restart}
+            />
           ) : (
             /* Keyed by step so each one animates in rather than growing the page. */
             <div className="stage" key={progress.index}>
@@ -252,15 +259,24 @@ const RANK_WORDS: Readonly<Record<Rank, string>> = {
 }
 
 function Result({
+  title,
   tally,
   bestCombo,
   onRestart,
 }: {
+  readonly title: string
   readonly tally: Tally
   readonly bestCombo: number
   readonly onRestart: () => void
 }) {
   const grade = rank(tally)
+  const card: ShareCard = {
+    title,
+    rank: grade,
+    keysPerMinute: keysPerMinute(tally),
+    accuracy: accuracy(tally),
+    bestCombo,
+  }
 
   return (
     <div className="result">
@@ -290,9 +306,12 @@ function Result({
           <dd>{tally.mistakes}</dd>
         </div>
       </dl>
-      <button type="button" onClick={onRestart}>
-        Type it again
-      </button>
+      <div className="result-actions">
+        <button type="button" className="result-again" onClick={onRestart}>
+          Type it again
+        </button>
+        <ShareRow card={card} />
+      </div>
     </div>
   )
 }
