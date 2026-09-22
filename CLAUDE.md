@@ -80,3 +80,16 @@ the same path a third time.
 Changing where the site lives means changing all three. There is no build time substitution for
 them on purpose: a wrong `og:image` fails silently on someone else's server, and a literal string is
 the one thing a reader can check by eye.
+
+## A shared link has to answer 200
+
+GitHub Pages has no server, so a deep link used to fall through to `404.html`. The page rendered
+fine for a person, but a crawler handed a 404 shows no preview, and the meta tags it did find
+described the front page rather than the session.
+
+`static-pages` in `vite.config.ts` writes a real page per session at build time, in both the flat
+and the directory form, so whichever one Pages chooses answers 200 with that session's own title
+and description. Keep it that way when adding routes worth sharing.
+
+Facebook's `sharer.php` answers 400 to curl no matter what you pass it. That is bot detection, not
+a broken URL. Check it in a real browser before changing the endpoint.

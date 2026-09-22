@@ -9,6 +9,7 @@ import {
   sessions,
 } from '../materials'
 import { Demo } from '../typing/Demo'
+import { Logo } from '../ui/Logo'
 import { toSteps } from '../typing/steps'
 
 export interface Filters {
@@ -52,7 +53,10 @@ function Hero() {
   return (
     <section className="hero">
       <p className="hero-kicker">A typing trainer</p>
-      <h1 className="hero-title">You are LLM</h1>
+      <h1 className="hero-title">
+        <Logo size={52} />
+        <span>You are LLM</span>
+      </h1>
       <p className="hero-lede">
         The assistant writes the code. You type every character of it, by hand, with no completion.
       </p>

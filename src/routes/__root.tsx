@@ -1,6 +1,7 @@
 import { Link, Outlet, createRootRoute } from '@tanstack/react-router'
 import { soundBoard } from '../audio/SoundBoard'
 import { useMuted } from '../audio/useMuted'
+import { Logo } from '../ui/Logo'
 import '../styles.css'
 
 export const Route = createRootRoute({
@@ -13,7 +14,10 @@ function RootLayout() {
   return (
     <div className="shell">
       <nav className="shell-nav">
-        <Link to="/">You are LLM</Link>
+        <Link to="/" className="brand">
+          <Logo />
+          <span>You are LLM</span>
+        </Link>
         <button
           type="button"
           className="sound-toggle"

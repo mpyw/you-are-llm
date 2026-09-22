@@ -143,7 +143,11 @@ and builds before it deploys, so a red suite never reaches the site.
 | --- | --- |
 | Workflow | `.github/workflows/deploy.yml` |
 | Base path | `BASE` in `vite.config.ts` |
-| Deep links | `404.html`, written by the `spa-fallback` plugin |
+| Deep links | `404.html` and one page per session, from the `static-pages` plugin |
+
+Every session also gets a real page written at build time, under both `/sessions/<id>` and
+`/sessions/<id>/`, carrying its own title and description. A shared link used to fall through to
+`404.html`, and a crawler handed a 404 shows no preview at all.
 
 > [!NOTE]
 > The domain comes from `mpyw/mpyw.github.io`, which owns `mpyw.me`. Project sites under the same
