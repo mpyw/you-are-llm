@@ -74,11 +74,15 @@ h2 {
   padding: 0;
   margin: 0.75rem 0 0;
   display: grid;
+  /* An auto track grows to its widest child and spills out of the page.
+     Every single column grid here pins the track to the container instead. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.75rem;
 }
 
 .list li a {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.35rem;
   padding: 1rem;
   border: 1px solid var(--line);
@@ -138,6 +142,7 @@ h2 {
 
 .filters {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.5rem;
   margin-block-start: 1.5rem;
 }
@@ -242,7 +247,9 @@ h2 {
 
 .context pre {
   margin: 0;
-  overflow-x: auto;
+  max-inline-size: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   font-family: var(--mono);
   font-size: 0.75rem;
   color: var(--dim);
@@ -250,6 +257,7 @@ h2 {
 
 .transcript {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
 }
 
@@ -270,7 +278,14 @@ h2 {
 .typing-target.is-code {
   font-family: var(--mono);
   font-size: 0.85rem;
-  overflow-x: auto;
+}
+
+/* Wrap long lines instead of hiding them. A horizontal scrollbar is invisible
+   until it is hovered on macOS, so a clipped line just looks like lost text. */
+.said.is-code {
+  max-inline-size: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* Typing area */
@@ -306,8 +321,10 @@ h2 {
   border-block-start: 1px solid var(--line);
   font-family: var(--mono);
   font-size: 0.8rem;
-  white-space: pre;
-  overflow: hidden;
+  /* Wrap rather than clip. Clipping would hide the hint, which is the half
+     the typist actually needs. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .is-done {

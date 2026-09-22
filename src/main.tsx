@@ -3,7 +3,9 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { routeTree } from './routeTree.gen'
 
-const router = createRouter({ routeTree })
+// The app is served from a subpath on GitHub Pages, so the router has to
+// know about it or every link points at the domain root.
+const router = createRouter({ routeTree, basepath: import.meta.env.BASE_URL })
 
 declare module '@tanstack/react-router' {
   interface Register {

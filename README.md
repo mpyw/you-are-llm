@@ -2,6 +2,8 @@
 
 A typing trainer where you type the LLM's side of a coding session. No completion. No shortcuts.
 
+Live at <https://mpyw.me/you-are-llm/>.
+
 ## Status
 
 The trainer runs end to end. Sessions cover eight programming languages, three difficulties and two
@@ -76,6 +78,21 @@ Each session sits on three axes.
 > [!IMPORTANT]
 > A Japanese `text` block needs a `reading` in kana. The suite fails when a Japanese target holds a
 > character no keyboard can produce, because no romaji sequence reaches it.
+
+## Deployment
+
+A push to `main` builds the site and publishes it through GitHub Pages. The workflow lints, tests
+and builds before it deploys, so a red suite never reaches the site.
+
+| Piece | Where |
+| --- | --- |
+| Workflow | `.github/workflows/deploy.yml` |
+| Base path | `BASE` in `vite.config.ts` |
+| Deep links | `404.html`, written by the `spa-fallback` plugin |
+
+> [!NOTE]
+> The domain comes from `mpyw/mpyw.github.io`, which owns `mpyw.me`. Project sites under the same
+> account are served below it automatically. This repository holds no `CNAME` file.
 
 ## TypeScript 7 and ESLint
 

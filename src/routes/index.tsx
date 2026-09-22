@@ -10,7 +10,7 @@ import {
 } from '../materials'
 import { toSteps } from '../typing/steps'
 
-interface Filters {
+export interface Filters {
   // Optional on purpose: every link to this route may leave the search empty.
   readonly lang?: Language | undefined
   readonly difficulty?: Difficulty | undefined

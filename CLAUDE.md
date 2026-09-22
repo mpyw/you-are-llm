@@ -61,3 +61,12 @@ that test. It is the only thing standing between a typo in the material and an u
 The default vitest environment is node. Files that render React put `// @vitest-environment jsdom`
 on the first line. Do not switch the whole suite to jsdom, because the engine tests are pure and
 run faster without it.
+
+## Do not put a CNAME in this repository
+
+`mpyw.me` belongs to `mpyw/mpyw.github.io`, the user site. GitHub allows one repository per custom
+domain, so claiming it here would take the personal site offline.
+
+Nothing has to be done instead. A user site with a custom domain publishes every project site of
+the same account below it, which is why this one lands at `https://mpyw.me/you-are-llm/`. The path
+segment is the repository name, so `BASE` in `vite.config.ts` has to match it.
