@@ -1,48 +1,16 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
-import type { CodeLanguage, Difficulty, Language, Session } from '../materials'
-import {
-  CODE_LANGUAGE_LABELS,
-  DIFFICULTY_LABELS,
-  isCodeLanguage,
-  isDifficulty,
-  isLanguage,
-  sessions,
-} from '../materials'
+import type { Language } from '../materials'
+import { ANY, CODE_LANGUAGE_LABELS, DIFFICULTY_LABELS, filtersFrom, matches, sessions } from '../materials'
 import { Demo } from '../typing/Demo'
 import { Logo } from '../ui/Logo'
 import { toSteps } from '../typing/steps'
 
-export interface Filters {
-  // Optional on purpose: every link to this route may leave the search empty.
-  readonly lang?: Language | undefined
-  readonly difficulty?: Difficulty | undefined
-  readonly code?: CodeLanguage | undefined
-}
-
-function pick<T extends string>(
-  value: unknown,
-  guard: (candidate: string) => candidate is T,
-): T | undefined {
-  return typeof value === 'string' && guard(value) ? value : undefined
-}
-
 export const Route = createFileRoute('/')({
-  validateSearch: (search: Record<string, unknown>): Filters => ({
-    lang: pick(search.lang, isLanguage),
-    difficulty: pick(search.difficulty, isDifficulty),
-    code: pick(search.code, isCodeLanguage),
-  }),
+  validateSearch: filtersFrom,
   component: SessionList,
 })
 
 const LANGUAGE_LABELS: Readonly<Record<Language, string>> = { ja: '日本語', en: 'English' }
-
-function matches(session: Session, filters: Filters): boolean {
-  if (filters.lang !== undefined && session.language !== filters.lang) return false
-  if (filters.difficulty !== undefined && session.difficulty !== filters.difficulty) return false
-  if (filters.code !== undefined && session.codeLanguage !== filters.code) return false
-  return true
-}
 
 /* The one line the front page has to land. */
 const DEMO_BODY = '承知しました。正本を確認します。'
@@ -85,7 +53,13 @@ function SessionList() {
       </h2>
 
       <div className="filters">
-        <FilterRow label="Language" current={filters.lang} name="lang" options={LANGUAGE_LABELS} />
+        <FilterRow
+          label="Language"
+          current={filters.lang}
+          name="lang"
+          options={LANGUAGE_LABELS}
+          anyValue={ANY}
+        />
         <FilterRow
           label="Difficulty"
           current={filters.difficulty}
@@ -128,20 +102,28 @@ function SessionList() {
 interface FilterRowProps<K extends string> {
   readonly label: string
   readonly name: 'lang' | 'difficulty' | 'code'
-  readonly current: K | undefined
+  readonly current: K | typeof ANY | undefined
   readonly options: Readonly<Record<K, string>>
+  /** What "All" puts in the address. Language needs a word, because empty means Japanese. */
+  readonly anyValue?: typeof ANY | undefined
 }
 
-function FilterRow<K extends string>({ label, name, current, options }: FilterRowProps<K>) {
+function FilterRow<K extends string>({
+  label,
+  name,
+  current,
+  options,
+  anyValue,
+}: FilterRowProps<K>) {
   const entries = Object.entries<string>(options)
   return (
     <div className="filter-row">
       <span className="filter-label">{label}</span>
       <Link
         to="/"
-        search={(prev) => ({ ...prev, [name]: undefined })}
+        search={(prev) => ({ ...prev, [name]: anyValue })}
         className="chip"
-        data-on={current === undefined}
+        data-on={current === anyValue}
       >
         All
       </Link>

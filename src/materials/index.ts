@@ -26,6 +26,8 @@ export function findSession(id: string): Session | undefined {
   return sessions.find((session) => session.id === id)
 }
 
+export { ANY, filtersFrom, matches } from './filters'
+export type { Filters } from './filters'
 export {
   MaterialError,
   isCodeLanguage,

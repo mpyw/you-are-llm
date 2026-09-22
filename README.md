@@ -154,7 +154,9 @@ Length counts symbol keystrokes rather than all of them. A session is not harder
 No Rust session comes out below Hard, and no Java one comes out above it. The only Expert+ session
 is the Rust `transaction` that takes a closure.
 
-The front page filters on all three, and a filtered view is a shareable URL.
+The front page filters on all three, and a filtered view is a shareable URL. It opens on Japanese,
+because that is what most of the material is for. `All` shows both languages and says so in the
+address.
 
 ![The front page, with a line typing itself and the session list filtered by three axes](docs/screen-intro.png)
 
