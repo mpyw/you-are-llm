@@ -70,7 +70,13 @@ h2 {
   font-weight: 600;
 }
 
-.sound-toggle {
+.shell-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.nav-chip {
   font: 600 0.72rem/1.8 var(--mono);
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -82,13 +88,15 @@ h2 {
   cursor: pointer;
 }
 
-.sound-toggle[aria-pressed='false'] {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+.nav-chip:hover {
+  color: var(--text);
+  border-color: var(--accent);
+  text-decoration: none;
 }
 
-.sound-toggle:hover {
-  border-color: var(--accent);
+.nav-chip.is-sound[aria-pressed='false'] {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
 }
 
 .summary {

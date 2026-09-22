@@ -18,15 +18,25 @@ function RootLayout() {
           <Logo />
           <span>You are LLM</span>
         </Link>
-        <button
-          type="button"
-          className="sound-toggle"
-          onClick={toggleMuted}
-          aria-pressed={muted}
-          title={muted ? 'Sound off' : 'Sound on'}
-        >
-          {muted ? 'Sound off' : 'Sound on'}
-        </button>
+        <div className="shell-tools">
+          <a
+            className="nav-chip"
+            href="https://github.com/mpyw/you-are-llm"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            GitHub
+          </a>
+          <button
+            type="button"
+            className="nav-chip is-sound"
+            onClick={toggleMuted}
+            aria-pressed={muted}
+            title={muted ? 'Sound off' : 'Sound on'}
+          >
+            {muted ? 'Sound off' : 'Sound on'}
+          </button>
+        </div>
       </nav>
       <Outlet />
     </div>
