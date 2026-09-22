@@ -1,9 +1,14 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, screen, within } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { TypingSession } from '../engine'
 import type { Session } from '../materials'
 import { SessionPlayer } from './SessionPlayer'
+
+beforeAll(() => {
+  // jsdom does no layout, so it ships no scrollIntoView for the caret to use.
+  Element.prototype.scrollIntoView = vi.fn()
+})
 
 afterEach(cleanup)
 
@@ -75,6 +80,18 @@ describe('SessionPlayer', () => {
     expect(stepsDone()).toBe('1')
     // The target renders as a typed span plus an untyped span, so it is not unique.
     expect(screen.getAllByText('ls -a').length).toBeGreaterThan(0)
+  })
+
+  it('folds a finished block into the log instead of stacking it', () => {
+    const { container } = render(<SessionPlayer session={SESSION} />)
+    typeTarget('いれます。')
+    const stage = panel(container, '.stage')
+    const log = panel(container, '.log')
+    // The finished block leaves the stage so the page keeps its height.
+    expect(within(log).getByText('入れます。')).toBeDefined()
+    expect(within(stage).queryByText('入れます。')).toBeNull()
+    // The prompt stays on the stage, because it still applies to this block.
+    expect(within(stage).getByText('リトライを足して。')).toBeDefined()
   })
 
   it('reports a clean run', () => {

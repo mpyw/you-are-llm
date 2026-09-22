@@ -25,6 +25,9 @@ natural languages. AZIK is not implemented yet.
 Pick a session, then type the assistant blocks one at a time. Every block is one run of the engine.
 A block ends only when the whole target is typed.
 
+The stage holds one block at a time. A finished block moves into a folded log rather than stacking
+below the next one, so the page keeps its height and a small screen stays playable.
+
 | You see | You type |
 | --- | --- |
 | The user prompt | Nothing. It is context |

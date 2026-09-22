@@ -4,8 +4,9 @@ import type { Block, Session } from '../materials'
 export interface Step {
   readonly turnIndex: number
   readonly blockIndex: number
-  /** The user prompt, carried on the first block of a turn and null after it. */
-  readonly prompt: string | null
+  /** The user prompt for this turn. Every block of the turn carries it, because
+   * the stage shows one block at a time and the prompt has to stay visible. */
+  readonly prompt: string
   readonly block: Block
   /** Keys the typist has to produce. Japanese prose types its kana reading. */
   readonly target: string
@@ -16,7 +17,7 @@ export function toSteps(session: Session): readonly Step[] {
     turn.assistant.map((block, blockIndex) => ({
       turnIndex,
       blockIndex,
-      prompt: blockIndex === 0 ? turn.user : null,
+      prompt: turn.user,
       block,
       target: block.reading ?? block.body,
     })),

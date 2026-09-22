@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import type { SessionState } from '../engine'
 import type { Step } from './steps'
 
@@ -22,6 +23,14 @@ interface TypingAreaProps {
  * per step, so a key never falls between two of them.
  */
 export function TypingArea({ step, state, mood }: TypingAreaProps) {
+  const caret = useRef<HTMLSpanElement>(null)
+
+  // A long code block can outgrow the viewport. Keep the caret in sight rather
+  // than asking the typist to scroll while they type.
+  useEffect(() => {
+    caret.current?.scrollIntoView({ block: 'nearest' })
+  }, [state.committed])
+
   const showsReading = step.block.reading !== null
   const monospaced = step.block.kind !== 'text'
   const progress = step.target.length === 0 ? 0 : state.committed / step.target.length
@@ -32,7 +41,7 @@ export function TypingArea({ step, state, mood }: TypingAreaProps) {
       {showsReading ? <p className="typing-display">{step.block.body}</p> : null}
       <pre className={monospaced ? 'typing-target is-code' : 'typing-target'}>
         <span className="is-done">{step.target.slice(0, state.committed)}</span>
-        <span className="caret" />
+        <span className="caret" ref={caret} />
         <span className="is-rest">{step.target.slice(state.committed)}</span>
       </pre>
       <p className="typing-keys">

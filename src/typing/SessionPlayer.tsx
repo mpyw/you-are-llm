@@ -10,6 +10,7 @@ import type { Mood } from './TypingArea'
 import { TypingArea } from './TypingArea'
 import type { Rank, Tally } from './stats'
 import { accuracy, formatDuration, keysPerMinute, rank } from './stats'
+import type { Step } from './steps'
 import { toSteps } from './steps'
 import { useElapsed } from './useElapsed'
 
@@ -130,20 +131,22 @@ export function SessionPlayer({ session }: { readonly session: Session }) {
   }, [engines])
 
   const done = progress.index >= steps.length
+  const step = steps[progress.index]
   const tally: Tally = { accepted: progress.accepted, mistakes: progress.mistakes, elapsedMs }
 
   return (
     <article className="player">
       <header className="player-head">
-        <h1>{session.title}</h1>
-        <p className="tags">
-          <span className="badge">{CODE_LANGUAGE_LABELS[session.codeLanguage]}</span>
-          <span className={`badge is-${session.difficulty}`}>
-            {DIFFICULTY_LABELS[session.difficulty]}
-          </span>
-          <span className="badge">{session.language}</span>
-        </p>
-        <p className="summary">{session.summary}</p>
+        <div className="player-title">
+          <h1>{session.title}</h1>
+          <p className="tags">
+            <span className="badge">{CODE_LANGUAGE_LABELS[session.codeLanguage]}</span>
+            <span className={`badge is-${session.difficulty}`}>
+              {DIFFICULTY_LABELS[session.difficulty]}
+            </span>
+            <span className="badge">{session.language}</span>
+          </p>
+        </div>
         <Hud
           combo={progress.combo}
           bestCombo={progress.bestCombo}
@@ -155,6 +158,22 @@ export function SessionPlayer({ session }: { readonly session: Session }) {
       </header>
 
       <div className="player-body">
+        {/* The stage comes first in the source so a narrow screen puts it on
+            top. On a wide one the grid moves the source file back to the left. */}
+        <section className="stage-column">
+          {done || step === undefined || state === null ? (
+            <Result tally={tally} bestCombo={progress.bestCombo} onRestart={restart} />
+          ) : (
+            /* Keyed by step so each one animates in rather than growing the page. */
+            <div className="stage" key={progress.index}>
+              <p className="prompt">{step.prompt}</p>
+              <TypingArea step={step} state={state} mood={mood} />
+              <Burst trigger={progress.clears} />
+            </div>
+          )}
+          <Log steps={steps} done={progress.index} />
+        </section>
+
         <aside className="context">
           {session.files.map((file) => (
             <section key={file.path}>
@@ -163,27 +182,28 @@ export function SessionPlayer({ session }: { readonly session: Session }) {
             </section>
           ))}
         </aside>
-
-        <section className="transcript">
-          {steps.map((step, index) =>
-            index > progress.index ? null : (
-              <Fragment key={`${String(step.turnIndex)}:${String(step.blockIndex)}`}>
-                {step.prompt === null ? null : <p className="prompt">{step.prompt}</p>}
-                {index < progress.index || state === null ? (
-                  <CompletedBlock block={step.block} />
-                ) : (
-                  <div className="stage">
-                    <TypingArea step={step} state={state} mood={mood} />
-                    <Burst trigger={progress.clears} />
-                  </div>
-                )}
-              </Fragment>
-            ),
-          )}
-          {done ? <Result tally={tally} bestCombo={progress.bestCombo} onRestart={restart} /> : null}
-        </section>
       </div>
     </article>
+  )
+}
+
+/** Everything already typed, folded away so it never pushes the stage down. */
+function Log({ steps, done }: { readonly steps: readonly Step[]; readonly done: number }) {
+  if (done === 0) return null
+  return (
+    <details className="log">
+      <summary>
+        {done} block{done === 1 ? '' : 's'} typed
+      </summary>
+      <div className="log-body">
+        {steps.slice(0, done).map((step) => (
+          <Fragment key={`${String(step.turnIndex)}:${String(step.blockIndex)}`}>
+            {step.blockIndex === 0 ? <p className="prompt is-past">{step.prompt}</p> : null}
+            <CompletedBlock block={step.block} />
+          </Fragment>
+        ))}
+      </div>
+    </details>
   )
 }
 
