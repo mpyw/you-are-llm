@@ -31,7 +31,26 @@ A block ends only when the whole target is typed.
 | Japanese prose | Its kana reading, which an IME turns into the kanji |
 | Code and shell commands | The characters as they stand |
 
-Enter produces a newline. A key the engine rejects counts as a mistake and changes nothing else.
+Enter produces a newline. A key the engine rejects costs the combo and nothing else.
+
+The display tracks the run while it happens.
+
+| Tile | What it counts |
+| --- | --- |
+| Combo | Accepted keys in a row. It turns gold past 25 and resets on a mistake |
+| Best | The longest combo of the run |
+| Keys / min | Accepted keys against elapsed time |
+| Accuracy | Accepted keys against every press |
+
+A finished session is graded from S down to D. Speed alone does not earn a rank, because each tier
+has an accuracy floor as well.
+
+Cues are synthesised through Web Audio rather than loaded, so they cost nothing to ship and fire
+with no delay. The key click climbs in pitch with the combo. `Sound on` in the header turns the lot
+off, and the choice is remembered in the browser.
+
+> [!NOTE]
+> Every animation is dropped under `prefers-reduced-motion`.
 
 ## The input engine
 

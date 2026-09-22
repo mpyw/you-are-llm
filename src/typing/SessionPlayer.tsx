@@ -1,50 +1,136 @@
-import { Fragment, useCallback, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { soundBoard } from '../audio/SoundBoard'
 import type { SessionState } from '../engine'
+import { TypingSession } from '../engine'
 import type { Block, Session } from '../materials'
 import { CODE_LANGUAGE_LABELS, DIFFICULTY_LABELS } from '../materials'
+import { Burst } from './Burst'
+import { Hud } from './Hud'
+import type { Mood } from './TypingArea'
 import { TypingArea } from './TypingArea'
-import { accuracy, formatDuration, keysPerMinute } from './stats'
+import type { Rank, Tally } from './stats'
+import { accuracy, formatDuration, keysPerMinute, rank } from './stats'
 import { toSteps } from './steps'
+import { useElapsed } from './useElapsed'
+
+/** A combo worth hearing about. */
+const COMBO_STEP = 25
+
+/** How long the panel stays angry after a rejected key. */
+const FLASH_MS = 180
 
 interface Progress {
   readonly index: number
   readonly accepted: number
   readonly mistakes: number
+  readonly combo: number
+  readonly bestCombo: number
+  /** Counts finished blocks, which is what replays the burst. */
+  readonly clears: number
   readonly startedAt: number | null
   readonly finishedAt: number | null
 }
 
-const START: Progress = { index: 0, accepted: 0, mistakes: 0, startedAt: null, finishedAt: null }
+const START: Progress = {
+  index: 0,
+  accepted: 0,
+  mistakes: 0,
+  combo: 0,
+  bestCombo: 0,
+  clears: 0,
+  startedAt: null,
+  finishedAt: null,
+}
 
 export function SessionPlayer({ session }: { readonly session: Session }) {
   const steps = useMemo(() => toSteps(session), [session])
-  const [progress, setProgress] = useState<Progress>(START)
+  // One engine per step, built up front. Keys then always have somewhere to go,
+  // even in the moment between finishing a block and drawing the next one.
+  const engines = useMemo(() => steps.map((step) => new TypingSession(step.target)), [steps])
 
-  const handleChange = useCallback(
-    (state: SessionState) => {
-      // Read the clock outside the updater so the updater stays pure.
+  // Keys can arrive faster than React re-renders, so the running totals live in
+  // a ref and the state only mirrors them. Reading them from a closure would
+  // let one burst of typing overwrite the key before it.
+  const running = useRef<Progress>(START)
+  const [progress, setProgress] = useState<Progress>(START)
+  const [state, setState] = useState<SessionState | null>(() => engines[0]?.state ?? null)
+  const [mood, setMood] = useState<Mood>('idle')
+  const elapsedMs = useElapsed(progress.startedAt, progress.finishedAt)
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      const key = event.key === 'Enter' ? '\n' : event.key
+      if (key.length !== 1) return
+      event.preventDefault()
+
+      const current = running.current
+      const engine = engines[current.index]
+      if (engine === undefined) return
+
       const now = Date.now()
-      setProgress((current) => {
-        const startedAt = current.startedAt ?? now
-        if (!state.done) return { ...current, startedAt }
-        const index = current.index + 1
-        return {
-          index,
-          accepted: current.accepted + state.accepted,
-          mistakes: current.mistakes + state.mistakes,
+      const startedAt = current.startedAt ?? now
+      const accepted = engine.press(key)
+      const engineState = engine.state
+      let next: Progress
+
+      if (!accepted) {
+        soundBoard.play('miss')
+        setMood('error')
+        next = { ...current, startedAt, combo: 0, mistakes: current.mistakes + 1 }
+      } else {
+        const combo = current.combo + 1
+        const landed = {
+          ...current,
           startedAt,
-          finishedAt: index >= steps.length ? now : null,
+          combo,
+          bestCombo: Math.max(current.bestCombo, combo),
+          accepted: current.accepted + 1,
         }
-      })
-    },
-    [steps.length],
-  )
+        if (engineState.done) {
+          const index = current.index + 1
+          const over = index >= steps.length
+          soundBoard.play(over ? 'finish' : 'clear')
+          setMood('cleared')
+          next = { ...landed, index, clears: current.clears + 1, finishedAt: over ? now : null }
+        } else {
+          soundBoard.play(combo % COMBO_STEP === 0 ? 'combo' : 'key', combo)
+          setMood('idle')
+          next = landed
+        }
+      }
+
+      running.current = next
+      setProgress(next)
+      setState(engines[next.index]?.state ?? engineState)
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [engines, steps.length])
+
+  useEffect(() => {
+    if (mood !== 'error') return undefined
+    const timer = window.setTimeout(() => {
+      setMood('idle')
+    }, FLASH_MS)
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [mood])
 
   const restart = useCallback(() => {
+    for (const engine of engines) engine.reset()
+    running.current = START
     setProgress(START)
-  }, [])
+    setState(engines[0]?.state ?? null)
+    setMood('idle')
+  }, [engines])
 
   const done = progress.index >= steps.length
+  const tally: Tally = { accepted: progress.accepted, mistakes: progress.mistakes, elapsedMs }
 
   return (
     <article className="player">
@@ -58,6 +144,13 @@ export function SessionPlayer({ session }: { readonly session: Session }) {
           <span className="badge">{session.language}</span>
         </p>
         <p className="summary">{session.summary}</p>
+        <Hud
+          combo={progress.combo}
+          bestCombo={progress.bestCombo}
+          tally={tally}
+          step={progress.index}
+          total={steps.length}
+        />
         <ProgressBar current={progress.index} total={steps.length} />
       </header>
 
@@ -76,15 +169,18 @@ export function SessionPlayer({ session }: { readonly session: Session }) {
             index > progress.index ? null : (
               <Fragment key={`${String(step.turnIndex)}:${String(step.blockIndex)}`}>
                 {step.prompt === null ? null : <p className="prompt">{step.prompt}</p>}
-                {index < progress.index ? (
+                {index < progress.index || state === null ? (
                   <CompletedBlock block={step.block} />
                 ) : (
-                  <TypingArea key={index} step={step} onChange={handleChange} />
+                  <div className="stage">
+                    <TypingArea step={step} state={state} mood={mood} />
+                    <Burst trigger={progress.clears} />
+                  </div>
                 )}
               </Fragment>
             ),
           )}
-          {done ? <Result progress={progress} onRestart={restart} /> : null}
+          {done ? <Result tally={tally} bestCombo={progress.bestCombo} onRestart={restart} /> : null}
         </section>
       </div>
     </article>
@@ -112,26 +208,35 @@ function CompletedBlock({ block }: { readonly block: Block }) {
   )
 }
 
+const RANK_WORDS: Readonly<Record<Rank, string>> = {
+  S: 'Nothing to correct',
+  A: 'Ship it',
+  B: 'Works on my machine',
+  C: 'Needs another pass',
+  D: 'Rolled back',
+}
+
 function Result({
-  progress,
+  tally,
+  bestCombo,
   onRestart,
 }: {
-  readonly progress: Progress
+  readonly tally: Tally
+  readonly bestCombo: number
   readonly onRestart: () => void
 }) {
-  const elapsedMs =
-    progress.startedAt === null || progress.finishedAt === null
-      ? 0
-      : progress.finishedAt - progress.startedAt
-  const tally = { accepted: progress.accepted, mistakes: progress.mistakes, elapsedMs }
+  const grade = rank(tally)
 
   return (
     <div className="result">
-      <h2>Session complete</h2>
+      <div className="result-rank" data-rank={grade}>
+        <span className="result-grade">{grade}</span>
+        <span className="result-word">{RANK_WORDS[grade]}</span>
+      </div>
       <dl>
         <div>
           <dt>Time</dt>
-          <dd>{formatDuration(elapsedMs)}</dd>
+          <dd>{formatDuration(tally.elapsedMs)}</dd>
         </div>
         <div>
           <dt>Keys per minute</dt>
@@ -142,8 +247,12 @@ function Result({
           <dd>{accuracy(tally)}%</dd>
         </div>
         <div>
+          <dt>Best combo</dt>
+          <dd>×{bestCombo}</dd>
+        </div>
+        <div>
           <dt>Mistakes</dt>
-          <dd>{progress.mistakes}</dd>
+          <dd>{tally.mistakes}</dd>
         </div>
       </dl>
       <button type="button" onClick={onRestart}>

@@ -23,3 +23,19 @@ export function formatDuration(elapsedMs: number): string {
   const seconds = totalSeconds % 60
   return `${String(minutes)}:${String(seconds).padStart(2, '0')}`
 }
+
+export type Rank = 'S' | 'A' | 'B' | 'C' | 'D'
+
+/** Speed alone does not earn a rank. Both floors have to be cleared. */
+const TIERS: readonly { readonly rank: Rank; readonly kpm: number; readonly accuracy: number }[] = [
+  { rank: 'S', kpm: 360, accuracy: 98 },
+  { rank: 'A', kpm: 260, accuracy: 95 },
+  { rank: 'B', kpm: 180, accuracy: 90 },
+  { rank: 'C', kpm: 100, accuracy: 80 },
+]
+
+export function rank(tally: Tally): Rank {
+  const speed = keysPerMinute(tally)
+  const hits = accuracy(tally)
+  return TIERS.find((tier) => speed >= tier.kpm && hits >= tier.accuracy)?.rank ?? 'D'
+}
