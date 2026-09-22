@@ -17,8 +17,8 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "echo をやめて htmlspecialchars に通します。第二引数に ENT_QUOTES、第三引数に UTF-8 を渡します。",
-          "reading": "echo をやめて htmlspecialchars にとおします。だいにひきすうに ENT_QUOTES、だいさんひきすうに UTF-8 をわたします。"
+          "body": "承知しました。echo をやめて htmlspecialchars に通します。第二引数に ENT_QUOTES、第三引数に UTF-8 を渡します。",
+          "reading": "しょうちしました。echo をやめて htmlspecialchars にとおします。だいにひきすうに ENT_QUOTES、だいさんひきすうに UTF-8 をわたします。"
         },
         {
           "kind": "code",
@@ -32,8 +32,8 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "不正な UTF-8 が来ると空文字になります。ENT_SUBSTITUTE を足して、壊れたバイト列を置換文字に置き換えます。",
-          "reading": "ふせいな UTF-8 がくるとからもじになります。ENT_SUBSTITUTE をたして、こわれたばいとれつをちかんもじにおきかえます。"
+          "body": "ご指摘のとおりです。不正な UTF-8 が来ると空文字になります。ENT_SUBSTITUTE を足して、壊れたバイト列を防御的に、かつ優雅に置換文字へ置き換えます。",
+          "reading": "ごしてきのとおりです。ふせいな UTF-8 がくるとからもじになります。ENT_SUBSTITUTE をたして、こわれたばいとれつをぼうぎょてきに、かつゆうがにちかんもじへおきかえます。"
         },
         {
           "kind": "code",

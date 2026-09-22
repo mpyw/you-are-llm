@@ -17,7 +17,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "Adding get_or_insert. It peeks with get first, and on a miss it runs compute, inserts the result and hands back a reference to what landed in the map. compute comes in as a closure so callers aren't building the value every time."
+          "body": "Great question! get_or_insert is implemented. It peeks with get first, and on a miss it runs compute, inserts the result and hands back a reference to what landed in the map. compute comes in as a closure so callers aren't building the value every time."
         },
         {
           "kind": "code",
@@ -31,7 +31,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "Sorry, that one doesn't get past the borrow checker. The early return ties that reference to the return lifetime, so the shared borrow is still live at the insert and the mutable borrow is refused. entry does the whole thing with one borrow."
+          "body": "On a closer look, my implementation did not actually get past the borrow checker. Apologies. The early return ties that reference to the return lifetime, so the shared borrow is still live at the insert and the mutable borrow is refused. entry does the whole thing with one borrow."
         },
         {
           "kind": "code",
@@ -76,7 +76,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "Cow it is. default comes in as Cow<'a, str>, a hit returns Borrowed, a miss returns whatever was handed in. Callers pass Cow::Owned for a String they built and Cow::Borrowed for a literal."
+          "body": "Cow it is. default comes in as Cow<'a, str>, a hit returns Borrowed, a miss returns whatever was handed in. In other words, the caller decides who owns the value. Callers pass Cow::Owned for a String they built and Cow::Borrowed for a literal."
         },
         {
           "kind": "code",

@@ -13,6 +13,108 @@ import process from 'node:process'
  */
 export const ALLOWED_PUNCTUATION = '、。「」『』（）！？：；・ー〜～，．　'
 
+/**
+ * Turns of phrase that give an LLM away in Japanese.
+ *
+ * Four habits. A translation that stopped halfway, praise nobody asked for, a
+ * word that only ever arrives through a dictionary, and the sentence furniture
+ * that fills the space between them.
+ */
+export const AI_TELLS = [
+  // The translation stopped halfway.
+  'Now、',
+  "Let's",
+  "Here's",
+  'Note:',
+  'TL;DR',
+  'Caveat:',
+  'Step 1:',
+  'Great',
+  'Perfect',
+  // Praise nobody asked for.
+  '素晴らしい',
+  '鋭いご指摘',
+  '鋭いです',
+  '良い質問',
+  'おっしゃるとおり',
+  'ご指摘のとおり',
+  'まさにその通り',
+  '完璧です',
+  '承知しました',
+  'かしこまりました',
+  'よく気づかれました',
+  '重要な点を突いて',
+  '着眼点',
+  // A word that only ever arrives through a dictionary.
+  '正本',
+  '唯一の情報源',
+  '堅牢',
+  '優雅に',
+  '防御的に',
+  'ボイラープレート',
+  'ハッピーパス',
+  '非自明',
+  'べき等',
+  '冪等',
+  '決定論的',
+  '関心の分離',
+  '実装の詳細',
+  '第一級',
+  '直交',
+  'アトミック',
+  '抽象化の漏れ',
+  '技術的負債',
+  '銀の弾丸',
+  '網羅的',
+  // Sentence furniture.
+  'を活用し',
+  'に注意することが重要です',
+  'を保証します',
+  '言い換えると',
+  '深掘り',
+  'しましょう！',
+  'お手伝いできること',
+  'お知らせください',
+  'まとめると',
+  '結論から',
+  '順を追って',
+  '一歩ずつ',
+  'ベストプラクティス',
+  'ことをお勧めします',
+  '期待どおりに動作します',
+  'が可能になります',
+  'の観点から',
+  '以上で',
+  'ポイントは',
+]
+
+/**
+ * The most recognisable habit of the lot. The assistant says it did something,
+ * then comes back and admits it did not, or that the thing it just explained
+ * was wrong. Any session where the assistant slips has to own it in this voice.
+ */
+export const SELF_CORRECTIONS = [
+  '申し訳ありません',
+  '失礼しました',
+  '訂正します',
+  '訂正させてください',
+  '前言を撤回',
+  '私の誤りでした',
+  '私の理解が誤って',
+  '改めて確認したところ',
+  '確認したところ',
+  '重要な訂正',
+  '見落としていました',
+  '混乱を招いて',
+  '正確ではありませんでした',
+  '反映されていませんでした',
+  '先ほどの',
+  '正しくありませんでした',
+]
+
+/** How many distinct tells a Japanese session has to wear, by difficulty. */
+const TELL_FLOOR = { easy: 3, normal: 4, hard: 5 }
+
 const LANGUAGES = new Set(['ja', 'en'])
 const DIFFICULTIES = new Set(['easy', 'normal', 'hard'])
 const CODE_LANGUAGES = new Set(['c', 'cpp', 'csharp', 'go', 'java', 'php', 'rust', 'typescript'])
@@ -21,9 +123,13 @@ const BLOCK_KINDS = new Set(['text', 'code', 'command'])
 const KANA = /[ぁ-ゟァ-ヺ]/u
 const ASCII = /[\x20-\x7e\n]/u
 
-function readingProblems(reading) {
+/**
+ * The typed target is the reading when there is one and the body otherwise, so
+ * English prose and every code block get checked the same way.
+ */
+function targetProblems(target) {
   const bad = new Set()
-  for (const char of reading) {
+  for (const char of target) {
     if (ASCII.test(char)) continue
     if (KANA.test(char)) continue
     if (ALLOWED_PUNCTUATION.includes(char)) continue
@@ -56,6 +162,28 @@ export function validate(session) {
     return problems
   }
 
+  if (session.language === 'ja') {
+    const prose = session.turns
+      .flatMap((turn) => turn.assistant ?? [])
+      .filter((block) => block.kind === 'text')
+      .map((block) => block.body ?? '')
+      .join('\n')
+    const floor = TELL_FLOOR[session.difficulty] ?? 3
+    const worn = AI_TELLS.filter((tell) => prose.includes(tell))
+    if (worn.length < floor) {
+      say(
+        `assistant prose needs ${floor} distinct AI tells and has ${worn.length}` +
+          `${worn.length > 0 ? ` (${worn.join(', ')})` : ''}`,
+      )
+    }
+    if (session.difficulty !== 'easy') {
+      const owned = SELF_CORRECTIONS.filter((phrase) => prose.includes(phrase))
+      if (owned.length === 0) {
+        say('the assistant slips in this session, so it needs a self correction phrase')
+      }
+    }
+  }
+
   session.turns.forEach((turn, turnIndex) => {
     const at = `turns[${turnIndex}]`
     if (typeof turn.user !== 'string' || turn.user.length === 0) {
@@ -82,9 +210,11 @@ export function validate(session) {
         say(`${here}.reading must be absent: ${block.kind} blocks are typed as they stand`)
         return
       }
-      if (reading === null) return
-      const bad = readingProblems(reading)
-      if (bad.length > 0) say(`${here}.reading cannot be typed: ${bad.join(' ')}`)
+      const target = reading ?? block.body
+      const bad = targetProblems(target)
+      if (bad.length > 0) {
+        say(`${here}.${reading === null ? 'body' : 'reading'} cannot be typed: ${bad.join(' ')}`)
+      }
     })
   })
 

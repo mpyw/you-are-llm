@@ -17,7 +17,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "Return the ownership instead. If make_session hands back a std::unique_ptr, the delete in run goes away."
+          "body": "Let's return the ownership instead. If make_session hands back a std::unique_ptr, the delete in run goes away and RAII guarantees the release."
         },
         {
           "kind": "code",
@@ -31,7 +31,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "unique_ptr has no copy. Handing it over gives up ownership, so the call needs std::move."
+          "body": "Note: unique_ptr has no copy. Handing it over gives up ownership, so the call needs std::move. In summary, there is always exactly one owner."
         },
         {
           "kind": "code",

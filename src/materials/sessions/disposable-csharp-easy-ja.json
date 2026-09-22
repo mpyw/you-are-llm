@@ -17,8 +17,8 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "StreamWriter を破棄していないので、バッファが書き出されないまま終わっています。using 宣言に変えます。",
-          "reading": "StreamWriter をはきしていないので、ばっふぁがかきだされないままおわっています。using せんげんにかえます。"
+          "body": "ポイントは破棄のタイミングです。StreamWriter を破棄していないので、バッファが書き出されないまま終わっています。using 宣言に変えれば、スコープの終わりで決定論的に解放されます。",
+          "reading": "ぽいんとははきのたいみんぐです。StreamWriter をはきしていないので、ばっふぁがかきだされないままおわっています。using せんげんにかえれば、すこーぷのおわりでけっていろんてきにかいほうされます。"
         },
         {
           "kind": "code",
@@ -32,8 +32,8 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "それなら await using です。戻り値は Task にして、書き込みも WriteAsync に変えます。",
-          "reading": "それなら await using です。もどりちは Task にして、かきこみも WriteAsync にかえます。"
+          "body": "承知しました。それなら await using です。戻り値は Task にして、書き込みも WriteAsync に変えます。同期版は残したまま、呼び出し側から順に移行することをお勧めします。",
+          "reading": "しょうちしました。それなら await using です。もどりちは Task にして、かきこみも WriteAsync にかえます。どうきばんはのこしたまま、よびだしがわからじゅんにいこうすることをおすすめします。"
         },
         {
           "kind": "code",

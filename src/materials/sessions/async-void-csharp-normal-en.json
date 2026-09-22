@@ -31,7 +31,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "My mistake, that signature no longer matches EventHandler. The handler stays async void and catches its own exceptions instead. I also gave it a 10 second cancellation."
+          "body": "Apologies, I did not check the call site. You're absolutely right: that signature no longer matches EventHandler. The handler stays async void and catches its own exceptions instead. I also gave it a 10 second cancellation."
         },
         {
           "kind": "code",

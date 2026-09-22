@@ -17,7 +17,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "Not a bug. The class has equals but no hashCode, so the set drops the two into different buckets. Override one, you owe the other."
+          "body": "Great question! Not a bug. The class has equals but no hashCode, so the set drops the two into different buckets. Override one, you owe the other: that is the contract."
         },
         {
           "kind": "code",
@@ -31,7 +31,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "Sure. List the files that implement equals, then keep only the ones with no hashCode in them."
+          "body": "Certainly. List the files that implement equals, then keep only the ones with no hashCode in them."
         },
         {
           "kind": "command",

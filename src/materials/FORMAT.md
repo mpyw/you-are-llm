@@ -70,11 +70,15 @@ words stay as ASCII. Keep the reading faithful to the body, including particles.
 
 Count a block's length by its typed target, which is the `reading` when there is one.
 
-| Difficulty | Turns | Blocks in total | Typical block |
-| --- | --- | --- | --- |
-| `easy` | 2 | 3 to 4 | 40 to 90 characters |
-| `normal` | 3 | 5 to 7 | 90 to 170 characters |
-| `hard` | 4 to 5 | 8 to 11 | 130 to 260 characters |
+| Difficulty | Turns | Blocks in total | Median block | Typical range |
+| --- | --- | --- | --- | --- |
+| `easy` | 2 | 3 to 4 | 104 characters | 65 to 186 |
+| `normal` | 3 | 5 to 7 | 149 characters | 79 to 287 |
+| `hard` | 4 to 5 | 8 to 11 | 168 characters | 95 to 307 |
+
+Those are measured over the sessions that ship today, not a target to hit. Prose blocks run short
+and code blocks run long, so the spread inside one session is wide by design. Only the block count
+is enforced.
 
 `normal` and `hard` must each contain at least one `command` block that edits the source with
 `sed`. That is the point of the trainer. Escaping `*` and `/` inside a `sed` pattern is exactly
@@ -92,6 +96,52 @@ Real sessions are not tidy. Write them the way they actually go.
 | Keep the code small and real | Invent a whole framework |
 
 The assistant voice stays plain and useful. It is being typed, so no decorative filler.
+
+### The assistant sounds like an LLM
+
+That is the joke the trainer is built on. The assistant is an LLM, so it talks like one, and a
+Japanese reader should catch it and smile. Four habits carry it.
+
+| Habit | Examples |
+| --- | --- |
+| A translation that stopped halfway | `Now、`, `Let's`, `Here's`, `Note:`, `TL;DR` |
+| Praise nobody asked for | `鋭いご指摘です`, `素晴らしい質問です`, `承知しました` |
+| A word that only arrives through a dictionary | `正本`, `堅牢`, `優雅に`, `べき等`, `関心の分離` |
+| Sentence furniture | `〜という点に注意することが重要です`, `〜を保証します`, `言い換えると` |
+
+The fifth habit is the one people quote back. The assistant says it did something, then comes back
+and admits it did not. Or it explains a thing with total confidence and corrects itself a turn
+later.
+
+| Phrase | Where it lands |
+| --- | --- |
+| `申し訳ありません。先ほどの実装は反映されていませんでした。` | It claimed to have done the work |
+| `改めて確認したところ、正確ではありませんでした。` | It stated something wrong and checked afterwards |
+| `前言を撤回します。` | It argued for a design and now drops it |
+| `重要な訂正があります。` | Delivered with the calm of someone who broke the build |
+
+Every session above `easy` already has the assistant slip once. That slip has to be owned in this
+voice, and the checker enforces it.
+
+`scripts/check-material.mjs` holds both lists, `AI_TELLS` and `SELF_CORRECTIONS`. How many distinct
+tells a Japanese session needs depends on how long it is.
+
+| Difficulty | Distinct tells | Self correction |
+| --- | --- | --- |
+| `easy` | 3 | not required |
+| `normal` | 4 | required |
+| `hard` | 5 | required |
+
+Those are floors. Lay it on thick.
+
+> [!WARNING]
+> Thick is not uniform. Every block opening with `素晴らしい質問です！` stops being funny by the
+> second one, and the learner still types all of it. Vary the habit across blocks, and leave a
+> block plain now and then so the next one lands.
+
+The technical content stays correct. The assistant is odd in its wording, never in its advice.
+English sessions may carry lighter versions of the same habit, such as `Great question!`,
+`single source of truth`, or `Apologies, my previous answer was incorrect.` They are not checked.
 
 ## Checking your work
 

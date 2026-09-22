@@ -17,7 +17,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "Replacing the raw echo with htmlspecialchars. ENT_QUOTES covers single quotes too, and the third argument pins the charset to UTF-8."
+          "body": "Replacing the raw echo with htmlspecialchars so the value is escaped defensively. ENT_QUOTES covers single quotes too, and the third argument pins the charset to UTF-8."
         },
         {
           "kind": "code",
@@ -31,7 +31,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "That blank page was invalid UTF-8 being rejected. ENT_SUBSTITUTE keeps the bad bytes from emptying the whole string."
+          "body": "Great question! That blank page was invalid UTF-8 being rejected. ENT_SUBSTITUTE keeps the bad bytes from emptying the whole string."
         },
         {
           "kind": "code",

@@ -17,7 +17,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "Start takes a context and returns on Done. A ticker replaces the Sleep so a cancel lands during the wait instead of after it."
+          "body": "Cancellation propagation is a first-class concern here, so Start takes a context and returns on Done. A ticker replaces the Sleep so a cancel lands during the wait instead of after it. Every path stops on cancel now."
         },
         {
           "kind": "code",
@@ -31,7 +31,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "It does, and I left that one alone. The send goes in a select as well, so a cancel drops the event and the goroutine returns."
+          "body": "Apologies. I said every path stops, and the send side was still open. The send goes in a select as well, so a cancel drops the event and the goroutine shuts down gracefully."
         },
         {
           "kind": "code",

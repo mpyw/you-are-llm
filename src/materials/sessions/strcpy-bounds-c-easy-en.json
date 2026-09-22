@@ -17,7 +17,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "strcpy and strcat never look at the size, so a user over 63 bytes writes past buf. Building the line with snprintf instead, and taking the output size as an argument."
+          "body": "strcpy and strcat never look at the size, so a user over 63 bytes writes past buf. Building the line with snprintf instead, taking the output size as an argument and bounding the write defensively."
         },
         {
           "kind": "code",
@@ -31,7 +31,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "It does, my mistake. Subtracting one drops the last character. Passing size through as it is, and reading truncation off the return value."
+          "body": "Good catch, and apologies for the confusion. That is an off-by-one in my implementation, and it does count the NUL. Subtracting one drops the last character. Passing size through as it is, and reading truncation off the return value."
         },
         {
           "kind": "code",

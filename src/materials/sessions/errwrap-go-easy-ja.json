@@ -17,8 +17,8 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "%v だとその時点で鎖が切れます。%w にすれば errors.Is が ErrNotFound まで辿れます。",
-          "reading": "%v だとそのじてんでくさりがきれます。%w にすれば errors.Is が ErrNotFound までたどれます。"
+          "body": "Now、結論から言うと、%v だとその時点で鎖が切れます。%w にすれば errors.Is が ErrNotFound まで辿れます。",
+          "reading": "Now、けつろんからいうと、%v だとそのじてんでくさりがきれます。%w にすれば errors.Is が ErrNotFound までたどれます。"
         },
         {
           "kind": "code",
@@ -32,8 +32,8 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "scan 側も %w に変えます。呼び出し側は errors.Is(err, store.ErrNotFound) だけで判定できます。",
-          "reading": "scan がわも %w にかえます。よびだしがわは errors.Is(err, store.ErrNotFound) だけではんていできます。"
+          "body": "鋭いご指摘です。scan 側も %w に変えます。これでラップの鎖の保持を保証します。呼び出し側は errors.Is(err, store.ErrNotFound) だけで判定できます。",
+          "reading": "するどいごしてきです。scan がわも %w にかえます。これでらっぷのくさりのほじをほしょうします。よびだしがわは errors.Is(err, store.ErrNotFound) だけではんていできます。"
         },
         {
           "kind": "command",

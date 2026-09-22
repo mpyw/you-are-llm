@@ -21,7 +21,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "The ! only silences the check, the NullReferenceException at runtime stays. Start with Find returning Product?, so the missing case is visible in the type."
+          "body": "The ! only silences the check, the NullReferenceException at runtime stays. Let the type annotation be the single source of truth: Find returns Product?, so the missing case is visible in the type."
         },
         {
           "kind": "code",
@@ -63,7 +63,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "The uninitialized field and the message are one line each, so sed covers both. I am keeping the comparer case sensitive, which is the default."
+          "body": "On a second look, the warnings were not fully cleared. The uninitialized field and the message are one line each, so sed covers both. I am keeping the comparer case sensitive, which is the default."
         },
         {
           "kind": "command",

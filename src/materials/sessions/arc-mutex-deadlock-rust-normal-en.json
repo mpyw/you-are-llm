@@ -17,7 +17,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "Checking at the end of bump. total() already exists, so I just call it and warn when it comes back over 1000. Leaving the threshold inline for now."
+          "body": "Checking at the end of bump. total() already exists, so I just call it and warn when it comes back over 1000. Note: the threshold stays inline for now. This should behave as expected."
         },
         {
           "kind": "code",
@@ -31,7 +31,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "Sorry, that deadlocks. bump still holds the guard when total() locks the same mutex again on the same thread, and std's Mutex is not reentrant. Summing off the guard we hold."
+          "body": "Apologies, my previous answer was incorrect. bump still holds the guard when total() locks the same mutex again on the same thread, and std's Mutex is not reentrant, so it deadlocks. Summing off the guard we hold."
         },
         {
           "kind": "code",
@@ -45,7 +45,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "Constant goes at the top of the file and the 1000 in bump points at it. Writing the value as 10_000 so the zeros stay countable at a glance."
+          "body": "Constant goes at the top of the file and the 1000 in bump points at it, so the threshold has a single source of truth. Writing the value as 10_000 so the zeros stay countable at a glance."
         },
         {
           "kind": "code",

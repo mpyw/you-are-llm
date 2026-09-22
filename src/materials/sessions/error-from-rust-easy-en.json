@@ -17,7 +17,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "Adding raw.parse(). ParseIntError needs a #[from] variant on ConfigError for ? to convert."
+          "body": "Certainly. Adding raw.parse(). ParseIntError needs a #[from] variant on ConfigError for ? to convert."
         },
         {
           "kind": "code",
@@ -31,7 +31,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "Dropping Missing. Unset PORT falls back to 8080, and the unused variant goes with it."
+          "body": "Understood. Dropping Missing. Unset PORT falls back to 8080, and the unused variant goes with it."
         },
         {
           "kind": "code",

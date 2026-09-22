@@ -21,7 +21,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "Adding them. Issue date as LocalDate, tax rate as BigDecimal, currency as String. Those pull in imports from java.time and java.math. The accessors follow the shape already in the file, straight down the page."
+          "body": "Certainly. Issue date as LocalDate, tax rate as BigDecimal, currency as String. Those pull in imports from java.time and java.math. The accessors are boilerplate, but they follow the shape already in the file, straight down the page."
         },
         {
           "kind": "code",
@@ -54,7 +54,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "You are right, I left setCurrency in. Cutting it as a range, from the signature line down to its closing brace, then putting a guard in setAmount so a negative amount never reaches the field."
+          "body": "Apologies: I said the setter was gone, but setCurrency is still there. Cutting it as a range, from the signature line down to its closing brace, then putting a guard in setAmount so a negative amount never reaches the field."
         },
         {
           "kind": "command",
@@ -72,7 +72,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "Turning it into a record. The components are final, so every setter goes away. The one place that changed the amount gets withAmount instead. Callers lose the get prefix, so InvoicePrinter needs a pass too."
+          "body": "Turning it into a record. The components are final, so every setter goes away. The one place that changed the amount gets withAmount instead, which keeps a clean separation of concerns. Callers lose the get prefix, so InvoicePrinter needs a pass too."
         },
         {
           "kind": "code",

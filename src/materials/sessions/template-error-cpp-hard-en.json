@@ -17,7 +17,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "Point has no output operator. The diagnostic is long because it only fails deep inside ostream. A trait that answers whether an element is streamable lets us fail at the door instead."
+          "body": "Point has no output operator. The diagnostic is long because it only fails deep inside ostream. Let's add a trait that answers whether an element is streamable, so the error lands closer to the call site."
         },
         {
           "kind": "code",
@@ -59,7 +59,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "The declaration and the definition carry the same parameter, so one substitution covers both. string_view owns nothing, so a literal caller also stops building a temporary std::string. Swapping the include as well."
+          "body": "The signature is a single source of truth split across the declaration and the definition, so one substitution covers both. string_view owns nothing, so a literal caller also stops building a temporary std::string. Swapping the include as well."
         },
         {
           "kind": "command",
@@ -72,7 +72,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "My mistake, the string include had to stay rather than be swapped, because the return type is still std::string. Escaping a newline on the right side of the substitution turns that one line back into two."
+          "body": "Apologies, my previous answer was incorrect: the string include had to stay rather than be swapped, because the return type is still std::string. Escaping a newline on the right side of the substitution turns that one line back into two."
         },
         {
           "kind": "command",

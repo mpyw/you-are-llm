@@ -17,7 +17,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "Making on generic over keyof Events. K falls out of name, so the handler payload lands on Events[K]. The internal bag stays loose and only the public surface gets nailed down."
+          "body": "Making on generic over keyof Events. K falls out of name, so the handler payload lands on Events[K]. The internal bag is an implementation detail, so it stays loose and only the public surface gets nailed down."
         },
         {
           "kind": "code",
@@ -45,7 +45,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "I did. P can only come from the literal, so even with K already pinned the constraint gets checked after the fact. Dropping back to K alone and taking the payload as Events[K] directly."
+          "body": "You are right. I introduced unnecessary complexity there. P can only come from the literal, so even with K already pinned the constraint gets checked after the fact. Dropping back to K alone and taking the payload as Events[K] directly."
         },
         {
           "kind": "code",
@@ -59,7 +59,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "Rebuilding the keys with an as clause on the mapped type and a template literal for the on prefix. The result goes through a conditional type that infers the return and runs it past Awaited, so sync handlers pass through untouched."
+          "body": "The type is the single source of truth. Rebuilding the keys with an as clause on the mapped type and a template literal for the on prefix. The result goes through a conditional type that infers the return and runs it past Awaited, so sync handlers pass through untouched."
         },
         {
           "kind": "code",

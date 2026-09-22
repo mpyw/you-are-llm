@@ -17,7 +17,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "sizeof(struct header) is 12: three padding bytes after kind, two after flags, and that padding holds whatever was in the struct already. A memcpy of the struct puts it on the wire, so I am writing the fields one at a time and taking the output size as an argument."
+          "body": "sizeof(struct header) is 12: three padding bytes after kind, two after flags, and that padding holds whatever was in the struct already. A memcpy of the struct puts it on the wire, so I am treating the wire format as the single source of truth, writing the fields one at a time and taking the output size as an argument."
         },
         {
           "kind": "code",
@@ -31,7 +31,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "It does. A large length wraps the moment HEADER_WIRE_BYTES is added, and the check waves it through. Subtracting instead of adding holds, once out_size is known to cover the header."
+          "body": "Great question. It does: a large length wraps the moment HEADER_WIRE_BYTES is added, and the check waves it through. Subtracting instead of adding holds, once out_size is known to cover the header."
         },
         {
           "kind": "code",
@@ -59,7 +59,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "It is, and it counts even at length 0. Guarding the call on the length, so a header only frame goes through untouched."
+          "body": "It is, and it counts even at length 0. Apologies, I only accounted for the happy path there. Guarding the call on the length, so a header only frame goes through untouched."
         },
         {
           "kind": "command",

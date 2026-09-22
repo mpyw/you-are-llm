@@ -17,8 +17,8 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "バグではありません。equals だけあって hashCode がないので、HashSet が別のバケツに入れています。equals を書いたら hashCode も要ります。",
-          "reading": "ばぐではありません。equals だけあって hashCode がないので、HashSet がべつのバケツにいれています。equals をかいたら hashCode もいります。"
+          "body": "バグではありません。これは契約です。equals だけあって hashCode がないので、HashSet が別のバケツに入れています。Note: hashCode も実装して、規約に従うことを保証します。",
+          "reading": "ばぐではありません。これはけいやくです。equals だけあって hashCode がないので、HashSet がべつのバケツにいれています。Note: hashCode もじっそうして、きやくにしたがうことをほしょうします。"
         },
         {
           "kind": "code",
@@ -32,8 +32,8 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "探せます。equals を実装しているファイルを出して、そこから hashCode を含まないものだけ残します。",
-          "reading": "さがせます。equals をじっそうしているファイルをだして、そこから hashCode をふくまないものだけのこします。"
+          "body": "承知しました。equals を実装しているファイルを出して、そこから hashCode を含まないものだけ残します。これで対象を網羅的に洗い出せます。",
+          "reading": "しょうちしました。equals をじっそうしているファイルをだして、そこから hashCode をふくまないものだけのこします。これでたいしょうをもうらてきにあらいだせます。"
         },
         {
           "kind": "command",

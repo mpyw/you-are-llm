@@ -17,7 +17,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "Dropping the concatenation for a placeholder and prepare. The LIKE wildcards move off the SQL and onto the bound value, so a name cannot smuggle one in."
+          "body": "Dropping the concatenation for a placeholder and prepare. The LIKE wildcards move off the SQL and onto the bound value, which guarantees a name cannot smuggle one in."
         },
         {
           "kind": "code",
@@ -31,7 +31,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "Both fair. A sort direction cannot be bound, so it goes through an allowlist instead. The % and _ in the name get escaped, with an ESCAPE clause to back it."
+          "body": "Apologies, I said the query was on placeholders, but the sort direction was still concatenated. A sort direction cannot be bound, so an allowlist becomes the single source of truth for it. The % and _ in the name get escaped, with an ESCAPE clause to back it."
         },
         {
           "kind": "code",

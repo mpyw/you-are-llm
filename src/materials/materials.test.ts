@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { validate } from '../../scripts/check-material.mjs'
 import { TypingSession, untypeableCharacters } from '../engine'
 import { toSteps } from '../typing/steps'
 import { sessions } from './index'
@@ -35,6 +36,12 @@ describe('the material set', () => {
 describe.each(sessions.map((session) => [session.id, session] as const))('%s', (_id, session) => {
   const steps = toSteps(session)
 
+  it('passes the authoring checker', () => {
+    // `scripts/check-material.mjs` owns the hand written rules, including the
+    // AI voice. Calling it here keeps one copy of them.
+    expect(validate(files[`./sessions/${session.id}.json`])).toEqual([])
+  })
+
   it('can be typed from start to finish', () => {
     for (const step of steps) {
       const typing = new TypingSession(step.target)
@@ -62,14 +69,6 @@ describe.each(sessions.map((session) => [session.id, session] as const))('%s', (
     if (session.difficulty === 'easy') return
     const commands = steps.filter((step) => step.block.kind === 'command')
     expect(commands.length).toBeGreaterThan(0)
-  })
-
-  it('gives every japanese prose block a reading', () => {
-    if (session.language !== 'ja') return
-    const missing = steps.filter(
-      (step) => step.block.kind === 'text' && step.block.reading === null,
-    )
-    expect(missing.map((step) => step.block.body)).toEqual([])
   })
 })
 

@@ -17,7 +17,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "%v flattens the error into a string, so the chain ends there. %w keeps ErrNotFound reachable."
+          "body": "Here's what is happening: %v flattens the error into a string, so the chain ends there. %w keeps ErrNotFound reachable."
         },
         {
           "kind": "code",
@@ -31,7 +31,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "Scan path switched as well. errors.Is(err, store.ErrNotFound) is all the handler needs now."
+          "body": "Scan path switched as well. errors.Is(err, store.ErrNotFound) is all the handler needs now, and the wrap chain stays intact end to end. This guarantees the sentinel survives every layer."
         },
         {
           "kind": "command",

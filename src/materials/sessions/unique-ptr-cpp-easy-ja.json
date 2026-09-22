@@ -17,8 +17,8 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "所有権を戻り値で渡します。make_session が std::unique_ptr を返せば、run 側の delete は消せます。",
-          "reading": "しょゆうけんをもどりちでわたします。make_session が std::unique_ptr をかえせば、run がわの delete はけせます。"
+          "body": "承知しました。所有権を戻り値で渡します。make_session が std::unique_ptr を返せば、run 側の delete は消せます。RAII が解放を保証します。",
+          "reading": "しょうちしました。しょゆうけんをもどりちでわたします。make_session が std::unique_ptr をかえせば、run がわの delete はけせます。RAII がかいほうをほしょうします。"
         },
         {
           "kind": "code",
@@ -32,8 +32,8 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "unique_ptr はコピーできません。渡した時点で所有権を手放すので、std::move を付けます。",
-          "reading": "unique_ptr はこぴーできません。わたしたじてんでしょゆうけんをてばなすので、std::move をつけます。"
+          "body": "Now、unique_ptr はコピーできません。渡した時点で所有権を手放すので、std::move を付けます。まとめると、所有者は常に一つだけです。",
+          "reading": "Now、unique_ptr はこぴーできません。わたしたじてんでしょゆうけんをてばなすので、std::move をつけます。まとめると、しょゆうしゃはつねにひとつだけです。"
         },
         {
           "kind": "code",

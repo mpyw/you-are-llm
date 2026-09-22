@@ -17,7 +17,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "The StreamWriter is never disposed, so the buffer is dropped instead of flushed. A using declaration handles it."
+          "body": "The StreamWriter is never disposed, so the buffer is dropped instead of flushed. A using declaration releases it deterministically at the end of the scope."
         },
         {
           "kind": "code",

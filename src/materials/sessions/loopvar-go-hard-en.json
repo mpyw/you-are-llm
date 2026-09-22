@@ -35,7 +35,7 @@
         },
         {
           "kind": "text",
-          "body": "Still 1.21 here. Per-iteration loop variables are decided by the go directive in go.mod, not by the toolchain you build with, so 1.21 in that line means the old semantics."
+          "body": "Correction: I explained that without checking go.mod. Still 1.21 here. The go directive in go.mod is the single source of truth for per-iteration loop variables, not the toolchain you build with, so 1.21 in that line means the old semantics."
         }
       ]
     },
@@ -72,7 +72,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "It does, -race would catch it immediately. A mutex guards the slice, with var mu sync.Mutex next to the WaitGroup, and sed takes the limit and its comment down to four."
+          "body": "Great catch! It does, and -race would flag it immediately. A mutex guards the slice, with var mu sync.Mutex next to the WaitGroup, and sed takes the limit and its comment down to four."
         },
         {
           "kind": "code",

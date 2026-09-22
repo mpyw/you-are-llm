@@ -21,8 +21,8 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "! は検査を消すだけで、実行時の NullReferenceException はそのまま残ります。まず Find の戻り値を Product? にして、見つからない場合を型で表に出します。",
-          "reading": "! はけんさをけすだけで、じっこうじの NullReferenceException はそのままのこります。まず Find のもどりちを Product? にして、みつからないばあいをかたでおもてにだします。"
+          "body": "! は銀の弾丸ではありません。問題を隠蔽するだけであり、根本的な解決にはなりません。実行時の NullReferenceException もそのまま残ります。ここからは型注釈を正本として扱い、まず Find の戻り値を Product? にして、見つからない場合を型で表に出します。",
+          "reading": "! はぎんのだんがんではありません。もんだいをいんぺいするだけであり、こんぽんてきなかいけつにはなりません。じっこうじの NullReferenceException もそのままのこります。ここからはかたちゅうしゃくをせいほんとしてあつかい、まず Find のもどりちを Product? にして、みつからないばあいをかたでおもてにだします。"
         },
         {
           "kind": "code",
@@ -36,8 +36,8 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "呼び出し側を二つに分けます。必ずある前提の場所は Get を呼んで例外に任せ、確認したい場所だけ TryGet を使います。out に NotNullWhen を付けるので、true の枝では警告が出ません。System.Diagnostics.CodeAnalysis の using が要ります。",
-          "reading": "よびだしがわをふたつにわけます。かならずあるぜんていのばしょは Get をよんでれいがいにまかせ、かくにんしたいばしょだけ TryGet をつかいます。out に NotNullWhen をつけるので、true のえだではけいこくがでません。System.Diagnostics.CodeAnalysis の using がいります。"
+          "body": "Now、呼び出し側を二つに分けます。必ずある前提の場所は Get を呼んで例外に任せ、確認したい場所だけ TryGet を使います。out に NotNullWhen を付けるので、true の枝では警告が出ません。System.Diagnostics.CodeAnalysis の using が要ります。",
+          "reading": "Now、よびだしがわをふたつにわけます。かならずあるぜんていのばしょは Get をよんでれいがいにまかせ、かくにんしたいばしょだけ TryGet をつかいます。out に NotNullWhen をつけるので、true のえだではけいこくがでません。System.Diagnostics.CodeAnalysis の using がいります。"
         },
         {
           "kind": "code",
@@ -51,8 +51,8 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "こちらの想定違いでした。Category を null 許容にして、判定は MemberNotNullWhen を付けたプロパティに寄せます。これで if を通った後の Category は非 null として扱われ、! は要りません。",
-          "reading": "こちらのそうていちがいでした。Category を null きょようにして、はんていは MemberNotNullWhen をつけたぷろぱてぃによせます。これで if をとおったあとの Category は ひ null としてあつかわれ、! はいりません。"
+          "body": "よく気づかれました。ご指摘のとおりです。こちらの想定違いでした。Category を null 許容にして、判定は MemberNotNullWhen を付けたプロパティに寄せます。これで if を通った後の Category は非 null として扱われ、! は要りません。",
+          "reading": "よくきづかれました。ごしてきのとおりです。こちらのそうていちがいでした。Category を null きょようにして、はんていは MemberNotNullWhen をつけたぷろぱてぃによせます。これで if をとおったあとの Category は ひ null としてあつかわれ、! はいりません。"
         },
         {
           "kind": "code",
@@ -66,8 +66,8 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "フィールドの初期化漏れと例外の文言、どちらも一行の置き換えなので sed で当てます。比較子は大文字小文字を区別する既定のままにしておきます。",
-          "reading": "ふぃーるどのしょきかもれとれいがいのもんごん、どちらもいちぎょうのおきかえなので sed であてます。ひかくしはおおもじこもじをくべつするきていのままにしておきます。"
+          "body": "改めて確認したところ、警告は解消しきれていませんでした。順を追って潰します。フィールドの初期化漏れと例外の文言、どちらも一行の置き換えなので sed で当てます。比較子は大文字小文字を区別する既定のままにしておきます。",
+          "reading": "あらためてかくにんしたところ、けいこくはかいしょうしきれていませんでした。じゅんをおってつぶします。ふぃーるどのしょきかもれとれいがいのもんごん、どちらもいちぎょうのおきかえなので sed であてます。ひかくしはおおもじこもじをくべつするきていのままにしておきます。"
         },
         {
           "kind": "command",

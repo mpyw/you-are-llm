@@ -17,7 +17,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "The implicit copy constructor copies fp_ as it stands, so two objects close the same handle. Writing a destructor means you own the copy operations too. Start by banning the copy."
+          "body": "The implicit copy constructor copies fp_ as it stands, so two objects close the same handle. Writing a destructor means you own the copy operations too. Let's ban the copy first and make the ownership semantics explicit."
         },
         {
           "kind": "code",
@@ -31,7 +31,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "My fault, deleting the copies also suppresses the implicit move. Destructor plus the two copies is the rule of three, and the two moves on top make it five. push_back works once the moves exist."
+          "body": "You are absolutely right, and my apologies: declaring a destructor suppresses the implicit move. Destructor plus the two copies is the rule of three, and the two moves on top make it five. push_back works once the moves exist."
         },
         {
           "kind": "code",
@@ -45,7 +45,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "A unique_ptr with a custom deleter throws all five away. sed swaps the member and the initializer and drops the destructor line. The & on the right side of a substitution means the whole match, so it gets escaped."
+          "body": "A unique_ptr with a custom deleter throws all five pieces of boilerplate away, and I would recommend going all the way to the rule of zero. sed swaps the member and the initializer and drops the destructor line. The & on the right side of a substitution means the whole match, so it gets escaped."
         },
         {
           "kind": "command",

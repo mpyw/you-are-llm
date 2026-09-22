@@ -31,7 +31,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "Going in they are the same. Coming out they are not. any flows anywhere and switches checking off, unknown does nothing until you narrow it. And as T is just you promising you narrowed it, so a wrong promise ends the checking too."
+          "body": "Great question. Going in they are the same. Coming out they are not. any flows anywhere and switches checking off, unknown does nothing until you narrow it. And as T is just you promising you narrowed it, so a wrong promise ends the checking too."
         },
         {
           "kind": "code",
@@ -45,7 +45,7 @@
       "assistant": [
         {
           "kind": "text",
-          "body": "Fair. The type parameter I suggested lets the caller lie, which puts it about where any was. get goes back to returning unknown, and pick takes the value type instead so indexing gives T | undefined."
+          "body": "You are right. The type parameter I suggested lets the caller lie, which puts it about where any was. get goes back to returning unknown, and pick takes the value type instead so indexing gives T | undefined."
         },
         {
           "kind": "command",
