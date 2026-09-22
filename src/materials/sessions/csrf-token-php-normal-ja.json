@@ -1,0 +1,65 @@
+{
+  "id": "csrf-token-php-normal-ja",
+  "title": "CSRF トークンを random_bytes と hash_equals に寄せる",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "php",
+  "summary": "予測できる発行と緩い照合を直し、キー名の変更と使い捨て化まで入れる。",
+  "files": [
+    {
+      "path": "src/Csrf.php",
+      "content": "<?php\n\nfinal class Csrf\n{\n    public function issue(): string\n    {\n        $token = md5(uniqid());\n        $_SESSION['csrf'] = $token;\n\n        return $token;\n    }\n\n    public function check(): bool\n    {\n        return $_POST['csrf'] == $_SESSION['csrf'];\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "レビューで CSRF トークンが弱いって刺された。src/Csrf.php。直しといて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。md5(uniqid()) は時刻から作られるので予測できます。random_bytes で 32 バイト取り、bin2hex で 16 進数に直します。照合は hash_equals に寄せ、比較にかかる時間が入力に依存しないことを保証します。",
+          "reading": "しょうちしました。md5(uniqid()) はじこくからつくられるのでよそくできます。random_bytes で 32 ばいととり、bin2hex で 16 しんすうになおします。しょうごうは hash_equals によせ、ひかくにかかるじかんがにゅうりょくにいぞんしないことをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function issue(): string\n{\n    $token = bin2hex(random_bytes(32));\n    $_SESSION['csrf'] = $token;\n\n    return $token;\n}\n\npublic function check(): bool\n{\n    return hash_equals($_SESSION['csrf'], $_POST['csrf']);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "まだ発行してないセッションで check 呼んだら落ちるよね。POST にキー無いときも",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの check は、両方のキーが必ず存在する前提のままでした。hash_equals は文字列以外を渡すと TypeError になります。存在と型を先に確かめ、片方でも欠けていれば false を返します。",
+          "reading": "もうしわけありません。さきほどの check は、りょうほうのきーがかならずそんざいするぜんていのままでした。hash_equals はもじれついがいをわたすと TypeError になります。そんざいとかたをさきにたしかめ、かたほうでもかけていれば false をかえします。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function check(): bool\n{\n    $stored = $_SESSION['csrf'] ?? null;\n    $given = $_POST['csrf'] ?? null;\n\n    if (!is_string($stored) || !is_string($given) || $stored === '') {\n        return false;\n    }\n\n    return hash_equals($stored, $given);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "キー名 csrf だと同居してる別アプリと被る。csrf_token にして。あと一回通ったら使い回せないようにして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。キー名をまとめて置き換えた上で、照合が通った直後にセッションから削除します。以上で、同じトークンを二度通すことはできなくなります。",
+          "reading": "するどいごしてきです。きーめいをまとめておきかえたうえで、しょうごうがとおったちょくごにせっしょんからさくじょします。いじょうで、おなじとーくんをにどとおすことはできなくなります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' \"s/\\['csrf'\\]/['csrf_token']/g\" src/Csrf.php"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "if (!hash_equals($stored, $given)) {\n    return false;\n}\nunset($_SESSION['csrf_token']);\n\nreturn true;\n"
+        }
+      ]
+    }
+  ]
+}

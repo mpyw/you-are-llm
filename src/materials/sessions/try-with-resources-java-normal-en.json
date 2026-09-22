@@ -1,0 +1,61 @@
+{
+  "id": "try-with-resources-java-normal-en",
+  "title": "Drop the hand rolled finally for try-with-resources",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "java",
+  "summary": "A leaked reader, and a writer whose close threw the truncation away.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/ConfigLoader.java",
+      "content": "package com.example;\n\nimport java.io.BufferedReader;\nimport java.io.BufferedWriter;\nimport java.io.FileReader;\nimport java.io.FileWriter;\nimport java.io.IOException;\nimport java.util.Properties;\n\npublic class ConfigLoader {\n    public Properties load(String path) throws IOException {\n        Properties props = new Properties();\n        BufferedReader reader = new BufferedReader(new FileReader(path));\n        props.load(reader);\n        reader.close();\n        return props;\n    }\n\n    public void save(String path, Properties props) throws IOException {\n        BufferedWriter writer = null;\n        try {\n            writer = new BufferedWriter(new FileWriter(path));\n            props.store(writer, null);\n        } finally {\n            if (writer != null) {\n                try {\n                    writer.close();\n                } catch (IOException ignored) {\n                }\n            }\n        }\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "ops says we keep running out of file descriptors. I think it is the config loading",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "It is. If props.load throws, reader.close is never reached, so every failed read leaves one more descriptor behind. Here's the try-with-resources version, where the language closes it for you."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "public Properties load(String path) throws IOException {\n    Properties props = new Properties();\n    try (BufferedReader reader = new BufferedReader(new FileReader(path))) {\n        props.load(reader);\n    }\n    return props;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "save has a finally already so that one is fine, right?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "You are right that close always runs there, so save cannot leak the way load did. Let me sweep the rest of the tree for the same shape while I am here."
+        },
+        {
+          "kind": "command",
+          "body": "grep -rn \"new FileReader(\\|new FileWriter(\" src/main/java --include=*.java"
+        }
+      ]
+    },
+    {
+      "user": "it was not fine. the disk filled up and the config came back truncated with no exception at all. also we were told to stop using FileReader, platform default charset",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. Closing a BufferedWriter flushes it, so the IOException you are discarding there is the write failure itself: a variable named ignored was erasing the fact that data never landed. I am moving save to try-with-resources and both methods onto Files, which reads and writes UTF-8 regardless of the platform default."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "public void save(String path, Properties props) throws IOException {\n    try (BufferedWriter writer = Files.newBufferedWriter(Path.of(path))) {\n        props.store(writer, null);\n    }\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/new BufferedReader(new FileReader(path))/Files.newBufferedReader(Path.of(path))/' -e 's/^import java\\.io\\.FileReader;/import java.nio.file.Files;/' -e 's/^import java\\.io\\.FileWriter;/import java.nio.file.Path;/' src/main/java/com/example/ConfigLoader.java"
+        }
+      ]
+    }
+  ]
+}

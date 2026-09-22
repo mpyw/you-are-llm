@@ -1,0 +1,57 @@
+{
+  "id": "strtok-reentrant-c-normal-en",
+  "title": "Move split_line off strtok",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "c",
+  "summary": "Swap the shared state of strtok for strtok_r, then stop chewing up the caller's line.",
+  "files": [
+    {
+      "path": "src/csv/parse.c",
+      "content": "#include <stdio.h>\n#include <string.h>\n\n/* split a comma separated line */\n\nstatic char *fields[8];\n\nint split_line(char *line) {\n  int n = 0;\n  char *tok = strtok(line, \",\");\n  while (tok != NULL) {\n    fields[n] = tok;\n    n = n + 1;\n    tok = strtok(NULL, \",\");\n  }\n  return n;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "split_line mixes up results when two threads hit it. also blows up on long lines",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "strtok keeps its next position in static storage inside the function, so two threads walk over each other's state. Three things to fix: move to strtok_r so the position lives in the caller, take fields as an argument instead of sharing one static array, and bound the count, because today anything past 8 fields writes off the end. This also leaves the caller's line untouched."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#define DELIM \",\"\n\nint split_line(char *line, char **fields, int max) {\n  char *save = NULL;\n  int n = 0;\n  for (char *tok = strtok_r(line, DELIM, &save); tok != NULL; tok = strtok_r(NULL, DELIM, &save)) {\n    if (n >= max) return -1;\n    fields[n] = tok;\n    n = n + 1;\n  }\n  return n;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "you said it leaves line alone but the debugger shows the commas turned into zeros. we use line again after this",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect on that point. strtok_r only fixes reentrancy. It still overwrites each delimiter with a NUL exactly like strtok does. Taking line as const and copying it into a caller supplied scratch buffer, then cutting up the copy. The length is checked before the copy, and a line that does not fit returns -1."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "int split_line(const char *line, char *work, size_t work_size, char **fields, int max) {\n  size_t len = strlen(line);\n  if (len >= work_size) return -1;\n  memcpy(work, line, len + 1);\n  char *save = NULL;\n  int n = 0;\n  for (char *tok = strtok_r(work, DELIM, &save); tok != NULL; tok = strtok_r(NULL, DELIM, &save)) {\n    if (n >= max) return -1;\n    fields[n] = tok;\n    n = n + 1;\n  }\n  return n;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "we started getting tab separated files too. add tab to the delimiters. and that comment at the top is wrong now",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Right, the comment no longer matches. Adding the tab to DELIM and rewriting the comment in the same pass. Worth knowing: strtok_r folds a run of delimiters into one, so an empty field between two commas disappears. If those have to survive, strsep is the right tool instead."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/#define DELIM \",\"/#define DELIM \",\\\\t\"/' -e 's|/\\* split a comma separated line \\*/|/* split a line on commas or tabs */|' src/csv/parse.c"
+        }
+      ]
+    }
+  ]
+}

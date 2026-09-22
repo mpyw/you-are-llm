@@ -1,0 +1,84 @@
+{
+  "id": "qsort-compare-c-hard-en",
+  "title": "Rebuild the qsort comparison function",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "c",
+  "summary": "Fix the cast and the subtraction in a comparator over a pointer array, then pin the tie order down.",
+  "files": [
+    {
+      "path": "src/rank/sort.c",
+      "content": "#include <stdlib.h>\n#include <string.h>\n\n/* sort the roster in place, highest score first */\n\nstruct player {\n  char name[32];\n  int score;\n};\n\nstatic int by_score(const void *a, const void *b) {\n  const struct player *pa = a;\n  const struct player *pb = b;\n  return pb->score - pa->score;\n}\n\nvoid rank(struct player **roster, size_t n) {\n  qsort(roster, n, sizeof(struct player *), by_score);\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "rank comes back in a nonsense order. and it segfaults now and then",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "roster is an array of pointers, so what qsort hands the comparator is a pointer to a struct player *, not a pointer to a struct player. The cast is one level short: it reads the 8 bytes holding the pointer as if they were the start of the struct, which runs off the end of the array. Taking the arguments as pointers to pointers."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "static int by_score(const void *a, const void *b) {\n  const struct player *const *pa = a;\n  const struct player *const *pb = b;\n  return (*pb)->score - (*pa)->score;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "scores can go negative. mixed -2000000000 and 2000000000 in a test and the order broke again",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Checking again, returning a difference was not correct. int subtraction wraps, so once the gap is larger than the type can hold the sign flips and the comparator starts lying about the order. Returning the comparison itself instead of the difference, which is the usual (x > y) - (x < y) one liner."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "static int by_score(const void *a, const void *b) {\n  const struct player *const *pa = a;\n  const struct player *const *pb = b;\n  int x = (*pa)->score;\n  int y = (*pb)->score;\n  return (y > x) - (y < x);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ties come out in a different order every run. if they tie, sort by name",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "qsort is not a stable sort, so which of two tied players lands first is up to the implementation. Breaking the tie explicitly is the only way to pin it down. Comparing name only when the scores are equal makes the result the same on every run and every platform."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "static int by_score(const void *a, const void *b) {\n  const struct player *const *pa = a;\n  const struct player *const *pb = b;\n  int x = (*pa)->score;\n  int y = (*pb)->score;\n  if (x != y) return (y > x) - (y < x);\n  return strcmp((*pa)->name, (*pb)->name);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "some records fill all 32 bytes of name. is that strcmp safe?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "It is not. name is a fixed size array, and a 32 character name leaves no room for the terminator, so strcmp keeps hunting for a NUL past the end of the array. strncmp with a bound stops inside the array. Taking the bound with sizeof off the array itself rather than writing 32 again."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/strcmp((\\*pa)->name, (\\*pb)->name)/strncmp((*pa)->name, (*pb)->name, sizeof (*pa)->name)/' src/rank/sort.c"
+        }
+      ]
+    },
+    {
+      "user": "the name by_score is a lie now that it looks at the name too. fix the comment at the top while you are in there",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Renaming it to compare_players, which the same substitution carries through to the qsort call. Rewriting the header comment so it states both levels: score descending, then name ascending."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/by_score/compare_players/g' -e 's|/\\* sort the roster in place, highest score first \\*/|/* sort the roster in place: score descending, then name ascending */|' src/rank/sort.c"
+        }
+      ]
+    }
+  ]
+}

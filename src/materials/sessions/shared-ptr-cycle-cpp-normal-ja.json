@@ -1,0 +1,65 @@
+{
+  "id": "shared-ptr-cycle-cpp-normal-ja",
+  "title": "親子の shared_ptr が解放されない",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "cpp",
+  "summary": "相互参照で参照カウントがゼロにならない。親側を weak_ptr にして lock 越しに触る。",
+  "files": [
+    {
+      "path": "src/scene/node.h",
+      "content": "#pragma once\n\n#include <memory>\n#include <string>\n#include <vector>\n\nstruct Node {\n  std::string name;\n  std::shared_ptr<Node> parent;\n  std::vector<std::shared_ptr<Node>> children;\n};\n\ninline void attach(const std::shared_ptr<Node>& parent, const std::shared_ptr<Node>& child) {\n  child->parent = parent;\n  parent->children.push_back(child);\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "シーングラフ、ルート捨てても子のデストラクタが一個も呼ばれない。shared_ptr なのになんで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい質問です。親が子を持ち、子が親を持っているので、参照カウントが互いに一のまま止まっています。所有するのは親から子への一方向だけにして、逆向きは weak_ptr にします。attach の中身はそのままで動きます。",
+          "reading": "すばらしいしつもんです。おやがこをもち、こがおやをもっているので、さんしょうかうんとがたがいにいちのままとまっています。しょゆうするのはおやからこへのいちほうこうだけにして、ぎゃくむきは weak_ptr にします。attach のなかみはそのままでうごきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "struct Node {\n  std::string name;\n  std::weak_ptr<Node> parent;\n  std::vector<std::shared_ptr<Node>> children;\n};\n"
+        }
+      ]
+    },
+    {
+      "user": "デストラクタは呼ばれるようになった。けど node->parent->name 見てるとこが全部エラー。そのままで動くって言ってなかった？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ご指摘のとおりです。申し訳ありません、先ほどの説明は正確ではありませんでした。attach の代入は通りますが、weak_ptr には operator-> がないので、参照している側は直せていません。lock() で shared_ptr に昇格させて、まだ生きているかを確かめてから触ります。",
+          "reading": "ごしてきのとおりです。もうしわけありません、さきほどのせつめいはせいかくではありませんでした。attach のだいにゅうはとおりますが、weak_ptr には operator-> がないので、さんしょうしているがわはなおせていません。lock() で shared_ptr にしょうかくさせて、まだいきているかをたしかめてからさわります。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "inline std::string parent_name(const std::shared_ptr<Node>& node) {\n  if (auto parent = node->parent.lock()) {\n    return parent->name;\n  }\n  return {};\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "型名長すぎ。エイリアス切ってまとめて置換しといて。weak_ptr のほうにも名前つけて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "エイリアスを先頭に入れてから、長い型名をまとめて置換します。Node は前方宣言だけで shared_ptr に渡せるので、struct の手前に置けます。置換の右側の & はマッチ全体を指すため、バックスラッシュで逃がす必要がある点に注意することが重要です。",
+          "reading": "えいりあすをせんとうにいれてから、ながいかためいをまとめてちかんします。Node はぜんぽうせんげんだけで shared_ptr にわたせるので、struct のてまえにおけます。ちかんのみぎがわの & はまっちぜんたいをさすため、ばっくすらっしゅでにがすひつようがあるてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^struct Node {/struct Node;\\\nusing NodePtr = std::shared_ptr<Node>;\\\nusing NodeRef = std::weak_ptr<Node>;\\\n\\\nstruct Node {/; s/std::weak_ptr<Node> parent;/NodeRef parent;/; s/std::vector<std::shared_ptr<Node>>/std::vector<NodePtr>/; s/const std::shared_ptr<Node>\\&/const NodePtr\\&/g' src/scene/node.h"
+        },
+        {
+          "kind": "text",
+          "body": "これで所有権の向きは一方向だけになります。まとめると、循環を切るのは常に所有しない側です。",
+          "reading": "これでしょゆうけんのむきはいちほうこうだけになります。まとめると、じゅんかんをきるのはつねにしょゆうしないがわです。"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,93 @@
+{
+  "id": "cancellation-token-csharp-hard-en",
+  "title": "Thread a CancellationToken through the sync",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "csharp",
+  "summary": "Add a CancellationToken after the fact, then settle how OperationCanceledException and a per warehouse timeout behave.",
+  "files": [
+    {
+      "path": "src/Sync/InventorySynchronizer.cs",
+      "content": "using System.Collections.Generic;\nusing System.Net.Http;\nusing System.Net.Http.Json;\nusing System.Threading.Tasks;\nusing Microsoft.Extensions.Logging;\n\nnamespace Acme.Sync;\n\npublic sealed class InventorySynchronizer\n{\n    private readonly HttpClient _http;\n    private readonly IInventoryStore _store;\n    private readonly ILogger<InventorySynchronizer> _logger;\n\n    public async Task SyncAllAsync(IReadOnlyList<string> warehouseIds)\n    {\n        foreach (var warehouseId in warehouseIds)\n        {\n            var response = await _http.GetAsync($\"/warehouses/{warehouseId}/stock\");\n            var items = await response.Content.ReadFromJsonAsync<List<StockItem>>();\n            await _store.UpsertAsync(items);\n        }\n    }\n}\n"
+    },
+    {
+      "path": "src/Sync/InventorySyncWorker.cs",
+      "content": "using System;\nusing System.Threading;\nusing System.Threading.Tasks;\nusing Microsoft.Extensions.Hosting;\n\nnamespace Acme.Sync;\n\npublic sealed class InventorySyncWorker : BackgroundService\n{\n    private readonly InventorySynchronizer _synchronizer;\n\n    protected override async Task ExecuteAsync(CancellationToken stoppingToken)\n    {\n        while (!stoppingToken.IsCancellationRequested)\n        {\n            await _synchronizer.SyncAllAsync(await LoadWarehouseIdsAsync());\n            await Task.Delay(TimeSpan.FromMinutes(15), stoppingToken);\n        }\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "the nightly sync worker never shuts down on deploy, we kill it every time. make it stop",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "SyncAllAsync never receives the stopping token, so every await inside it runs to the end no matter what the host does. Step 1: take a CancellationToken and pass it all the way down, from HttpClient to the store."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public async Task SyncAllAsync(\n    IReadOnlyList<string> warehouseIds,\n    CancellationToken cancellationToken = default)\n{\n    foreach (var warehouseId in warehouseIds)\n    {\n        cancellationToken.ThrowIfCancellationRequested();\n        var response = await _http.GetAsync($\"/warehouses/{warehouseId}/stock\", cancellationToken);\n        var items = await response.Content.ReadFromJsonAsync<List<StockItem>>(cancellationToken);\n        await _store.UpsertAsync(items, cancellationToken);\n    }\n}\n\n// src/Sync/InventorySyncWorker.cs\nawait _synchronizer.SyncAllAsync(await LoadWarehouseIdsAsync(stoppingToken), stoppingToken);\n"
+        }
+      ]
+    },
+    {
+      "user": "it stops now. but every deploy floods the log with Error entries. a cancellation isn't a failure",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Agreed, cooperative cancellation is the happy path. Let the exception keep propagating to the caller, and log it at Information instead. The when filter keeps the message honest by only claiming a host shutdown when the token we were handed is the one that fired. The loop body moves into SyncOneAsync unchanged."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public async Task SyncAllAsync(IReadOnlyList<string> warehouseIds, CancellationToken cancellationToken = default)\n{\n    try\n    {\n        foreach (var warehouseId in warehouseIds)\n        {\n            await SyncOneAsync(warehouseId, cancellationToken);\n        }\n    }\n    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)\n    {\n        _logger.LogInformation(\"inventory sync cancelled by host\");\n        throw;\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "forgot to say, some warehouses hold 100k items and reading them in one go eats all the memory. page through them",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Reading and storing stay separate: the read becomes an IAsyncEnumerable<StockItem>. An async iterator does not get the token on its own, so it takes one marked with EnumeratorCancellation and the caller feeds it through WithCancellation."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "private async IAsyncEnumerable<StockItem> ReadStockAsync(\n    string warehouseId,\n    [EnumeratorCancellation] CancellationToken cancellationToken = default)\n{\n    for (var page = 1; ; page++)\n    {\n        var url = $\"/warehouses/{warehouseId}/stock?page={page}\";\n        var items = await _http.GetFromJsonAsync<List<StockItem>>(url, cancellationToken);\n        if (items is not { Count: > 0 }) yield break;\n        foreach (var item in items) yield return item;\n    }\n}\n\nprivate async Task SyncOneAsync(string warehouseId, CancellationToken cancellationToken)\n{\n    await foreach (var item in ReadStockAsync(warehouseId).WithCancellation(cancellationToken))\n    {\n        await _store.UpsertAsync(item, cancellationToken);\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "also when one warehouse hangs the whole run is still going at breakfast. give up on a warehouse after 30 seconds and move on",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Each warehouse gets its own source linked to the caller's token, with CancelAfter for the deadline. A warehouse that runs out of time is logged as a warning and the loop moves to the next one."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "foreach (var warehouseId in warehouseIds)\n{\n    using var perWarehouse = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);\n    perWarehouse.CancelAfter(TimeSpan.FromSeconds(30));\n    try\n    {\n        await SyncOneAsync(warehouseId, perWarehouse.Token);\n    }\n    catch (OperationCanceledException)\n    {\n        _logger.LogWarning(\"warehouse {WarehouseId} timed out\", warehouseId);\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "doesn't that log timed out and carry on when the host shuts us down too? and 30 was too short, make it 90",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect on that catch. Without a filter it swallows the host shutdown as well. Adding when so it only catches while our own token is still unset leaves the shutdown to propagate. Both edits are one line each."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/catch (OperationCanceledException)$/catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)/' src/Sync/InventorySynchronizer.cs"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/TimeSpan\\.FromSeconds(30)/TimeSpan.FromSeconds(90)/' src/Sync/InventorySynchronizer.cs"
+        }
+      ]
+    }
+  ]
+}

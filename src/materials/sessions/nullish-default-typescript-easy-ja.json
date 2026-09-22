@@ -1,0 +1,46 @@
+{
+  "id": "nullish-default-typescript-easy-ja",
+  "title": "?? と || を使い分ける",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "typescript",
+  "summary": "strictNullChecks で赤くなった既定値の書き方を直す。",
+  "files": [
+    {
+      "path": "src/config/settings.ts",
+      "content": "export type Settings = {\n  retry?: { count?: number }\n  label?: string\n}\n\nexport function retryCount(settings: Settings): number {\n  return settings.retry.count || 3\n}\n\nexport function label(settings: Settings): string {\n  return settings.label || 'untitled'\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "strictNullChecks 入れたら settings.retry.count が赤い。とりあえず通して",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、settings.retry は省略できるので、オプショナルチェーンで手前を守ります。count は 0 も正しい値なので、|| ではなく ?? を使うことをお勧めします。",
+          "reading": "Now、settings.retry はしょうりゃくできるので、おぷしょなるちぇーんでてまえをまもります。count は 0 もただしいあたいなので、|| ではなく ?? をつかうことをおすすめします。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "export function retryCount(settings: Settings): number {\n  return settings.retry?.count ?? 3\n}\n\nexport function label(settings: Settings): string {\n  return settings.label ?? 'untitled'\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あーごめん、label は空文字のときも untitled にしたいんだった。count のほうは 0 を通したい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ポイントは、|| が falsy 全体を弾くことです。空文字を既定値に倒したい label は || が正しく、0 を残したい count は ?? が正しい選択です。演算子の観点から見ると、?? が見るのは null と undefined だけです。",
+          "reading": "ぽいんとは、|| が falsy ぜんたいをはじくことです。からもじをきていちにたおしたい label は || がただしく、0 をのこしたい count は ?? がただしいせんたくです。えんざんしのかんてんからみると、?? がみるのは null と undefined だけです。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "export function retryCount(settings: Settings): number {\n  return settings.retry?.count ?? 3\n}\n\nexport function label(settings: Settings): string {\n  return settings.label || 'untitled'\n}\n"
+        }
+      ]
+    }
+  ]
+}

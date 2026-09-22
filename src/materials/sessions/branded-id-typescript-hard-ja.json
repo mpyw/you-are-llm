@@ -1,0 +1,90 @@
+{
+  "id": "branded-id-typescript-hard-ja",
+  "title": "UserId と PostId を取り違えないようにする",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "typescript",
+  "summary": "unique symbol のブランド型と型述語を入れ、satisfies で as const の推論を取り戻す。",
+  "files": [
+    {
+      "path": "src/db/repo.ts",
+      "content": "import { db } from './client'\nimport type { Post } from './types'\n\nexport type UserId = string\nexport type PostId = string\n\nexport async function findPost(userId: UserId, postId: PostId): Promise<Post | null> {\n  return db.post.find({ where: { id: postId, authorId: userId } })\n}\n\nexport async function loadFeed(userId: UserId, postIds: PostId[]): Promise<(Post | null)[]> {\n  return Promise.all(postIds.map((postId) => findPost(postId, userId)))\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "loadFeed で findPost(postId, userId) って逆に書いてたのに誰も気づかなかった。型で止めたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい着眼点です。どちらも string の別名なので、構造的には同じ型として扱われます。unique symbol のブランドを交ぜて、名前だけが違う別物にします。symbol は export しないので、外から偽造できません。",
+          "reading": "すばらしいちゃくがんてんです。どちらも string のべつめいなので、こうぞうてきにはおなじかたとしてあつかわれます。unique symbol のぶらんどをまぜて、なまえだけがちがうべつものにします。symbol は export しないので、そとからぎぞうできません。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "declare const brand: unique symbol\n\nexport type Brand<T, B extends string> = T & { readonly [brand]: B }\n\nexport type UserId = Brand<string, 'UserId'>\nexport type PostId = Brand<string, 'PostId'>\n"
+        }
+      ]
+    },
+    {
+      "user": "DB から出てくるのはただの string なんだけど、それどうやって UserId にするの",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "as で押し切ると検査がそこで止まるので、型述語を入り口に置きます。value is UserId と書いた関数が true を返した枝でだけ、string が UserId に絞られます。実行時の検証と型が一致することを保証します。",
+          "reading": "as でおしきるとけんさがそこでとまるので、かたじゅつごをいりぐちにおきます。value is UserId とかいたかんすうが true をかえしたえだでだけ、string が UserId にしぼられます。じっこうじのけんしょうとかたがいっちすることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "const USER_ID = /^u_[0-9a-f]{8}$/\n\nexport function isUserId(value: string): value is UserId {\n  return USER_ID.test(value)\n}\n\nexport function asUserId(value: string): UserId {\n  if (!isUserId(value)) throw new TypeError(`not a UserId: ${value}`)\n  return value\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "プレフィックスは種類ごとに決まってるからテーブルにまとめたい。u_ が user で p_ が post",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's テーブルです。値を一箇所に集めておけば、正本はここだけになります。keyof typeof でキーの union も取れるので、種類の名前を別に書く必要はありません。",
+          "reading": "Here's てーぶるです。あたいをいっかしょにあつめておけば、せいほんはここだけになります。keyof typeof できーの union もとれるので、しゅるいのなまえをべつにかくひつようはありません。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "export const PREFIX: Record<string, string> = {\n  user: 'u_',\n  post: 'p_',\n}\n\nexport type IdKind = keyof typeof PREFIX\n"
+        }
+      ]
+    },
+    {
+      "user": "IdKind が string になってる。'user' | 'post' にならないし補完も出ない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、正確ではありませんでした。型注釈を付けた時点で、リテラルが string に広がっていました。as const で値を固定してから、satisfies で形だけ検査します。これで IdKind は 'user' | 'post' になります。",
+          "reading": "あらためてかくにんしたところ、せいかくではありませんでした。かたちゅうしゃくをつけたじてんで、りてらるが string にひろがっていました。as const であたいをこていしてから、satisfies でかたちだけけんさします。これで IdKind は 'user' | 'post' になります。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "export const PREFIX = {\n  user: 'u_',\n  post: 'p_',\n} as const satisfies Record<string, string>\n\nexport type IdKind = keyof typeof PREFIX\nexport type Prefix = (typeof PREFIX)[IdKind]\n"
+        }
+      ]
+    },
+    {
+      "user": "レビュー来た。PREFIX は ID_PREFIX に改名して。あと u_ は usr_ に変わったらしい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "名前と値だけ当てます。正規表現のリテラルは ^ と [ と $ をパターン側で逃がす必要があるので、そこだけ気をつけます。置換側は素のまま書けます。以上で、検証とプレフィックスの定義が揃います。",
+          "reading": "なまえとあたいだけあてます。せいきひょうげんのりてらるは ^ と [ と $ をぱたーんがわでにがすひつようがあるので、そこだけきをつけます。ちかんがわはすのままかけます。いじょうで、けんしょうとぷれふぃっくすのていぎがそろいます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/PREFIX/ID_PREFIX/g' -e \"s/user: 'u_'/user: 'usr_'/\" -e 's/\\^u_\\[0-9a-f\\]{8}\\$/^usr_[0-9a-f]{8}$/' src/db/repo.ts"
+        }
+      ]
+    }
+  ]
+}

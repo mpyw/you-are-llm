@@ -1,0 +1,44 @@
+{
+  "id": "linq-deferred-csharp-easy-en",
+  "title": "Stop the query running twice",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "csharp",
+  "summary": "Enumerating an IEnumerable twice hits the database twice. Where ToList belongs, and how to fold it into one query.",
+  "files": [
+    {
+      "path": "src/Billing/InvoiceReport.cs",
+      "content": "using System.Linq;\n\nnamespace Acme.Billing;\n\npublic sealed class InvoiceReport\n{\n    private readonly BillingDbContext _db;\n\n    public string Render(int customerId)\n    {\n        var invoices = _db.Invoices.Where(invoice => invoice.CustomerId == customerId);\n        var total = invoices.Sum(invoice => invoice.Amount);\n        var count = invoices.Count();\n        return $\"{count} invoices, {total:C}\";\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "the invoice report logs the same SQL twice. I only wrote the query once",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's what is happening: Where returns the query, not the result. An IEnumerable is evaluated every time it is enumerated, so Sum and Count each send it. Let's materialize it once with ToList."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public string Render(int customerId)\n{\n    var invoices = _db.Invoices\n        .Where(invoice => invoice.CustomerId == customerId)\n        .ToList();\n    var total = invoices.Sum(invoice => invoice.Amount);\n    var count = invoices.Count;\n    return $\"{count} invoices, {total:C}\";\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "so now I pull every row into memory for two numbers? not great either",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great point. Then fold it into a single query with GroupBy. The server sends back one row holding the count and the total, so the payload stays constant no matter how many invoices the customer has."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public string Render(int customerId)\n{\n    var summary = _db.Invoices\n        .Where(invoice => invoice.CustomerId == customerId)\n        .GroupBy(invoice => invoice.CustomerId)\n        .Select(group => new { Count = group.Count(), Total = group.Sum(invoice => invoice.Amount) })\n        .SingleOrDefault();\n    var count = summary?.Count ?? 0;\n    var total = summary?.Total ?? 0m;\n    return $\"{count} invoices, {total:C}\";\n}\n"
+        }
+      ]
+    }
+  ]
+}

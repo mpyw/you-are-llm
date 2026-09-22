@@ -1,0 +1,90 @@
+{
+  "id": "file-upload-php-hard-ja",
+  "title": "拡張子頼みのアップロードを finfo と保存名の作り直しで固める",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "自己申告の拡張子をやめ、保存名を自前で作り、保存先が基準ディレクトリの外に出ないことまで確かめる。",
+  "files": [
+    {
+      "path": "src/AvatarUpload.php",
+      "content": "<?php\n\nfinal class AvatarUpload\n{\n    public function __construct(private readonly string $dir)\n    {\n    }\n\n    public function save(array $file): string\n    {\n        $name = $file['name'];\n        $ext = strtolower(substr($name, strrpos($name, '.') + 1));\n        if (!in_array($ext, ['jpg', 'png', 'gif'])) {\n            throw new RuntimeException('bad extension');\n        }\n\n        $dest = $this->dir . '/' . $name;\n        move_uploaded_file($file['tmp_name'], $dest);\n\n        return $dest;\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "アバターのアップロードがレビューで刺さった。拡張子しか見てないのが駄目らしい。AvatarUpload 直して",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。拡張子は送信側の自己申告に過ぎません。finfo でファイルの実体から MIME を読み、許可リストと突き合わせます。判定の軸を、名前から中身へ移しましょう！",
+          "reading": "しょうちしました。かくちょうしはそうしんがわのじこしんこくにすぎません。finfo でふぁいるのじったいから MIME をよみ、きょかりすととつきあわせます。はんていのじくを、なまえからなかみへうつしましょう！"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "private const ALLOWED = ['image/jpeg', 'image/png'];\n\npublic function save(array $file): string\n{\n    $finfo = new finfo(FILEINFO_MIME_TYPE);\n    $mime = $finfo->file($file['tmp_name']);\n    if (!in_array($mime, self::ALLOWED, true)) {\n        throw new RuntimeException('unsupported type');\n    }\n\n    $dest = $this->dir . '/' . $file['name'];\n    move_uploaded_file($file['tmp_name'], $dest);\n\n    return $dest;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "name そのまま繋げてるじゃん。../../ とか入れられたらどこにでも置けるでしょ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。MIME の話に気を取られ、保存名をそのまま残していたのを見落としていました。送信側の名前は保存先に一切使いません。拡張子は MIME から引き、本体は random_bytes で作ります。これで保存名に区切り文字が混ざらないことを保証します。",
+          "reading": "もうしわけありません。MIME のはなしにきをとられ、ほぞんめいをそのままのこしていたのをみおとしていました。そうしんがわのなまえはほぞんさきにいっさいつかいません。かくちょうしは MIME からひき、ほんたいは random_bytes でつくります。これでほぞんめいにくぎりもじがまざらないことをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "private const EXTENSIONS = ['image/jpeg' => '.jpeg', 'image/png' => '.png'];\n\n$dest = $this->dir . '/' . bin2hex(random_bytes(16)) . self::EXTENSIONS[$mime];\nif (!move_uploaded_file($file['tmp_name'], $dest)) {\n    throw new RuntimeException('move failed');\n}\n\nreturn $dest;\n"
+        }
+      ]
+    },
+    {
+      "user": "あと error と size 全然見てないよね。tmp_name も本当にアップロードされたやつか確かめてる？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。move_uploaded_file の前に三つ確かめます。error が UPLOAD_ERR_OK であること、size が上限内であること、tmp_name が本当にアップロードされた一時ファイルであることです。どれか一つでも外れたら、その場で例外にします。",
+          "reading": "するどいごしてきです。move_uploaded_file のまえにみっつたしかめます。error が UPLOAD_ERR_OK であること、size がじょうげんないであること、tmp_name がほんとうにあっぷろーどされたいちじふぁいるであることです。どれかひとつでもはずれたら、そのばでれいがいにします。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {\n    throw new RuntimeException('upload failed');\n}\nif ($file['size'] > 2 * 1024 * 1024) {\n    throw new RuntimeException('too large');\n}\nif (!is_uploaded_file($file['tmp_name'])) {\n    throw new RuntimeException('not an upload');\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "2MB だと足りないって苦情きた。5MB にして。あと .jpeg じゃなくて .jpg で揃えて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "上限を 5MB に上げ、jpeg の拡張子を jpg に揃えます。掛け算の記号とピリオドはパターンの中でエスケープが要るので、二つの置換をまとめて流します。",
+          "reading": "じょうげんを 5MB にあげ、jpeg のかくちょうしを jpg にそろえます。かけざんのきごうとぴりおどはぱたーんのなかでえすけーぷがいるので、ふたつのちかんをまとめてながします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/2 \\* 1024 \\* 1024/5 * 1024 * 1024/' -e \"s/'\\.jpeg'/'.jpg'/\" src/AvatarUpload.php"
+        }
+      ]
+    },
+    {
+      "user": "最後にひとつ。保存先が本当に dir の下にあるか念のため確かめて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "保存先を realpath で正規化し、基準ディレクトリの配下にあることを確かめます。realpath は存在しないパスに false を返すため、ディレクトリ側を先に解決する点に注意することが重要です。",
+          "reading": "ほぞんさきを realpath でせいきかし、きじゅんでぃれくとりのはいかにあることをたしかめます。realpath はそんざいしないぱすに false をかえすため、でぃれくとりがわをさきにかいけつするてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "$base = realpath($this->dir);\nif ($base === false) {\n    throw new RuntimeException('bad directory');\n}\n\n$dest = $base . '/' . bin2hex(random_bytes(16)) . self::EXTENSIONS[$mime];\nif (!str_starts_with($dest, $base . '/')) {\n    throw new RuntimeException('path escaped the directory');\n}\n"
+        }
+      ]
+    }
+  ]
+}

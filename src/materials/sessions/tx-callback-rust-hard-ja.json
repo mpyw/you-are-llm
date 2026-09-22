@@ -1,0 +1,98 @@
+{
+  "id": "tx-callback-rust-hard-ja",
+  "title": "transaction にクロージャを渡すまでの地獄",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "rust",
+  "summary": "FnOnce のライフタイムで E0597、HRTB に直し、リトライで FnMut になり E0507、最後は BoxFuture。",
+  "files": [
+    {
+      "path": "src/db.rs",
+      "content": "pub struct Conn {\n    log: Vec<String>,\n}\n\n#[derive(Debug, thiserror::Error)]\npub enum DbError {\n    #[error(\"write conflict\")]\n    Conflict,\n}\n\npub struct Tx<'c> {\n    conn: &'c mut Conn,\n}\n\nimpl<'c> Tx<'c> {\n    pub fn execute(&mut self, sql: &str) -> Result<u64, DbError> {\n        self.conn.log.push(sql.to_string());\n        Ok(1)\n    }\n\n    pub fn commit(self) -> Result<(), DbError> {\n        Ok(())\n    }\n\n    pub fn rollback(self) -> Result<(), DbError> {\n        Ok(())\n    }\n}\n\npub struct Db {\n    conn: Conn,\n}\n\nimpl Db {\n    pub fn begin(&mut self) -> Result<Tx<'_>, DbError> {\n        Ok(Tx { conn: &mut self.conn })\n    }\n}\n"
+    },
+    {
+      "path": "src/seed.rs",
+      "content": "use crate::db::{Db, DbError};\n\npub fn seed(db: &mut Db, name: String) -> Result<(), DbError> {\n    let mut tx = db.begin()?;\n    tx.execute(&insert_sql(name))?;\n    tx.execute(\"update counters set n = n + 1\")?;\n    tx.commit()\n}\n\nfn insert_sql(name: String) -> String {\n    format!(\"insert into users (name) values ('{name}')\")\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "begin して、成功したら commit、失敗したら rollback、ってのを毎回手で書いてる。db.transaction(|tx| ...) にまとめたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。Db に transaction を生やします。クロージャを FnOnce で受け、Ok なら commit、Err なら rollback します。Tx は &mut Conn を持つので、self の借用と揃えて 'a を一本引いておきます。これでどの経路でも後始末が走ることを保証します。",
+          "reading": "しょうちしました。Db に transaction をはやします。くろーじゃを FnOnce でうけ、Ok なら commit、Err なら rollback します。Tx は &mut Conn をもつので、self のしゃくようとそろえて 'a をいっぽんひいておきます。これでどのけいろでもあとしまつがはしることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "pub fn transaction<'a, T, F>(&'a mut self, f: F) -> Result<T, DbError>\nwhere\n    F: FnOnce(&'a mut Tx<'a>) -> Result<T, DbError>,\n{\n    let mut tx = self.begin()?;\n    match f(&mut tx) {\n        Ok(value) => {\n            tx.commit()?;\n            Ok(value)\n        }\n        Err(error) => {\n            tx.rollback()?;\n            Err(error)\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "cargo check すら通らんのだが。E0597 で `tx` does not live long enough って出てる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどのシグネチャは 'a を呼び出し側に決めさせていました。f が要求する &'a mut Tx<'a> の 'a は関数の外で選ばれるので、中で作ったローカルの tx が短命すぎて E0597 になります。必要なのは呼ばれる側が毎回決めるライフタイム、つまり HRTB です。Note: for<'a> FnOnce(&'a mut Tx<'a>) も通りません。&mut の中では変性が効かず、Tx<'a> が実際の Tx<'_> と一致しないためです。'a と 'b を別に立てます。",
+          "reading": "もうしわけありません。さきほどのしぐねちゃは 'a をよびだしがわにきめさせていました。f がようきゅうする &'a mut Tx<'a> の 'a はかんすうのそとでえらばれるので、なかでつくったろーかるの tx がたんめいすぎて E0597 になります。ひつようなのはよばれるがわがまいかいきめるらいふたいむ、つまり HRTB です。Note: for<'a> FnOnce(&'a mut Tx<'a>) もとおりません。&mut のなかではへんせいがきかず、Tx<'a> がじっさいの Tx<'_> といっちしないためです。'a と 'b をべつにたてます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' \"s/transaction<'a, T, F>(&'a mut self/transaction<T, F>(\\&mut self/; s/FnOnce(&'a mut Tx<'a>)/for<'a, 'b> FnOnce(\\&'a mut Tx<'b>)/\" src/db.rs"
+        }
+      ]
+    },
+    {
+      "user": "通った。で追加。Conflict が返ってきたら 3 回までリトライして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "リトライすると f を複数回呼ぶので、FnOnce では足りません。順を追って、まず FnMut に上げます。置換側の & はマッチ全体を指すので、バックスラッシュで逃がします。",
+          "reading": "りとらいすると f をふくすうかいよぶので、FnOnce ではたりません。じゅんをおって、まず FnMut にあげます。ちかんがわの & はまっちぜんたいをさすので、ばっくすらっしゅでにがします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' \"s/mut self, f: F)/mut self, mut f: F)/; s/FnOnce(&'a mut Tx<'b>)/FnMut(\\&'a mut Tx<'b>)/\" src/db.rs"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "for attempt in 0..3 {\n    let mut tx = self.begin()?;\n    match f(&mut tx) {\n        Ok(value) => {\n            tx.commit()?;\n            return Ok(value);\n        }\n        Err(DbError::Conflict) if attempt < 2 => tx.rollback()?,\n        Err(error) => {\n            tx.rollback()?;\n            return Err(error);\n        }\n    }\n}\nErr(DbError::Conflict)\n"
+        }
+      ]
+    },
+    {
+      "user": "リトライは動いた。けど seed を transaction に載せ替えたら E0507 が出る。cannot move out of `name`, a captured variable in an `FnMut` closure って",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ご指摘のとおり、FnMut のクロージャは複数回呼ばれる前提なので、キャプチャした String をムーブできません。それが E0507 です。insert_sql を &str 受けに変えて、呼び出しを &name にすれば通ります。name.clone() でも通りますが、リトライのたびに確保が走る点に注意することが重要です。",
+          "reading": "ごしてきのとおり、FnMut のくろーじゃはふくすうかいよばれるぜんていなので、きゃぷちゃした String をむーぶできません。それが E0507 です。insert_sql を &str うけにかえて、よびだしを &name にすればとおります。name.clone() でもとおりますが、りとらいのたびにかくほがはしるてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "pub fn seed(db: &mut Db, name: String) -> Result<(), DbError> {\n    db.transaction(|tx| {\n        tx.execute(&insert_sql(&name))?;\n        tx.execute(\"update counters set n = n + 1\")?;\n        Ok(())\n    })\n}\n\nfn insert_sql(name: &str) -> String {\n    format!(\"insert into users (name) values ('{name}')\")\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "最後にもう一個だけごめん。これ全部 async にしたい。sqlx 使うことになった",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR、async クロージャがまだ安定していないので、戻り値を BoxFuture にします。返す Future が &mut Tx を借りたままなので、その借用のライフタイムを Future の型に載せる必要があります。BoxFuture<'a, ...> なら 'a は呼ばれるたびに決まります。sqlx の Pool::transaction もほぼ同じ形です。ポイントは、呼び出し側が Box::pin(async move { ... }) で包む必要があることです。",
+          "reading": "TL;DR、async くろーじゃがまだあんていしていないので、もどりちを BoxFuture にします。かえす Future が &mut Tx をかりたままなので、そのしゃくようのらいふたいむを Future のかたにのせるひつようがあります。BoxFuture<'a, ...> なら 'a はよばれるたびにきまります。sqlx の Pool::transaction もほぼおなじかたちです。ぽいんとは、よびだしがわが Box::pin(async move { ... }) でつつむひつようがあることです。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use futures::future::BoxFuture;\n\npub async fn transaction<T, F>(&mut self, mut f: F) -> Result<T, DbError>\nwhere\n    F: for<'a, 'b> FnMut(&'a mut Tx<'b>) -> BoxFuture<'a, Result<T, DbError>>,\n{\n    for attempt in 0..3 {\n        let mut tx = self.begin()?;\n        match f(&mut tx).await {\n            Ok(value) => {\n                tx.commit().await?;\n                return Ok(value);\n            }\n            Err(DbError::Conflict) if attempt < 2 => tx.rollback().await?,\n            Err(error) => {\n                tx.rollback().await?;\n                return Err(error);\n            }\n        }\n    }\n    Err(DbError::Conflict)\n}\n"
+        }
+      ]
+    }
+  ]
+}

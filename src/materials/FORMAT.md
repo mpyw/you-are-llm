@@ -72,9 +72,9 @@ Count a block's length by its typed target, which is the `reading` when there is
 
 | Difficulty | Turns | Blocks in total | Median block | Typical range |
 | --- | --- | --- | --- | --- |
-| `easy` | 2 | 3 to 4 | 104 characters | 65 to 186 |
-| `normal` | 3 | 5 to 7 | 149 characters | 79 to 287 |
-| `hard` | 4 to 5 | 8 to 11 | 168 characters | 95 to 307 |
+| `easy` | 2 | 3 to 4 | 135 characters | 84 to 293 |
+| `normal` | 3 | 5 to 7 | 165 characters | 79 to 309 |
+| `hard` | 4 to 5 | 8 to 11 | 187 characters | 99 to 355 |
 
 Those are measured over the sessions that ship today, not a target to hit. Prose blocks run short
 and code blocks run long, so the spread inside one session is wide by design. Only the block count

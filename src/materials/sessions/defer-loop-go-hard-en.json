@@ -1,0 +1,84 @@
+{
+  "id": "defer-loop-go-hard-en",
+  "title": "Deferred in a loop, evaluated too early",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "go",
+  "summary": "too many open files, a timer that always reads 0s, transactions held open, and a swallowed Close.",
+  "files": [
+    {
+      "path": "internal/report/export.go",
+      "content": "package report\n\nimport (\n  \"database/sql\"\n  \"log\"\n  \"os\"\n  \"time\"\n)\n\nfunc ExportAll(db *sql.DB, names []string) error {\n  start := time.Now()\n  defer log.Printf(\"export took %s\", time.Since(start))\n  for _, name := range names {\n    f, err := os.Create(outPath(name))\n    if err != nil {\n      return err\n    }\n    defer f.Close()\n    tx, err := db.Begin()\n    if err != nil {\n      return err\n    }\n    defer tx.Rollback()\n    if err := writeRows(tx, f, name); err != nil {\n      return err\n    }\n    if err := tx.Commit(); err != nil {\n      return err\n    }\n  }\n  return nil\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "ExportAll died with too many open files on a 10k name list. it was fine with 100",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "A defer runs when the function returns, not when the iteration ends, so ten thousand files and ten thousand transactions pile up before any of them close. Cleanup for one item belongs in a function that handles one item, so the loop body moves into exportOne and each item closes on its own."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func ExportAll(db *sql.DB, names []string) error {\n  start := time.Now()\n  defer log.Printf(\"export took %s\", time.Since(start))\n  for _, name := range names {\n    if err := exportOne(db, name); err != nil {\n      return fmt.Errorf(\"export %s: %w\", name, err)\n    }\n  }\n  return nil\n}\n\nfunc exportOne(db *sql.DB, name string) error {\n  f, err := os.Create(outPath(name))\n  if err != nil {\n    return err\n  }\n  defer f.Close()\n  tx, err := db.Begin()\n  if err != nil {\n    return err\n  }\n  defer tx.Rollback()\n  if err := writeRows(tx, f, name); err != nil {\n    return err\n  }\n  return tx.Commit()\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "while you are in there, that export took line prints 0s no matter how much data goes through",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Same keyword, different half of it. A defer postpones the call, but the arguments are evaluated on the line where the defer is written. time.Since(start) is computed right after start, so a near zero duration is stored and printed at the end. Anything that has to wait goes inside a function literal."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "start := time.Now()\ndefer func() {\n  log.Printf(\"export took %s\", time.Since(start))\n}()\n"
+        }
+      ]
+    },
+    {
+      "user": "so tx.Rollback() was stacking up 10k deep too? and calling Rollback on a committed tx still feels wrong to me",
+      "assistant": [
+        {
+          "kind": "command",
+          "body": "grep -n 'defer' internal/report/export.go"
+        },
+        {
+          "kind": "text",
+          "body": "It was, and after the move it runs once per item. Rollback on a committed transaction returns sql.ErrTxDone and touches no data, which is why the deferred rollback is the normal shape. The dropped return value is worth making explicit so linters stop flagging it."
+        }
+      ]
+    },
+    {
+      "user": "also the Close on the os.Create side throws its error away. that is a write, a flush can fail there",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my earlier answer was incomplete. I said each item closes, and never looked at what closing reported. Close on a write is where the last bytes land, so dropping it reports a truncated file as a success. A named return lets the deferred Close promote its error when nothing else already failed."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func exportOne(db *sql.DB, name string) (err error) {\n  f, err := os.Create(outPath(name))\n  if err != nil {\n    return err\n  }\n  defer func() {\n    if cerr := f.Close(); cerr != nil && err == nil {\n      err = fmt.Errorf(\"close %s: %w\", name, cerr)\n    }\n  }()\n  tx, err := db.Begin()\n  if err != nil {\n    return err\n  }\n  defer func() { _ = tx.Rollback() }()\n  if err := writeRows(tx, f, name); err != nil {\n    return err\n  }\n  return tx.Commit()\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "thanks. last thing, say report instead of export in that log line, and give me ms not s",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Milliseconds returns an int64, so the verb becomes %d. One sed covers the wording, the verb and the value. Per item timings will be the next thing you want, and the same shape drops straight into exportOne."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's|export took %s|report took %dms|' -e 's|time.Since(start)|time.Since(start).Milliseconds()|' internal/report/export.go"
+        }
+      ]
+    }
+  ]
+}

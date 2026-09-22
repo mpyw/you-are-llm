@@ -13,8 +13,8 @@
 
 ## Status
 
-The trainer runs end to end. Sessions cover eight programming languages, three difficulties and two
-natural languages. AZIK is not implemented yet.
+The trainer runs end to end. 96 sessions cover eight programming languages, three difficulties and
+two natural languages, with two scenarios in every cell of that grid. AZIK is not implemented yet.
 
 ## Commands
 

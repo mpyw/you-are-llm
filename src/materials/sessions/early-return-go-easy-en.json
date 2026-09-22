@@ -1,0 +1,43 @@
+{
+  "id": "early-return-go-easy-en",
+  "title": "Flatten the staircase of error checks",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "go",
+  "summary": "Turn nested err == nil branches into early returns so the happy path sits at the left margin.",
+  "files": [
+    {
+      "path": "internal/config/load.go",
+      "content": "package config\n\nimport (\n  \"encoding/json\"\n  \"os\"\n)\n\nfunc Load(path string) (*Config, error) {\n  f, err := os.Open(path)\n  if err == nil {\n    defer f.Close()\n    var raw rawConfig\n    if err := json.NewDecoder(f).Decode(&raw); err == nil {\n      cfg, err := raw.normalize()\n      if err == nil {\n        if err := cfg.Validate(); err == nil {\n          return cfg, nil\n        } else {\n          return nil, err\n        }\n      } else {\n        return nil, err\n      }\n    } else {\n      return nil, err\n    }\n  } else {\n    return nil, err\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "config.Load walks off the right edge of my screen. please fix",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Go reads the other way around: return the error first and keep the happy path at the left margin. Every else goes away, and falling off the bottom means success."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func Load(path string) (*Config, error) {\n  f, err := os.Open(path)\n  if err != nil {\n    return nil, err\n  }\n  defer f.Close()\n\n  var raw rawConfig\n  if err := json.NewDecoder(f).Decode(&raw); err != nil {\n    return nil, err\n  }\n  cfg, err := raw.normalize()\n  if err != nil {\n    return nil, err\n  }\n  if err := cfg.Validate(); err != nil {\n    return nil, err\n  }\n  return cfg, nil\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "much better. one more thing, i cannot tell which step failed. just the decode one needs the file name",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: this needs fmt in the import block. Only the decode return changes, and %w keeps the chain so the caller can still reach the inner error with errors.Is."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e '/Decode(&raw)/{' -e 'n' -e 's|return nil, err|return nil, fmt.Errorf(\"decode %s: %w\", path, err)|' -e '}' internal/config/load.go"
+        }
+      ]
+    }
+  ]
+}

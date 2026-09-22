@@ -1,0 +1,46 @@
+{
+  "id": "string-builder-java-easy-ja",
+  "title": "ループの文字列連結を StringBuilder にする",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "java",
+  "summary": "CSV を一行ずつ + で足していたのをやめる。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/CsvWriter.java",
+      "content": "package com.example;\n\nimport java.util.List;\n\npublic class CsvWriter {\n    public String write(List<String[]> rows) {\n        String out = \"\";\n        for (String[] row : rows) {\n            for (String cell : row) {\n                out = out + cell + \",\";\n            }\n            out = out + \"\\n\";\n        }\n        return out;\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "10 万行の CSV 吐かせたら 1 分帰ってこない。ここ遅いよね?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、ここが原因です。String は不変なので、out = out + cell のたびに新しい文字配列を確保して、それまでの分を丸ごとコピーしています。行数の二乗に比例した時間がかかります。Now、StringBuilder に置き換えます。",
+          "reading": "けつろんからいうと、ここがげんいんです。String はふへんなので、out = out + cell のたびにあたらしいもじはいれつをかくほして、それまでのぶんをまるごとコピーしています。ぎょうすうのじじょうにひれいしたじかんがかかります。Now、StringBuilder におきかえます。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "public String write(List<String[]> rows) {\n    StringBuilder out = new StringBuilder();\n    for (String[] row : rows) {\n        for (String cell : row) {\n            out.append(cell).append(',');\n        }\n        out.append('\\n');\n    }\n    return out.toString();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "速くなった。あと各行の末尾に余計なカンマ付いてるの、ついでに取れる?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。行を書き終えたあとに setLength で 1 文字だけ縮めます。セルごとに先頭かどうかを毎回判定するより、書いてから削るほうが分岐が少なく済みます。列が空の行だけは守りを入れることをお勧めします。",
+          "reading": "しょうちしました。ぎょうをかきおえたあとに setLength で 1 もじだけちぢめます。セルごとにせんとうかどうかをまいかいはんていするより、かいてからけずるほうがぶんきがすくなくすみます。れつがからのぎょうだけはまもりをいれることをおすすめします。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "for (String[] row : rows) {\n    for (String cell : row) {\n        out.append(cell).append(',');\n    }\n    if (row.length > 0) {\n        out.setLength(out.length() - 1);\n    }\n    out.append('\\n');\n}\n"
+        }
+      ]
+    }
+  ]
+}

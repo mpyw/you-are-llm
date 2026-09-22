@@ -1,0 +1,64 @@
+{
+  "id": "try-with-resources-java-normal-ja",
+  "title": "自前の finally をやめて try-with-resources にする",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "java",
+  "summary": "close 漏れを直し、close の例外を捨てていた save が途中で問題になる。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/ConfigLoader.java",
+      "content": "package com.example;\n\nimport java.io.BufferedReader;\nimport java.io.BufferedWriter;\nimport java.io.FileReader;\nimport java.io.FileWriter;\nimport java.io.IOException;\nimport java.util.Properties;\n\npublic class ConfigLoader {\n    public Properties load(String path) throws IOException {\n        Properties props = new Properties();\n        BufferedReader reader = new BufferedReader(new FileReader(path));\n        props.load(reader);\n        reader.close();\n        return props;\n    }\n\n    public void save(String path, Properties props) throws IOException {\n        BufferedWriter writer = null;\n        try {\n            writer = new BufferedWriter(new FileWriter(path));\n            props.store(writer, null);\n        } finally {\n            if (writer != null) {\n                try {\n                    writer.close();\n                } catch (IOException ignored) {\n                }\n            }\n        }\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "運用からファイルディスクリプタが枯渇するって言われた。設定読むとこが怪しいと思う",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: load が原因です。props.load で例外が出ると reader.close に到達しないので、読み込みが失敗するたびに一つずつ開いたまま残ります。try-with-resources に直せば、閉じる処理は言語が保証します。",
+          "reading": "TL;DR: load がげんいんです。props.load でれいがいがでると reader.close にとうたつしないので、よみこみがしっぱいするたびにひとつずつひらいたままのこります。try-with-resources になおせば、とじるしょりはげんごがほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "public Properties load(String path) throws IOException {\n    Properties props = new Properties();\n    try (BufferedReader reader = new BufferedReader(new FileReader(path))) {\n        props.load(reader);\n    }\n    return props;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "save のほうは finally 書いてあるから、そっちは大丈夫だよね?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "おっしゃるとおり、save では close 自体は必ず呼ばれます。load 側のような開きっぱなしは起きません。念のため、同じ書き方が他に残っていないかを網羅的に洗い出しておきます。",
+          "reading": "おっしゃるとおり、save では close じたいはかならずよばれます。load がわのようなひらきっぱなしはおきません。ねんのため、おなじかきかたがほかにのこっていないかをもうらてきにあらいだしておきます。"
+        },
+        {
+          "kind": "command",
+          "body": "grep -rn \"new FileReader(\\|new FileWriter(\" src/main/java --include=*.java"
+        }
+      ]
+    },
+    {
+      "user": "大丈夫じゃなかった。ディスクが埋まったとき例外も出ないまま設定が途中で切れてた。あと FileReader はプラットフォーム依存だからやめてって前に言われてる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "重要な訂正があります。申し訳ありません。先ほどの回答は正確ではありませんでした。BufferedWriter の close は内部で flush を行うので、そこで捨てている IOException は書き込みの失敗そのものです。ignored という名前の変数が、データが落ちた事実を消していました。save を try-with-resources に直し、ついでに Files 経由に寄せます。Files.newBufferedReader は既定が UTF-8 なので、環境の default charset に依存しなくなるという点に注意することが重要です。",
+          "reading": "じゅうようなていせいがあります。もうしわけありません。さきほどのかいとうはせいかくではありませんでした。BufferedWriter の close はないぶで flush をおこなうので、そこですてている IOException はかきこみのしっぱいそのものです。ignored というなまえのへんすうが、データがおちたじじつをけしていました。save を try-with-resources になおし、ついでに Files けいゆによせます。Files.newBufferedReader はきていが UTF-8 なので、かんきょうの default charset にいぞんしなくなるというてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "public void save(String path, Properties props) throws IOException {\n    try (BufferedWriter writer = Files.newBufferedWriter(Path.of(path))) {\n        props.store(writer, null);\n    }\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/new BufferedReader(new FileReader(path))/Files.newBufferedReader(Path.of(path))/' -e 's/^import java\\.io\\.FileReader;/import java.nio.file.Files;/' -e 's/^import java\\.io\\.FileWriter;/import java.nio.file.Path;/' src/main/java/com/example/ConfigLoader.java"
+        }
+      ]
+    }
+  ]
+}
