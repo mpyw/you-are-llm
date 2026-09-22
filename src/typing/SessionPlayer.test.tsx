@@ -34,7 +34,10 @@ const SESSION: Session = {
 function press(key: string): void {
   act(() => {
     window.dispatchEvent(
-      new KeyboardEvent('keydown', { key: key === '\n' ? 'Enter' : key, cancelable: true }),
+      new KeyboardEvent('keydown', {
+        key: key === '\n' ? 'Enter' : key === '\t' ? 'Tab' : key,
+        cancelable: true,
+      }),
     )
   })
 }
@@ -150,6 +153,35 @@ describe('SessionPlayer', () => {
     press('l')
     expect(figure(container, '.hud', 'Accuracy')).toBe('100%')
     expect(figure(container, '.hud', 'Combo')).toBe(`×${String(before + 1)}`)
+  })
+
+  it('takes Tab for a step of indent', () => {
+    const indented: Session = {
+      ...SESSION,
+      turns: [
+        {
+          user: 'インデントして。',
+          assistant: [
+            { kind: 'code', body: 'if (x) {\n  return 1\n}', reading: null, lang: 'ts' },
+          ],
+        },
+      ],
+    }
+    const { container } = render(<SessionPlayer session={indented} />)
+    for (const key of 'if (x) {') press(key)
+    press('\n')
+    press('\t')
+    for (const key of 'return 1') press(key)
+    // Eight keys, a newline, one Tab for the two spaces, then eight more.
+    expect(figure(container, '.hud', 'Combo')).toBe('×18')
+    expect(figure(container, '.hud', 'Accuracy')).toBe('100%')
+  })
+
+  it('leaves Tab alone when no indent is due', () => {
+    const { container } = render(<SessionPlayer session={SESSION} />)
+    press('\t')
+    expect(figure(container, '.hud', 'Accuracy')).toBe('100%')
+    expect(figure(container, '.hud', 'Combo')).toBe('×0')
   })
 
   it('counts a rejected key without advancing', () => {

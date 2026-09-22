@@ -128,3 +128,13 @@ what makes `$` cheap however often it appears, and it is the part to keep if the
 rewritten. Tokens shared by most languages are excluded, because a bracket is muscle memory.
 
 Measured per session: Rust 18.1 shapes, PHP 13.3, Java 7.6.
+
+## Tab is the page's key first
+
+Tab moves focus. Swallowing it outright would trap anyone working the page from the keyboard, so it
+is only taken when the session is actually waiting on an indent, which the engine already knows
+from `nextKeys`. Anywhere else it is left alone, and it is never counted as a mistake.
+
+The indent itself is an alternative spelling, the same machinery that lets `し` take `si`, `shi` and
+`ci`. A run of spaces at the start of a line is one chunk that accepts either the spaces or a tab.
+Do not add a special case to the keyboard handler for it.

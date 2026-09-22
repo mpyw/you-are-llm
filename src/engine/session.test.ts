@@ -90,6 +90,36 @@ describe('digraphs that would shadow a single kana', () => {
   })
 })
 
+describe('indentation', () => {
+  const code = ['function f() {', '  if (x) {', '    return 1', '  }', '}'].join('\n')
+
+  it('takes a tab for each step of indent', () => {
+    const session = new TypingSession(code)
+    for (const key of 'function f() {\n\tif (x) {\n\t\treturn 1') {
+      expect(session.press(key), JSON.stringify(key)).toBe(true)
+    }
+    expect(session.state.committed).toBe(code.indexOf('return 1') + 'return 1'.length)
+  })
+
+  it('still takes the spaces themselves', () => {
+    const session = new TypingSession(code)
+    for (const key of 'function f() {\n  if (x) {') {
+      expect(session.press(key), JSON.stringify(key)).toBe(true)
+    }
+    expect(session.state.committed).toBe(code.indexOf('if (x) {') + 'if (x) {'.length)
+  })
+
+  it('offers no tab where nothing is indented', () => {
+    expect(new TypingSession('hello').state.nextKeys).toEqual(['h'])
+  })
+
+  it('offers no tab part way along a line', () => {
+    const session = new TypingSession(code)
+    for (const key of 'function') session.press(key)
+    expect(session.state.nextKeys).not.toContain('\t')
+  })
+})
+
 describe('a japanese keyboard', () => {
   it.each(['\\', '\u00a5', '\uffe5'])('types a backslash with %j', (key) => {
     // A JIS layout sends a yen sign from the key a backslash lives on.

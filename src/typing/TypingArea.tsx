@@ -4,9 +4,9 @@ import { Speaker } from './Speaker'
 import type { Step } from './steps'
 import { Thinking } from './Thinking'
 
-/** Newlines have to be visible on the single line of key hints. */
+/** Newlines and tabs have to be visible on the single line of key hints. */
 function visible(keys: string): string {
-  return keys.replaceAll('\n', '⏎')
+  return keys.replaceAll('\n', '⏎').replaceAll('\t', '⇥')
 }
 
 const HINT_TAIL = 24

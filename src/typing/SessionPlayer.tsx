@@ -64,14 +64,18 @@ export function SessionPlayer({ session }: { readonly session: Session }) {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
       if (event.metaKey || event.ctrlKey || event.altKey) return
-      const key = event.key === 'Enter' ? '\n' : event.key
+      const key = event.key === 'Enter' ? '\n' : event.key === 'Tab' ? '\t' : event.key
       if (key.length !== 1) return
-      event.preventDefault()
 
       const current = running.current
       const engine = engines[current.index]
       if (engine === undefined) return
 
+      // Tab belongs to the page unless the session is waiting on an indent, so
+      // it goes on moving focus rather than being counted as a mistake.
+      if (key === '\t' && !engine.state.nextKeys.includes('\t')) return
+
+      event.preventDefault()
       const now = Date.now()
       const startedAt = current.startedAt ?? now
       const accepted = engine.press(key)
