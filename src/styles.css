@@ -72,16 +72,14 @@ h2 {
 .list ul {
   list-style: none;
   padding: 0;
-  margin: 1.5rem 0 0;
+  margin: 0.75rem 0 0;
   display: grid;
   gap: 0.75rem;
 }
 
 .list li a {
   display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: baseline;
-  gap: 0.75rem;
+  gap: 0.35rem;
   padding: 1rem;
   border: 1px solid var(--line);
   border-radius: 0.5rem;
@@ -95,24 +93,96 @@ h2 {
 }
 
 .list .summary {
-  grid-column: 2;
   font-size: 0.9rem;
 }
 
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+}
+
 .badge {
-  grid-row: 1 / span 2;
   font-family: var(--mono);
-  font-size: 0.75rem;
+  font-size: 0.72rem;
+  line-height: 1.6;
   border: 1px solid var(--line);
   border-radius: 0.25rem;
-  padding: 0.1rem 0.4rem;
+  padding: 0 0.4rem;
   color: var(--dim);
 }
 
+.badge.is-easy {
+  color: var(--done);
+  border-color: color-mix(in srgb, var(--done) 40%, var(--line));
+}
+
+.badge.is-normal {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+}
+
+.badge.is-hard {
+  color: var(--error);
+  border-color: color-mix(in srgb, var(--error) 40%, var(--line));
+}
+
 .meta {
-  grid-row: 1 / span 2;
   color: var(--dim);
+  font-size: 0.78rem;
+}
+
+/* Filters */
+
+.filters {
+  display: grid;
+  gap: 0.5rem;
+  margin-block-start: 1.5rem;
+}
+
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.filter-label {
+  inline-size: 5.5rem;
+  flex: none;
+  color: var(--dim);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.chip {
   font-size: 0.8rem;
+  line-height: 1.8;
+  padding: 0 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--dim);
+}
+
+.chip:hover {
+  border-color: var(--accent);
+  text-decoration: none;
+}
+
+.chip[data-on='true'] {
+  color: var(--bg);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.count {
+  margin: 1rem 0 0;
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 0.78rem;
 }
 
 /* Player */

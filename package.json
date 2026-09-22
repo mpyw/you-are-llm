@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "check:material": "node scripts/check-material.mjs src/materials/sessions/*.json"
   },
   "dependencies": {
     "@tanstack/react-router": "^1.170.38",

@@ -1,0 +1,44 @@
+{
+  "id": "error-from-rust-easy-en",
+  "title": "Wire PORT parsing through ?",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "rust",
+  "summary": "Swap the hardcoded 8080 for a parse and grow one #[from] variant on the error type.",
+  "files": [
+    {
+      "path": "src/config.rs",
+      "content": "use std::env;\n\n#[derive(Debug, thiserror::Error)]\npub enum ConfigError {\n    #[error(\"PORT is not set\")]\n    Missing,\n}\n\npub fn port() -> Result<u16, ConfigError> {\n    let raw = env::var(\"PORT\").map_err(|_| ConfigError::Missing)?;\n    let _ = raw;\n    Ok(8080)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "port() returns 8080 no matter what. make it actually parse the env var",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Adding raw.parse(). ParseIntError needs a #[from] variant on ConfigError for ? to convert."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "#[derive(Debug, thiserror::Error)]\npub enum ConfigError {\n    #[error(\"PORT is not set\")]\n    Missing,\n    #[error(\"PORT is not a number: {0}\")]\n    NotANumber(#[from] std::num::ParseIntError),\n}\n\npub fn port() -> Result<u16, ConfigError> {\n    let raw = env::var(\"PORT\").map_err(|_| ConfigError::Missing)?;\n    Ok(raw.parse()?)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ugh actually no. if PORT isn't set just use 8080, don't blow up",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Dropping Missing. Unset PORT falls back to 8080, and the unused variant goes with it."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "#[derive(Debug, thiserror::Error)]\npub enum ConfigError {\n    #[error(\"PORT is not a number: {0}\")]\n    NotANumber(#[from] std::num::ParseIntError),\n}\n\npub fn port() -> Result<u16, ConfigError> {\n    let Ok(raw) = env::var(\"PORT\") else {\n        return Ok(8080);\n    };\n    Ok(raw.parse()?)\n}\n"
+        }
+      ]
+    }
+  ]
+}

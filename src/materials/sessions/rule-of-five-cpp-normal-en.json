@@ -1,0 +1,66 @@
+{
+  "id": "rule-of-five-cpp-normal-en",
+  "title": "Rule of three, five, then zero",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "cpp",
+  "summary": "A double close, copies deleted, moves added, then unique_ptr takes all five away.",
+  "files": [
+    {
+      "path": "src/log/log_file.h",
+      "content": "#pragma once\n\n#include <cstdio>\n#include <string>\n\nclass LogFile {\npublic:\n  explicit LogFile(const std::string& path) : fp_(std::fopen(path.c_str(), \"a\")) {}\n  ~LogFile() { if (fp_ != nullptr) std::fclose(fp_); }\n\n  void write(const std::string& line) { std::fputs(line.c_str(), fp_); }\n\nprivate:\n  std::FILE* fp_;\n};\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "put LogFile in a vector and it double closes at shutdown. there IS a destructor",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "The implicit copy constructor copies fp_ as it stands, so two objects close the same handle. Writing a destructor means you own the copy operations too. Start by banning the copy."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "LogFile(const LogFile&) = delete;\nLogFile& operator=(const LogFile&) = delete;\n"
+        }
+      ]
+    },
+    {
+      "user": "builds, but now push_back does not compile. someone said rule of three at me, is that this?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "My fault, deleting the copies also suppresses the implicit move. Destructor plus the two copies is the rule of three, and the two moves on top make it five. push_back works once the moves exist."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "LogFile(LogFile&& other) noexcept : fp_(other.fp_) { other.fp_ = nullptr; }\n\nLogFile& operator=(LogFile&& other) noexcept {\n  std::swap(fp_, other.fp_);\n  return *this;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "writing five of these by hand is a drag. can we get to rule of zero",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "A unique_ptr with a custom deleter throws all five away. sed swaps the member and the initializer and drops the destructor line. The & on the right side of a substitution means the whole match, so it gets escaped."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/std::FILE\\* fp_;/std::unique_ptr<std::FILE, int (*)(std::FILE*)> fp_;/; s/\"a\"))/\"a\"), \\&std::fclose)/; /~LogFile/d' src/log/log_file.h"
+        },
+        {
+          "kind": "text",
+          "body": "Only write is left. The raw handle becomes get(), plus the include."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include <memory>\n\nvoid write(const std::string& line) { std::fputs(line.c_str(), fp_.get()); }\n"
+        }
+      ]
+    }
+  ]
+}

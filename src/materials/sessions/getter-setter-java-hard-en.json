@@ -1,0 +1,89 @@
+{
+  "id": "getter-setter-java-hard-en",
+  "title": "Every getter and setter, then a record",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "java",
+  "summary": "Accessors written by hand for every new field, deleted at the end by one record.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/Invoice.java",
+      "content": "package com.example;\n\npublic class Invoice {\n    private String number;\n    private long amount;\n\n    public String getNumber() {\n        return number;\n    }\n\n    public void setNumber(String number) {\n        this.number = number;\n    }\n\n    public long getAmount() {\n        return amount;\n    }\n\n    public void setAmount(long amount) {\n        this.amount = amount;\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/InvoicePrinter.java",
+      "content": "package com.example;\n\npublic class InvoicePrinter {\n    public String print(Invoice invoice) {\n        return invoice.getNumber() + \" \" + invoice.getAmount();\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "add issue date, tax rate and currency to Invoice. getters and setters for all of them",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Adding them. Issue date as LocalDate, tax rate as BigDecimal, currency as String. Those pull in imports from java.time and java.math. The accessors follow the shape already in the file, straight down the page."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "private LocalDate issuedAt;\nprivate BigDecimal taxRate;\nprivate String currency;\n\npublic LocalDate getIssuedAt() {\n    return issuedAt;\n}\n\npublic void setIssuedAt(LocalDate issuedAt) {\n    this.issuedAt = issuedAt;\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "public BigDecimal getTaxRate() {\n    return taxRate;\n}\n\npublic void setTaxRate(BigDecimal taxRate) {\n    this.taxRate = taxRate;\n}\n\npublic String getCurrency() {\n    return currency;\n}\n\npublic void setCurrency(String currency) {\n    this.currency = currency;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "also need a due date. and currency comes from the constructor so drop that setter",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Due date goes in as dueDate with its own getter and setter. Currency loses the setter and gets set once through the constructor, so anything already calling setCurrency has to move to the constructor too."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "private LocalDate dueDate;\n\npublic LocalDate getDueDate() {\n    return dueDate;\n}\n\npublic void setDueDate(LocalDate dueDate) {\n    this.dueDate = dueDate;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "setCurrency is still there. also a test just called setAmount(-1) and it went through",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "You are right, I left setCurrency in. Cutting it as a range, from the signature line down to its closing brace, then putting a guard in setAmount so a negative amount never reaches the field."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/public void setCurrency/,/^    }$/d' src/main/java/com/example/Invoice.java"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "public void setAmount(long amount) {\n    if (amount < 0) {\n        throw new IllegalArgumentException(\"amount must not be negative\");\n    }\n    this.amount = amount;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "scrap all that, make it a record. turns out only one place ever called a setter",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Turning it into a record. The components are final, so every setter goes away. The one place that changed the amount gets withAmount instead. Callers lose the get prefix, so InvoicePrinter needs a pass too."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "public record Invoice(String number, long amount, LocalDate issuedAt,\n        BigDecimal taxRate, String currency, LocalDate dueDate) {\n    public Invoice {\n        if (amount < 0) {\n            throw new IllegalArgumentException(\"amount must not be negative\");\n        }\n    }\n\n    public Invoice withAmount(long value) {\n        return new Invoice(number, value, issuedAt, taxRate, currency, dueDate);\n    }\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/\\.getNumber()/.number()/g' -e 's/\\.getAmount()/.amount()/g' src/main/java/com/example/InvoicePrinter.java"
+        }
+      ]
+    }
+  ]
+}

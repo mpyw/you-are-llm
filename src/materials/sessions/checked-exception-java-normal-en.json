@@ -1,0 +1,57 @@
+{
+  "id": "checked-exception-java-normal-en",
+  "title": "Stop swallowing the checked exception",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "java",
+  "summary": "An IOException caught and turned into null, until the exception type changes mid-session.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/ReportService.java",
+      "content": "package com.example;\n\nimport java.io.IOException;\nimport java.nio.file.Files;\nimport java.nio.file.Path;\n\npublic class ReportService {\n    public String load(Path path) {\n        try {\n            return Files.readString(path);\n        } catch (IOException e) {\n            e.printStackTrace();\n            return null;\n        }\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "when the report comes back empty there is nothing anywhere saying why. this looks like the place",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "It is. The catch prints the trace and returns null, so a read failure and an empty file look identical to every caller. Stop swallowing it and rethrow with the path attached."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "public String load(Path path) {\n    try {\n        return Files.readString(path);\n    } catch (IOException e) {\n        throw new UncheckedIOException(\"cannot read \" + path, e);\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "load is called from like 300 places. am I wrapping all of those in try? not doing that",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "You are not. UncheckedIOException extends RuntimeException, so every caller compiles untouched. The only thing missing is one import line."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import java.io.IOException;\nimport java.io.UncheckedIOException;\nimport java.nio.file.Files;\nimport java.nio.file.Path;\n"
+        }
+      ]
+    },
+    {
+      "user": "forgot to say, we throw ReportException everywhere else. use that one. it extends RuntimeException",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "My mistake, I did not check what the codebase already throws. Swapping both the import and the throw site. It is still a RuntimeException, so nothing on the calling side changes."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/^import java\\.io\\.UncheckedIOException;/import com.example.ReportException;/' -e 's/new UncheckedIOException(/new ReportException(/' src/main/java/com/example/ReportService.java"
+        }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useMemo, useState } from 'react'
 import type { SessionState } from '../engine'
 import type { Block, Session } from '../materials'
+import { CODE_LANGUAGE_LABELS, DIFFICULTY_LABELS } from '../materials'
 import { TypingArea } from './TypingArea'
 import { accuracy, formatDuration, keysPerMinute } from './stats'
 import { toSteps } from './steps'
@@ -49,6 +50,13 @@ export function SessionPlayer({ session }: { readonly session: Session }) {
     <article className="player">
       <header className="player-head">
         <h1>{session.title}</h1>
+        <p className="tags">
+          <span className="badge">{CODE_LANGUAGE_LABELS[session.codeLanguage]}</span>
+          <span className={`badge is-${session.difficulty}`}>
+            {DIFFICULTY_LABELS[session.difficulty]}
+          </span>
+          <span className="badge">{session.language}</span>
+        </p>
         <p className="summary">{session.summary}</p>
         <ProgressBar current={progress.index} total={steps.length} />
       </header>

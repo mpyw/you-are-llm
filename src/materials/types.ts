@@ -11,7 +11,7 @@ export interface Block {
    * reading here, because an IME turns kana into kanji, not the other way round.
    */
   readonly reading: string | null
-  /** Language tag for `code` blocks, null otherwise. */
+  /** Highlight tag for `code` blocks, null otherwise. */
   readonly lang: string | null
 }
 
@@ -26,12 +26,46 @@ export interface SourceFile {
   readonly content: string
 }
 
+/** The language the session is written in. */
 export type Language = 'ja' | 'en'
+
+/** How long and how awkward the session is. */
+export type Difficulty = 'easy' | 'normal' | 'hard'
+
+/** The language of the code under discussion. */
+export type CodeLanguage =
+  | 'c'
+  | 'cpp'
+  | 'csharp'
+  | 'go'
+  | 'java'
+  | 'php'
+  | 'rust'
+  | 'typescript'
+
+export const CODE_LANGUAGE_LABELS: Readonly<Record<CodeLanguage, string>> = {
+  c: 'C',
+  cpp: 'C++',
+  csharp: 'C#',
+  go: 'Go',
+  java: 'Java',
+  php: 'PHP',
+  rust: 'Rust',
+  typescript: 'TypeScript',
+}
+
+export const DIFFICULTY_LABELS: Readonly<Record<Difficulty, string>> = {
+  easy: 'Easy',
+  normal: 'Normal',
+  hard: 'Hard',
+}
 
 export interface Session {
   readonly id: string
   readonly title: string
   readonly language: Language
+  readonly difficulty: Difficulty
+  readonly codeLanguage: CodeLanguage
   readonly summary: string
   readonly files: readonly SourceFile[]
   readonly turns: readonly Turn[]

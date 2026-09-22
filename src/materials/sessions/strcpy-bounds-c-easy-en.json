@@ -1,0 +1,44 @@
+{
+  "id": "strcpy-bounds-c-easy-en",
+  "title": "Replace strcpy with snprintf",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "c",
+  "summary": "Swap a strcpy into a fixed buffer for snprintf, then fix the off by one.",
+  "files": [
+    {
+      "path": "src/log/format.c",
+      "content": "#include <stdio.h>\n#include <string.h>\n\nvoid format_line(char *out, const char *user, const char *msg) {\n  char buf[64];\n  strcpy(buf, user);\n  strcat(buf, \": \");\n  strcat(buf, msg);\n  strcpy(out, buf);\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "format_line got flagged in review, says it can overflow. can you patch it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "strcpy and strcat never look at the size, so a user over 63 bytes writes past buf. Building the line with snprintf instead, and taking the output size as an argument."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "void format_line(char *out, size_t size, const char *user, const char *msg) {\n  snprintf(out, size - 1, \"%s: %s\", user, msg);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "what is the - 1 for? pretty sure snprintf counts the NUL in that size already",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "It does, my mistake. Subtracting one drops the last character. Passing size through as it is, and reading truncation off the return value."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "int format_line(char *out, size_t size, const char *user, const char *msg) {\n  int n = snprintf(out, size, \"%s: %s\", user, msg);\n  return (n < 0 || (size_t)n >= size) ? -1 : 0;\n}\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "id": "equals-hashcode-java-easy-ja",
+  "title": "equals だけ実装して HashSet でバグる",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "java",
+  "summary": "hashCode を書き忘れた User が HashSet で重複する。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/User.java",
+      "content": "package com.example;\n\nimport java.util.Objects;\n\npublic class User {\n    private final String id;\n\n    public User(String id) {\n        this.id = id;\n    }\n\n    @Override\n    public boolean equals(Object other) {\n        if (!(other instanceof User)) {\n            return false;\n        }\n        return Objects.equals(id, ((User) other).id);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "同じ id の User を 2 回 add したのに HashSet の size が 2 なんだけど。バグ?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "バグではありません。equals だけあって hashCode がないので、HashSet が別のバケツに入れています。equals を書いたら hashCode も要ります。",
+          "reading": "ばぐではありません。equals だけあって hashCode がないので、HashSet がべつのバケツにいれています。equals をかいたら hashCode もいります。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Override\npublic int hashCode() {\n    return Objects.hash(id);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "他のクラスも怪しいな。equals 書いてるのに hashCode 無いファイル探せる?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "探せます。equals を実装しているファイルを出して、そこから hashCode を含まないものだけ残します。",
+          "reading": "さがせます。equals をじっそうしているファイルをだして、そこから hashCode をふくまないものだけのこします。"
+        },
+        {
+          "kind": "command",
+          "body": "grep -rl \"public boolean equals\" src/main/java | xargs grep -L \"public int hashCode\""
+        }
+      ]
+    }
+  ]
+}

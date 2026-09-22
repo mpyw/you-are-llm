@@ -42,3 +42,4 @@ export function startsWithHardConsonant(text: string): boolean {
   const head = text[0]
   return isLowerLatin(head) && !VOWEL_KEYS.has(head) && head !== 'n' && head !== 'y'
 }
+

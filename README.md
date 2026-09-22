@@ -4,8 +4,8 @@ A typing trainer where you type the LLM's side of a coding session. No completio
 
 ## Status
 
-The prototype runs end to end. One Japanese session ships with material, plus its English
-translation. AZIK is not implemented yet.
+The trainer runs end to end. Sessions cover eight programming languages, three difficulties and two
+natural languages. AZIK is not implemented yet.
 
 ## Commands
 
@@ -15,6 +15,7 @@ translation. AZIK is not implemented yet.
 | `pnpm build` | Typecheck, then build into `dist/` |
 | `pnpm test` | Run the tests |
 | `pnpm lint` | Lint with type-aware rules |
+| `pnpm check:material` | Check session JSON without running the suite |
 | `pnpm typecheck` | Typecheck only |
 
 ## How a session runs
@@ -59,20 +60,22 @@ Characters outside the table are typed as themselves. That is what makes source 
 
 ## Material
 
-Sessions are static JSON under `src/materials/`. They are validated on load, so a bad field fails
-fast and names its own position.
+Sessions are static JSON under `src/materials/sessions/`. Adding a file adds a session. Nothing
+registers it. Every session is validated on load, so a bad field fails fast and names its position.
 
-| Field | Meaning |
+Each session sits on three axes.
+
+| Axis | Values |
 | --- | --- |
-| `files` | Existing source shown beside the transcript |
-| `turns[].user` | The prompt. Displayed, never typed |
-| `turns[].assistant[].kind` | `text`, `code` or `command` |
-| `turns[].assistant[].body` | What the reader sees |
-| `turns[].assistant[].reading` | What the typist types. Null means `body` is typed directly |
+| Language | `ja`, `en` |
+| Difficulty | `easy`, `normal`, `hard` |
+| Code language | C, C++, C#, Go, Java, PHP, Rust, TypeScript |
+
+`src/materials/FORMAT.md` is the authoring guide. Read it before writing a session.
 
 > [!IMPORTANT]
-> A Japanese `text` block needs a `reading` in kana. A test fails the build when kanji reach a
-> Japanese typing target, because no romaji sequence can produce them.
+> A Japanese `text` block needs a `reading` in kana. The suite fails when a Japanese target holds a
+> character no keyboard can produce, because no romaji sequence reaches it.
 
 ## TypeScript 7 and ESLint
 

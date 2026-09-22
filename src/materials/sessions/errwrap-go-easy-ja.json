@@ -1,0 +1,45 @@
+{
+  "id": "errwrap-go-easy-ja",
+  "title": "%w を付け忘れて errors.Is が効かない",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "go",
+  "summary": "ラップが %v になっているエラーを %w に直して errors.Is を通す。",
+  "files": [
+    {
+      "path": "internal/store/user.go",
+      "content": "package store\n\nimport (\n  \"database/sql\"\n  \"errors\"\n  \"fmt\"\n)\n\nvar ErrNotFound = errors.New(\"user not found\")\n\nfunc (s *Store) FindUser(id string) (*User, error) {\n  var u User\n  err := s.db.QueryRow(findUserSQL, id).Scan(&u.ID, &u.Name)\n  if err != nil {\n    if errors.Is(err, sql.ErrNoRows) {\n      return nil, fmt.Errorf(\"find user %s: %v\", id, ErrNotFound)\n    }\n    return nil, fmt.Errorf(\"scan user: %v\", err)\n  }\n  return &u, nil\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "FindUser の戻り、呼び出し側で errors.Is(err, store.ErrNotFound) 見てるのに一回も true にならない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "%v だとその時点で鎖が切れます。%w にすれば errors.Is が ErrNotFound まで辿れます。",
+          "reading": "%v だとそのじてんでくさりがきれます。%w にすれば errors.Is が ErrNotFound までたどれます。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "return nil, fmt.Errorf(\"find user %s: %w\", id, ErrNotFound)\n"
+        }
+      ]
+    },
+    {
+      "user": "他のとこも %v で書いてる気がする。あと呼び出し側は Is だけで判定したい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "scan 側も %w に変えます。呼び出し側は errors.Is(err, store.ErrNotFound) だけで判定できます。",
+          "reading": "scan がわも %w にかえます。よびだしがわは errors.Is(err, store.ErrNotFound) だけではんていできます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/scan user: %v/scan user: %w/' internal/store/user.go"
+        }
+      ]
+    }
+  ]
+}

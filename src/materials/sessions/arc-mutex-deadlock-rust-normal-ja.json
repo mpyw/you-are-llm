@@ -1,0 +1,65 @@
+{
+  "id": "arc-mutex-deadlock-rust-normal-ja",
+  "title": "bump の中で lock を二回取って固まる",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "rust",
+  "summary": "Arc<Mutex<HashMap>> に合計のログを足したらデッドロックして、guard から数え直す。",
+  "files": [
+    {
+      "path": "src/stats.rs",
+      "content": "use std::collections::HashMap;\nuse std::sync::{Arc, Mutex};\n\n#[derive(Clone, Default)]\npub struct Stats {\n    counts: Arc<Mutex<HashMap<String, u64>>>,\n}\n\nimpl Stats {\n    pub fn bump(&self, key: &str) {\n        let mut counts = self.counts.lock().unwrap();\n        *counts.entry(key.to_string()).or_insert(0) += 1;\n    }\n\n    pub fn total(&self) -> u64 {\n        self.counts.lock().unwrap().values().sum()\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "bump したタイミングで、合計が 1000 超えてたら warn 出したい。bump の中でやって",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "bump の最後に合計を見て、1000 を超えていたら warn を出します。合計は total() が既にあるので、それをそのまま呼ぶだけにします。しきい値はひとまずべた書きにしておきます。",
+          "reading": "bump のさいごにごうけいをみて、1000 をこえていたら warn をだします。ごうけいは total() がすでにあるので、それをそのままよぶだけにします。しきいちはひとまずべたがきにしておきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "pub fn bump(&self, key: &str) {\n    let mut counts = self.counts.lock().unwrap();\n    *counts.entry(key.to_string()).or_insert(0) += 1;\n    if self.total() > 1000 {\n        tracing::warn!(total = self.total(), \"counter is getting large\");\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "テスト回したら bump で止まった。Ctrl-C しか効かない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "すみません、デッドロックです。counts の guard を持ったまま total() を呼ぶと、同じスレッドで二回目の lock を取りにいきます。std の Mutex は再入できないのでそこで止まります。今持っている guard から直接合計を出します。",
+          "reading": "すみません、でっどろっくです。counts の guard をもったまま total() をよぶと、おなじすれっどでにかいめの lock をとりにいきます。std の Mutex はさいにゅうできないのでそこでとまります。いまもっている guard からちょくせつごうけいをだします。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "pub fn bump(&self, key: &str) {\n    let mut counts = self.counts.lock().unwrap();\n    *counts.entry(key.to_string()).or_insert(0) += 1;\n    let total: u64 = counts.values().sum();\n    drop(counts);\n    if total > 1000 {\n        tracing::warn!(total, \"counter is getting large\");\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "動いた。1000 だとログ出すぎるから 10000 に。あと直書きやめて定数にしといて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ファイルの先頭に定数を足して、bump の中の 1000 をそれに差し替えます。値は 10000 にしますが、桁を読み違えないようにアンダースコアを入れておきます。",
+          "reading": "ふぁいるのせんとうにていすうをたして、bump のなかの 1000 をそれにさしかえます。あたいは 10000 にしますが、けたをよみちがえないようにあんだーすこあをいれておきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::collections::HashMap;\nuse std::sync::{Arc, Mutex};\n\nconst WARN_THRESHOLD: u64 = 10_000;\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/if total > 1000 {/if total > WARN_THRESHOLD {/' src/stats.rs"
+        }
+      ]
+    }
+  ]
+}

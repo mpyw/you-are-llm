@@ -11,6 +11,8 @@ const SESSION: Session = {
   id: 'test',
   title: 'Test session',
   language: 'ja',
+  difficulty: 'easy',
+  codeLanguage: 'typescript',
   summary: 'Two steps.',
   files: [{ path: 'src/a.ts', content: 'export const a = 1\n' }],
   turns: [

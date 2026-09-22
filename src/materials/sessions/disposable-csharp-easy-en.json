@@ -1,0 +1,44 @@
+{
+  "id": "disposable-csharp-easy-en",
+  "title": "Close the writer with using",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "csharp",
+  "summary": "A leaked StreamWriter truncates the export. Fix it with using, then make it async.",
+  "files": [
+    {
+      "path": "src/Reporting/ReportExporter.cs",
+      "content": "using System.IO;\n\nnamespace Acme.Reporting;\n\npublic sealed class ReportExporter\n{\n    public void Export(string path, string body)\n    {\n        var writer = new StreamWriter(path);\n        writer.Write(body);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "exports come out empty maybe half the time. ReportExporter. any idea",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "The StreamWriter is never disposed, so the buffer is dropped instead of flushed. A using declaration handles it."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public void Export(string path, string body)\n{\n    using var writer = new StreamWriter(path);\n    writer.Write(body);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "make it async too. and I want DisposeAsync called, not Dispose",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Then it has to be await using, the method returns Task, and the write becomes WriteAsync."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public async Task ExportAsync(string path, string body)\n{\n    await using var writer = new StreamWriter(path);\n    await writer.WriteAsync(body);\n}\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,14 +1,46 @@
-import en from './fetch-user-retry-en.json'
-import ja from './fetch-user-retry-ja.json'
 import { parseSession } from './parse'
 import type { Session } from './types'
 
-/** Material ships as static JSON so it can later be generated from real transcripts. */
-export const sessions: readonly Session[] = [ja, en].map(parseSession)
+/**
+ * Material ships as static JSON so it can later be generated from transcripts.
+ * Files are picked up by pattern, so adding a session means adding a file.
+ */
+const modules = import.meta.glob<unknown>('./sessions/*.json', {
+  eager: true,
+  import: 'default',
+})
+
+const ORDER: readonly string[] = ['easy', 'normal', 'hard']
+
+export const sessions: readonly Session[] = Object.keys(modules)
+  .sort()
+  .map((path) => parseSession(modules[path]))
+  .sort(
+    (left, right) =>
+      left.codeLanguage.localeCompare(right.codeLanguage) ||
+      ORDER.indexOf(left.difficulty) - ORDER.indexOf(right.difficulty) ||
+      left.language.localeCompare(right.language),
+  )
 
 export function findSession(id: string): Session | undefined {
   return sessions.find((session) => session.id === id)
 }
 
-export { MaterialError, parseSession } from './parse'
-export type { Block, BlockKind, Language, Session, SourceFile, Turn } from './types'
+export {
+  MaterialError,
+  isCodeLanguage,
+  isDifficulty,
+  isLanguage,
+  parseSession,
+} from './parse'
+export { CODE_LANGUAGE_LABELS, DIFFICULTY_LABELS } from './types'
+export type {
+  Block,
+  BlockKind,
+  CodeLanguage,
+  Difficulty,
+  Language,
+  Session,
+  SourceFile,
+  Turn,
+} from './types'

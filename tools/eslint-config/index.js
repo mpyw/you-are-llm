@@ -22,17 +22,23 @@ export function defineConfig({ tsconfigRootDir }) {
     tseslint.configs.strictTypeChecked,
     tseslint.configs.stylisticTypeChecked,
     {
-      files: ['**/*.{ts,tsx}'],
+      // Every file typescript-eslint parses needs the project, declaration
+      // files included, or its type-aware rules fail to load.
+      files: ['**/*.{ts,tsx,mts,cts}'],
       languageOptions: {
         globals: globals.browser,
         parserOptions: { projectService: true, tsconfigRootDir },
       },
-      plugins: {
-        'react-hooks': reactHooks,
-        'react-refresh': reactRefresh,
-      },
+    },
+    {
+      files: ['**/*.{ts,tsx}'],
+      plugins: { 'react-hooks': reactHooks },
+      rules: reactHooks.configs.recommended.rules,
+    },
+    {
+      files: ['**/*.tsx'],
+      plugins: { 'react-refresh': reactRefresh },
       rules: {
-        ...reactHooks.configs.recommended.rules,
         'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
       },
     },
@@ -46,7 +52,8 @@ export function defineConfig({ tsconfigRootDir }) {
       },
     },
     {
-      files: ['**/*.js'],
+      files: ['**/*.{js,mjs}'],
+      languageOptions: { globals: globals.node },
       extends: [tseslint.configs.disableTypeChecked],
     },
   )

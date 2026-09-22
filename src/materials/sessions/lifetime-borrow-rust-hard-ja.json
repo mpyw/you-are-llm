@@ -1,0 +1,94 @@
+{
+  "id": "lifetime-borrow-rust-hard-ja",
+  "title": "get_or_insert のライフタイムで往復する",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "rust",
+  "summary": "借用チェッカに二回怒られ、戻り値を &str に直し、最後は Cow に落ち着く。",
+  "files": [
+    {
+      "path": "src/cache.rs",
+      "content": "use std::collections::HashMap;\n\n#[derive(Default)]\npub struct Cache {\n    entries: HashMap<String, String>,\n}\n\nimpl Cache {\n    pub fn get(&self, key: &str) -> Option<&String> {\n        self.entries.get(key)\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "Cache に get_or_insert 欲しい。無かったら計算して入れて、その参照返して",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "get_or_insert を足します。先に get で覗いて、無ければ compute した結果を insert して、もう一度引いた参照を返します。compute はクロージャで受け取って、呼び出し側が毎回値を作らずに済むようにします。",
+          "reading": "get_or_insert をたします。さきに get でのぞいて、なければ compute したけっかを insert して、もういちどひいたさんしょうをかえします。compute はくろーじゃでうけとって、よびだしがわがまいかいあたいをつくらずにすむようにします。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "pub fn get_or_insert(&mut self, key: &str, compute: impl FnOnce() -> String) -> &String {\n    if let Some(found) = self.entries.get(key) {\n        return found;\n    }\n    let value = compute();\n    self.entries.insert(key.to_string(), value);\n    self.entries.get(key).unwrap()\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "cargo check 通らん。E0502 が出てる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "すみません、これは今の借用チェッカでは通りません。早期 return した参照が戻り値のライフタイムまで伸びるので、その後の insert が可変借用を取れなくなります。entry なら借用が一本で済むので、そちらに書き換えます。",
+          "reading": "すみません、これはいまのしゃくようちぇっかではとおりません。そうき return したさんしょうがもどりちのらいふたいむまでのびるので、そのあとの insert がかへんしゃくようをとれなくなります。entry ならしゃくようがいっぽんですむので、そちらにかきかえます。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "pub fn get_or_insert(&mut self, key: &str, compute: impl FnOnce() -> String) -> &String {\n    self.entries.entry(key.to_string()).or_insert_with(compute)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "通った。あと戻り値 &String やめて &str にして。get のほうも",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "両方 &str にします。まずシグネチャを二本まとめて置換して、それから中身に変換を足します。置換の右側に書く & はマッチ全体という意味になってしまうので、バックスラッシュで逃がします。get のほうは map で、get_or_insert は as_str で繋ぎます。",
+          "reading": "りょうほう &str にします。まずしぐねちゃをにほんまとめてちかんして、それからなかみにへんかんをたします。ちかんのみぎがわにかく & はまっちぜんたいといういみになってしまうので、ばっくすらっしゅでにがします。get のほうは map で、get_or_insert は as_str でつなぎます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/-> Option<&String>/-> Option<\\&str>/; s/) -> &String {/) -> \\&str {/' src/cache.rs"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/self.entries.get(key)$/self.entries.get(key).map(String::as_str)/; s/or_insert_with(compute)$/or_insert_with(compute).as_str()/' src/cache.rs"
+        }
+      ]
+    },
+    {
+      "user": "ごめんもう一個だけ。無かったときに入れるんじゃなくて、渡したデフォルトをそのまま返すだけのやつも欲しい。insert はしないで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "get_or を足します。省略記法のままだと戻り値のライフタイムが &self 側に決まってしまって、default を返したところで怒られます。self と default に同じライフタイムを明示して、どちらから返しても通るようにします。",
+          "reading": "get_or をたします。しょうりゃくきほうのままだともどりちのらいふたいむが &self がわにきまってしまって、default をかえしたところでおこられます。self と default におなじらいふたいむをめいじして、どちらからかえしてもとおるようにします。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "pub fn get_or<'a>(&'a self, key: &str, default: &'a str) -> &'a str {\n    self.entries.get(key).map(String::as_str).unwrap_or(default)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あー、default って呼び出し側で組み立てた String 渡したいんだけど… それだと参照どうすんの。うーん、Cow でいい？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Cow にします。default を Cow<'a, str> で受けて、見つかったときは Borrowed を、無ければ受け取ったものをそのまま返します。呼び出し側は String なら Cow::Owned、リテラルなら Cow::Borrowed で渡せます。",
+          "reading": "Cow にします。default を Cow<'a, str> でうけて、みつかったときは Borrowed を、なければうけとったものをそのままかえします。よびだしがわは String なら Cow::Owned、りてらるなら Cow::Borrowed でわたせます。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::borrow::Cow;\n\npub fn get_or<'a>(&'a self, key: &str, default: Cow<'a, str>) -> Cow<'a, str> {\n    match self.entries.get(key) {\n        Some(found) => Cow::Borrowed(found.as_str()),\n        None => default,\n    }\n}\n"
+        }
+      ]
+    }
+  ]
+}
