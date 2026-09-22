@@ -1,0 +1,57 @@
+{
+  "id": "fetch-user-retry-ja",
+  "title": "fetchUser にリトライを足す",
+  "language": "ja",
+  "summary": "既存の関数へ指数バックオフを一つ足し、要件変更を sed で当てる。",
+  "files": [
+    {
+      "path": "src/api/user.ts",
+      "content": "import type { User } from './types'\n\nexport async function fetchUser(id: string): Promise<User> {\n  const response = await requestUser(id)\n  if (!response.ok) throw new Error('request failed')\n  return response.body\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "fetchUser が失敗したときにリトライしてほしい。指数バックオフで。",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "リトライを入れます。失敗するたびに待ち時間を倍にして、3 回まで再試行します。",
+          "reading": "リトライをいれます。しっぱいするたびにまちじかんをばいにして、3 かいまでさいしこうします。"
+        },
+        {
+          "kind": "code",
+          "body": "export async function fetchUser(id: string): Promise<User> {\n  for (let attempt = 0; ; attempt += 1) {\n    try {\n      return await requestUser(id)\n    } catch (error) {\n      if (attempt >= 3) throw error\n      await sleep(2 ** attempt * 100)\n    }\n  }\n}\n",
+          "lang": "ts"
+        }
+      ]
+    },
+    {
+      "user": "リトライ回数は 5 回にしたい。",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "回数だけ変えます。",
+          "reading": "かいすうだけかえます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/attempt >= 3/attempt >= 5/' src/api/user.ts"
+        }
+      ]
+    },
+    {
+      "user": "待ち時間が伸びすぎるので、2 秒で頭打ちにしてほしい。",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "上限を挟みます。",
+          "reading": "じょうげんをはさみます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/sleep(2 \\*\\* attempt \\* 100)/sleep(Math.min(2 ** attempt * 100, 2000))/' src/api/user.ts"
+        }
+      ]
+    }
+  ]
+}
