@@ -1,0 +1,158 @@
+<!doctype html>
+<!--
+  Source for the social preview images. Render it with headless Chrome at the
+  size you need; `docs/social-preview.md` has the two commands.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>You are LLM</title>
+    <style>
+      :root {
+        --bg: #0b0e14;
+        --panel: #141a23;
+        --line: #242c38;
+        --text: #e6edf3;
+        --dim: #7d8590;
+        --done: #3fb950;
+        --rest: #58637a;
+        --accent: #58a6ff;
+        --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+        --sans: system-ui, -apple-system, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        block-size: 100%;
+      }
+
+      body {
+        display: grid;
+        align-content: center;
+        gap: 22px;
+        padding: 70px 78px;
+        background:
+          radial-gradient(900px 520px at 78% -20%, #1b2a4433, transparent 70%),
+          var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+      }
+
+      .kicker {
+        margin: 0;
+        font-family: var(--mono);
+        font-size: 20px;
+        letter-spacing: 0.28em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+
+      h1 {
+        margin: 0;
+        font-family: var(--mono);
+        font-size: 92px;
+        line-height: 1;
+        letter-spacing: -0.02em;
+        background: linear-gradient(120deg, var(--text) 32%, var(--accent));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+
+      .lede {
+        margin: 0;
+        font-size: 27px;
+        color: var(--dim);
+      }
+
+      .card {
+        display: grid;
+        gap: 10px;
+        padding: 22px 26px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--panel);
+      }
+
+      .card p {
+        margin: 0;
+      }
+
+      .card-body {
+        font-size: 21px;
+        color: var(--dim);
+      }
+
+      .card-target {
+        font-size: 27px;
+      }
+
+      .card-keys {
+        padding-block-start: 12px;
+        border-block-start: 1px solid var(--line);
+        font-family: var(--mono);
+        font-size: 19px;
+      }
+
+      .done {
+        color: var(--done);
+      }
+
+      .rest {
+        color: var(--rest);
+      }
+
+      .caret {
+        display: inline-block;
+        inline-size: 3px;
+        block-size: 1em;
+        vertical-align: text-bottom;
+        background: var(--accent);
+      }
+
+      .foot {
+        display: flex;
+        justify-content: space-between;
+        gap: 24px;
+        font-family: var(--mono);
+        font-size: 19px;
+        color: var(--dim);
+      }
+
+      .foot b {
+        color: var(--text);
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <p class="kicker">A typing trainer</p>
+    <h1>You are LLM</h1>
+    <p class="lede">The assistant writes the code. You type every character of it.</p>
+    <div class="card">
+      <p class="card-body">承知しました。正本を確認します。</p>
+      <p class="card-target">
+        <span class="done">しょうちしました。せいほ</span><span class="caret"></span
+        ><span class="rest">んをかくにんします。</span>
+      </p>
+      <p class="card-keys">
+        <span class="done">syoutisimasita.seiho</span
+        ><span class="rest">nwokakuninsimasu.</span>
+      </p>
+    </div>
+    <p class="foot">
+      <span><b>48</b> sessions · <b>8</b> languages · <b>3</b> difficulties · ja and en</span>
+      <span id="where">mpyw.me/you-are-llm</span>
+    </p>
+    <script>
+      if (location.hash === '#repo') {
+        document.getElementById('where').textContent = 'github.com/mpyw/you-are-llm'
+      }
+    </script>
+  </body>
+</html>

@@ -60,6 +60,16 @@ is a nod to what every coding agent puts on screen while it works, in this proje
 > Every animation is dropped under `prefers-reduced-motion`, and the spinner and its words stop
 > changing as well.
 
+## Social preview
+
+`scripts/og.html` is the one template both preview images come from.
+`docs/social-preview.md` holds the two commands and says where each image goes.
+
+| Image | Size | Used by |
+| --- | --- | --- |
+| `public/og.png` | 1200 by 630 | The `og:image` tag on the site |
+| `docs/social-preview.png` | 1280 by 640 | The repository preview, uploaded by hand |
+
 ## The input engine
 
 `TypingSession` keeps every possible spelling alive at once. The typist never declares a reading.

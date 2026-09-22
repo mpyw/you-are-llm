@@ -70,3 +70,13 @@ domain, so claiming it here would take the personal site offline.
 Nothing has to be done instead. A user site with a custom domain publishes every project site of
 the same account below it, which is why this one lands at `https://mpyw.me/you-are-llm/`. The path
 segment is the repository name, so `BASE` in `vite.config.ts` has to match it.
+
+## The site address is written down in three places
+
+A crawler needs an absolute URL, so `index.html` spells out `https://mpyw.me/you-are-llm/` in the
+Open Graph tags and points the icon at `/you-are-llm/favicon.svg`. `BASE` in `vite.config.ts` holds
+the same path a third time.
+
+Changing where the site lives means changing all three. There is no build time substitution for
+them on purpose: a wrong `og:image` fails silently on someone else's server, and a literal string is
+the one thing a reader can check by eye.

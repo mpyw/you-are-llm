@@ -8,6 +8,7 @@ import {
   isLanguage,
   sessions,
 } from '../materials'
+import { Demo } from '../typing/Demo'
 import { toSteps } from '../typing/steps'
 
 export interface Filters {
@@ -42,14 +43,40 @@ function matches(session: Session, filters: Filters): boolean {
   return true
 }
 
+/* The one line the front page has to land. */
+const DEMO_BODY = '承知しました。正本を確認します。'
+const DEMO_TARGET = 'しょうちしました。せいほんをかくにんします。'
+
+function Hero() {
+  const languages = new Set(sessions.map((session) => session.codeLanguage))
+  return (
+    <section className="hero">
+      <p className="hero-kicker">A typing trainer</p>
+      <h1 className="hero-title">You are LLM</h1>
+      <p className="hero-lede">
+        The assistant writes the code. You type every character of it, by hand, with no completion.
+      </p>
+      <Demo body={DEMO_BODY} target={DEMO_TARGET} />
+      <p className="hero-stats">
+        {sessions.length} sessions · {languages.size} languages · 3 difficulties · ja and en
+      </p>
+      <a className="hero-start" href="#sessions">
+        Pick a session
+      </a>
+    </section>
+  )
+}
+
 function SessionList() {
   const filters = Route.useSearch()
   const shown = sessions.filter((session) => matches(session, filters))
 
   return (
     <main className="list">
-      <h1>Sessions</h1>
-      <p className="summary">Type the assistant side of a coding session. No completion.</p>
+      <Hero />
+      <h2 className="list-head" id="sessions">
+        Sessions
+      </h2>
 
       <div className="filters">
         <FilterRow label="Language" current={filters.lang} name="lang" options={LANGUAGE_LABELS} />
