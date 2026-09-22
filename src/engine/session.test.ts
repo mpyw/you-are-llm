@@ -90,6 +90,21 @@ describe('digraphs that would shadow a single kana', () => {
   })
 })
 
+describe('a japanese keyboard', () => {
+  it.each(['\\', '\u00a5', '\uffe5'])('types a backslash with %j', (key) => {
+    // A JIS layout sends a yen sign from the key a backslash lives on.
+    const session = new TypingSession('a\\b')
+    expect(session.press('a')).toBe(true)
+    expect(session.press(key)).toBe(true)
+    expect(session.press('b')).toBe(true)
+    expect(session.state.done).toBe(true)
+  })
+
+  it('finishes a line that ends a string with a null byte', () => {
+    expect(completes("buf[n] = '\\0';", "buf[n] = '\u00a50';")).toBe(true)
+  })
+})
+
 describe('non-kana targets', () => {
   it('types latin and symbols as themselves', () => {
     expect(completes('const x = 1', 'const x = 1')).toBe(true)

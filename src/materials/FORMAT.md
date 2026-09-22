@@ -66,6 +66,11 @@ IME runs, not the direction a romaji table runs.
 Katakana is fine in a reading, because katakana types the same as hiragana. Numbers and Latin
 words stay as ASCII. Keep the reading faithful to the body, including particles.
 
+> [!WARNING]
+> The checker compares the reading to the body. A katakana word has one transcription and is checked
+> directly. Kanji needs a dictionary, so `GLOSSARY` in `scripts/check-material.mjs` holds the terms
+> that have been got wrong before. Add to it whenever one gets through.
+
 | `body` | `reading` |
 | --- | --- |
 | `借用チェッカに怒られています。` | `しゃくようちぇっかにおこられています。` |
