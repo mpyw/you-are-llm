@@ -93,3 +93,22 @@ and description. Keep it that way when adding routes worth sharing.
 
 Facebook's `sharer.php` answers 400 to curl no matter what you pass it. That is bot detection, not
 a broken URL. Check it in a real browser before changing the endpoint.
+
+## A reading has to agree with its body
+
+The suite proves a target can be typed. That is not the same as proving it says what the screen
+says. Two readings shipped that did not: `戻り値` read as `かえりち`, and `セマンティクス` gaining a
+`っ`. Both were found by a player, not by us.
+
+`readingProblems` in `scripts/check-material.mjs` compares the two now. Katakana is checked outright
+because a katakana word has exactly one transcription. Kanji cannot be, so `GLOSSARY` holds the
+terms that have already been wrong once. When a reading slips through, fix it and add the term.
+
+## The yen key types a backslash
+
+A JIS keyboard sends `¥`, U+00A5, from the key where a backslash lives, and macOS does this by
+default for several Japanese input sources. The engine rejected it, so any session with `'\0'` in
+it could not be finished on a Japanese keyboard.
+
+The fix belongs in the layout, next to the idea that `し` takes `si`, `shi` and `ci`. Do not special
+case it in the keyboard handler.
