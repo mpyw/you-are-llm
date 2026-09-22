@@ -1,0 +1,85 @@
+{
+  "id": "file-upload-php-en",
+  "title": "Harden an upload that trusts the extension",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "Drop the self declared extension, build the stored name yourself, and prove the destination stays inside the base directory.",
+  "files": [
+    {
+      "path": "src/AvatarUpload.php",
+      "content": "<?php\n\nfinal class AvatarUpload\n{\n    public function __construct(private readonly string $dir)\n    {\n    }\n\n    public function save(array $file): string\n    {\n        $name = $file['name'];\n        $ext = strtolower(substr($name, strrpos($name, '.') + 1));\n        if (!in_array($ext, ['jpg', 'png', 'gif'])) {\n            throw new RuntimeException('bad extension');\n        }\n\n        $dest = $this->dir . '/' . $name;\n        move_uploaded_file($file['tmp_name'], $dest);\n\n        return $dest;\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "review flagged the avatar upload. says checking the extension is not a check. fix AvatarUpload",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "The extension is whatever the uploader claims it is. Let's read the real MIME type off the file with finfo and match that against an allow list, so the decision moves from the name to the contents."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "private const ALLOWED = ['image/jpeg', 'image/png'];\n\npublic function save(array $file): string\n{\n    $finfo = new finfo(FILEINFO_MIME_TYPE);\n    $mime = $finfo->file($file['tmp_name']);\n    if (!in_array($mime, self::ALLOWED, true)) {\n        throw new RuntimeException('unsupported type');\n    }\n\n    $dest = $this->dir . '/' . $file['name'];\n    move_uploaded_file($file['tmp_name'], $dest);\n\n    return $dest;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "you're still gluing name straight on. send ../../ and that lands anywhere",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incomplete. I moved the type check and left the name alone. The uploader's name should not reach the path at all: the extension comes from the MIME map, and the stem comes from random_bytes."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "private const EXTENSIONS = ['image/jpeg' => '.jpeg', 'image/png' => '.png'];\n\n$dest = $this->dir . '/' . bin2hex(random_bytes(16)) . self::EXTENSIONS[$mime];\nif (!move_uploaded_file($file['tmp_name'], $dest)) {\n    throw new RuntimeException('move failed');\n}\n\nreturn $dest;\n"
+        }
+      ]
+    },
+    {
+      "user": "nothing looks at error or size either. and is tmp_name even a real upload?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Three guards go in front of the move: error has to be UPLOAD_ERR_OK, size has to be under the cap, and tmp_name has to be an actual uploaded temp file. Any one of them failing throws right there."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {\n    throw new RuntimeException('upload failed');\n}\nif ($file['size'] > 2 * 1024 * 1024) {\n    throw new RuntimeException('too large');\n}\nif (!is_uploaded_file($file['tmp_name'])) {\n    throw new RuntimeException('not an upload');\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "2MB is too tight, people are complaining. make it 5MB. and use .jpg not .jpeg",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Raising the cap to 5MB and settling on .jpg. Both the multiplication signs and the dot need escaping inside the pattern, so the two substitutions go in one pass."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/2 \\* 1024 \\* 1024/5 * 1024 * 1024/' -e \"s/'\\.jpeg'/'.jpg'/\" src/AvatarUpload.php"
+        }
+      ]
+    },
+    {
+      "user": "last thing. actually verify the destination sits under dir",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "realpath normalises the base directory, and the destination is built from that. Note: realpath returns false for a path that does not exist yet, so the directory has to be resolved before the file name is appended."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "$base = realpath($this->dir);\nif ($base === false) {\n    throw new RuntimeException('bad directory');\n}\n\n$dest = $base . '/' . bin2hex(random_bytes(16)) . self::EXTENSIONS[$mime];\nif (!str_starts_with($dest, $base . '/')) {\n    throw new RuntimeException('path escaped the directory');\n}\n"
+        }
+      ]
+    }
+  ]
+}

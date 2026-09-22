@@ -1,0 +1,98 @@
+{
+  "id": "cancellation-token-csharp-ja",
+  "title": "止まらない夜間同期に CancellationToken を通す",
+  "language": "ja",
+  "difficulty": "veryhard",
+  "codeLanguage": "csharp",
+  "summary": "後付けで CancellationToken を通し、OperationCanceledException の扱いと倉庫ごとのタイムアウトまで詰める。",
+  "files": [
+    {
+      "path": "src/Sync/InventorySynchronizer.cs",
+      "content": "using System.Collections.Generic;\nusing System.Net.Http;\nusing System.Net.Http.Json;\nusing System.Threading.Tasks;\nusing Microsoft.Extensions.Logging;\n\nnamespace Acme.Sync;\n\npublic sealed class InventorySynchronizer\n{\n    private readonly HttpClient _http;\n    private readonly IInventoryStore _store;\n    private readonly ILogger<InventorySynchronizer> _logger;\n\n    public async Task SyncAllAsync(IReadOnlyList<string> warehouseIds)\n    {\n        foreach (var warehouseId in warehouseIds)\n        {\n            var response = await _http.GetAsync($\"/warehouses/{warehouseId}/stock\");\n            var items = await response.Content.ReadFromJsonAsync<List<StockItem>>();\n            await _store.UpsertAsync(items);\n        }\n    }\n}\n"
+    },
+    {
+      "path": "src/Sync/InventorySyncWorker.cs",
+      "content": "using System;\nusing System.Threading;\nusing System.Threading.Tasks;\nusing Microsoft.Extensions.Hosting;\n\nnamespace Acme.Sync;\n\npublic sealed class InventorySyncWorker : BackgroundService\n{\n    private readonly InventorySynchronizer _synchronizer;\n\n    protected override async Task ExecuteAsync(CancellationToken stoppingToken)\n    {\n        while (!stoppingToken.IsCancellationRequested)\n        {\n            await _synchronizer.SyncAllAsync(await LoadWarehouseIdsAsync());\n            await Task.Delay(TimeSpan.FromMinutes(15), stoppingToken);\n        }\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "夜間同期のワーカー、デプロイのたびに止まらなくて毎回強制終了してる。ちゃんと止まるようにして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、SyncAllAsync が停止トークンを受け取っていないので、ホストが止めても中の await が最後まで走り切ります。まず CancellationToken を引数に足して、HttpClient からストアまで一貫して渡します。",
+          "reading": "けつろんからいうと、SyncAllAsync がていしとーくんをうけとっていないので、ほすとがとめてもなかの await がさいごまではしりきります。まず CancellationToken をひきすうにたして、HttpClient からすとあまでいっかんしてわたします。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public async Task SyncAllAsync(\n    IReadOnlyList<string> warehouseIds,\n    CancellationToken cancellationToken = default)\n{\n    foreach (var warehouseId in warehouseIds)\n    {\n        cancellationToken.ThrowIfCancellationRequested();\n        var response = await _http.GetAsync($\"/warehouses/{warehouseId}/stock\", cancellationToken);\n        var items = await response.Content.ReadFromJsonAsync<List<StockItem>>(cancellationToken);\n        await _store.UpsertAsync(items, cancellationToken);\n    }\n}\n\n// src/Sync/InventorySyncWorker.cs\nawait _synchronizer.SyncAllAsync(await LoadWarehouseIdsAsync(stoppingToken), stoppingToken);\n"
+        }
+      ]
+    },
+    {
+      "user": "止まるようにはなった。でもデプロイのたびに Error ログが山ほど出るようになった。キャンセルは失敗じゃないでしょ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ご指摘のとおり、協調的キャンセルは正常系です。例外そのものは呼び出し元まで伝播させたうえで、ログだけ Information に落とすのがベストプラクティスです。when フィルタで、こちらが要求したキャンセルだけを見分けます。ループの中身は SyncOneAsync にそのまま切り出しています。",
+          "reading": "ごしてきのとおり、きょうちょうてききゃんせるはせいじょうけいです。れいがいそのものはよびだしもとまででんぱさせたうえで、ろぐだけ Information におとすのがべすとぷらくてぃすです。when ふぃるたで、こちらがようきゅうしたきゃんせるだけをみわけます。るーぷのなかみは SyncOneAsync にそのままきりだしています。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public async Task SyncAllAsync(IReadOnlyList<string> warehouseIds, CancellationToken cancellationToken = default)\n{\n    try\n    {\n        foreach (var warehouseId in warehouseIds)\n        {\n            await SyncOneAsync(warehouseId, cancellationToken);\n        }\n    }\n    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)\n    {\n        _logger.LogInformation(\"inventory sync cancelled by host\");\n        throw;\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "言い忘れてた。倉庫によっては在庫 10 万件あって、まとめて読むとメモリ食い潰す。ページングで少しずつ流して",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "取得と保存の関心の分離はそのままに、読み出しを IAsyncEnumerable<StockItem> へ切り出します。async iterator にはトークンが自動では渡らないので、EnumeratorCancellation 属性を付けた引数で受け取り、呼ぶ側は WithCancellation で流し込みます。",
+          "reading": "しゅとくとほぞんのかんしんのぶんりはそのままに、よみだしを IAsyncEnumerable<StockItem> へきりだします。async iterator にはとーくんがじどうではわたらないので、EnumeratorCancellation ぞくせいをつけたひきすうでうけとり、よぶがわは WithCancellation でながしこみます。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "private async IAsyncEnumerable<StockItem> ReadStockAsync(\n    string warehouseId,\n    [EnumeratorCancellation] CancellationToken cancellationToken = default)\n{\n    for (var page = 1; ; page++)\n    {\n        var url = $\"/warehouses/{warehouseId}/stock?page={page}\";\n        var items = await _http.GetFromJsonAsync<List<StockItem>>(url, cancellationToken);\n        if (items is not { Count: > 0 }) yield break;\n        foreach (var item in items) yield return item;\n    }\n}\n\nprivate async Task SyncOneAsync(string warehouseId, CancellationToken cancellationToken)\n{\n    await foreach (var item in ReadStockAsync(warehouseId).WithCancellation(cancellationToken))\n    {\n        await _store.UpsertAsync(item, cancellationToken);\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あと 1 つの倉庫が固まると全体が朝まで終わらない。1 件 30 秒で諦めて次の倉庫に行ってほしい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "一歩ずつ足します。倉庫ごとに CancellationTokenSource.CreateLinkedTokenSource でトークンを束ね、CancelAfter で期限を付けます。期限切れは警告として記録し、次の倉庫へ進みます。",
+          "reading": "いっぽずつたします。そうこごとに CancellationTokenSource.CreateLinkedTokenSource でとーくんをたばね、CancelAfter できげんをつけます。きげんぎれはけいこくとしてきろくし、つぎのそうこへすすみます。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "foreach (var warehouseId in warehouseIds)\n{\n    using var perWarehouse = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);\n    perWarehouse.CancelAfter(TimeSpan.FromSeconds(30));\n    try\n    {\n        await SyncOneAsync(warehouseId, perWarehouse.Token);\n    }\n    catch (OperationCanceledException)\n    {\n        _logger.LogWarning(\"warehouse {WarehouseId} timed out\", warehouseId);\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "それだとデプロイで止めた時も timed out って出して次の倉庫に進まない？ あと 30 秒は短すぎた、90 で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "重要な訂正があります。おっしゃるとおり、フィルタなしの catch ではホスト側の停止まで飲み込んでしまいます。when を足して、こちらのトークンが立っていないとき、つまり期限切れのときだけ捕まえます。待ち時間と合わせて 1 行ずつの置き換えです。",
+          "reading": "じゅうようなていせいがあります。おっしゃるとおり、ふぃるたなしの catch ではほすとがわのていしまでのみこんでしまいます。when をたして、こちらのとーくんがたっていないとき、つまりきげんぎれのときだけつかまえます。まちじかんとあわせて 1 ぎょうずつのおきかえです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/catch (OperationCanceledException)$/catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)/' src/Sync/InventorySynchronizer.cs"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/TimeSpan\\.FromSeconds(30)/TimeSpan.FromSeconds(90)/' src/Sync/InventorySynchronizer.cs"
+        }
+      ]
+    }
+  ]
+}

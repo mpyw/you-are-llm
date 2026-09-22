@@ -1,0 +1,46 @@
+{
+  "id": "range-for-copy-cpp-ja",
+  "title": "範囲 for のコピーを止める",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "cpp",
+  "summary": "要素ごとに string が複製されている。const auto& に直し、書き換える側は auto& にする。",
+  "files": [
+    {
+      "path": "src/report/summary.cpp",
+      "content": "#include \"summary.h\"\n\n#include <string>\n#include <vector>\n\nstd::size_t total_bytes(const std::vector<Record>& records) {\n  std::size_t total = 0;\n  for (auto record : records) {\n    total += record.payload.size();\n  }\n  return total;\n}\n\nvoid normalize(std::vector<Record>& records) {\n  for (auto record : records) {\n    record.tag = to_lower(record.tag);\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "total_bytes、10 万件くらいで妙に遅いんだよね。中で足し算してるだけなのに",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。for (auto record : records) が要素を一つずつコピーしています。Record は std::string を持っているので、回すたびにヒープ確保が走ります。参照で受ければコピーは消えます。",
+          "reading": "しょうちしました。for (auto record : records) がようそをひとつずつこぴーしています。Record は std::string をもっているので、まわすたびにひーぷかくほがはしります。さんしょうでうければこぴーはきえます。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "std::size_t total_bytes(const std::vector<Record>& records) {\n  std::size_t total = 0;\n  for (const auto& record : records) {\n    total += record.payload.size();\n  }\n  return total;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あー、下に normalize ってのもあって、そっちは中で record.tag 書き換えてる。同じでいい？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "そこは const を付けません。Now、書き換えるなら auto& です。ポイントは、コピーを避けるのが参照で、変更を防ぐのが const という二つが別だという点です。normalize は今コピーを書き換えているだけなので、元の vector には何も反映されていません。",
+          "reading": "そこは const をつけません。Now、かきかえるなら auto& です。ぽいんとは、こぴーをさけるのがさんしょうで、へんこうをふせぐのが const というふたつがべつだというてんです。normalize はいまこぴーをかきかえているだけなので、もとの vector にはなにもはんえいされていません。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "void normalize(std::vector<Record>& records) {\n  for (auto& record : records) {\n    record.tag = to_lower(record.tag);\n  }\n}\n"
+        }
+      ]
+    }
+  ]
+}

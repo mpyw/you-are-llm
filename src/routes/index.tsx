@@ -50,6 +50,7 @@ const DEMO_TARGET = 'しょうちしました。せいほんをかくにんし�
 
 function Hero() {
   const languages = new Set(sessions.map((session) => session.codeLanguage))
+  const tiers = new Set(sessions.map((session) => session.difficulty))
   return (
     <section className="hero">
       <p className="hero-kicker">A typing trainer</p>
@@ -62,7 +63,8 @@ function Hero() {
       </p>
       <Demo body={DEMO_BODY} target={DEMO_TARGET} />
       <p className="hero-stats">
-        {sessions.length} sessions · {languages.size} languages · 3 difficulties · ja and en
+        {sessions.length} sessions · {languages.size} languages · {tiers.size} difficulties · ja
+        and en
       </p>
       <a className="hero-start" href="#sessions">
         Pick a session

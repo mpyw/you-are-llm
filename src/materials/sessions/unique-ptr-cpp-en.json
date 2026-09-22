@@ -1,0 +1,44 @@
+{
+  "id": "unique-ptr-cpp-en",
+  "title": "Hand the raw pointer to unique_ptr",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "cpp",
+  "summary": "Drop new and delete, return ownership, then std::move it where it is handed off.",
+  "files": [
+    {
+      "path": "src/net/session.cpp",
+      "content": "#include \"session.h\"\n\nSession* make_session(const Config& config) {\n  Session* s = new Session(config);\n  s->open();\n  return s;\n}\n\nvoid run(const Config& config) {\n  Session* s = make_session(config);\n  s->pump();\n  delete s;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "pretty sure make_session leaks on some path. can we just use unique_ptr",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's return the ownership instead. If make_session hands back a std::unique_ptr, the delete in run goes away and RAII guarantees the release."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "std::unique_ptr<Session> make_session(const Config& config) {\n  auto s = std::make_unique<Session>(config);\n  s->open();\n  return s;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "forgot to mention, right after that we do pool.hold(s). now it says it cannot copy",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: unique_ptr has no copy. Handing it over gives up ownership, so the call needs std::move. In summary, there is always exactly one owner."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "void run(const Config& config) {\n  auto s = make_session(config);\n  s->pump();\n  pool.hold(std::move(s));\n}\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,89 @@
+{
+  "id": "stream-collector-java-ja",
+  "title": "forEach で Map を組み立てるのをやめて groupingBy にする",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "java",
+  "summary": "外の Map に書き込む forEach を Collectors に寄せ、並び順と並列化で一悶着する。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/Order.java",
+      "content": "package com.example;\n\npublic record Order(String id, String customerId, long amount) {\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/OrderReport.java",
+      "content": "package com.example;\n\nimport java.util.ArrayList;\nimport java.util.HashMap;\nimport java.util.List;\nimport java.util.Map;\n\npublic class OrderReport {\n    public Map<String, List<Order>> byCustomer(List<Order> orders) {\n        Map<String, List<Order>> result = new HashMap<>();\n        orders.forEach(order -> {\n            List<Order> bucket = result.get(order.customerId());\n            if (bucket == null) {\n                bucket = new ArrayList<>();\n                result.put(order.customerId(), bucket);\n            }\n            bucket.add(order);\n        });\n        return result;\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "この byCustomer、いかにも古いんだけど Stream で短くできる?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "できます。Let's まず分類だけを置き換えます。外の Map に書き込む forEach をやめて Collectors.groupingBy に渡すと、可変の状態を自分で持たずに済みます。バケツを作る処理と中身を集める処理の関心の分離が進み、ArrayList の生成も Collector 側に移ります。",
+          "reading": "できます。Let's まずぶんるいだけをおきかえます。そとの Map にかきこむ forEach をやめて Collectors.groupingBy にわたすと、かへんのじょうたいをじぶんでもたずにすみます。バケツをつくるしょりとなかみをあつめるしょりのかんしんのぶんりがすすみ、ArrayList のせいせいも Collector がわにうつります。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example;\n\nimport java.util.List;\nimport java.util.Map;\nimport java.util.stream.Collectors;\n\npublic class OrderReport {\n    public Map<String, List<Order>> byCustomer(List<Order> orders) {\n        return orders.stream()\n                .collect(Collectors.groupingBy(Order::customerId));\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "いいね。じゃあ顧客ごとの合計金額も欲しい。ID から合計額を引ける Map で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "下流の Collector を活用します。groupingBy の第二引数に summingLong を渡すと、リストを一度も作らずに合計だけを集めます。Note: 入力の順序はそのまま保たれるので、レポートの並びは今までどおりです。",
+          "reading": "かりゅうの Collector をかつようします。groupingBy のだいにひきすうに summingLong をわたすと、リストをいちどもつくらずにごうけいだけをあつめます。Note: にゅうりょくのじゅんじょはそのままたもたれるので、レポートのならびはいままでどおりです。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "public Map<String, Long> totalByCustomer(List<Order> orders) {\n    return orders.stream()\n            .collect(Collectors.groupingBy(Order::customerId,\n                    Collectors.summingLong(Order::amount)));\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "レポートの顧客順がぐちゃぐちゃになった。前は ID 順に並んでたんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ご指摘のとおりです。重要な訂正があります。先ほど順序は保たれると述べましたが、改めて確認したところ正確ではありませんでした。groupingBy が既定で返すのは HashMap なので、並び順はどこにも保証されていません。以前 ID 順に見えていたのは、たまたまそう並んでいただけです。Map の生成そのものを TreeMap に差し替えて、並びを型として持たせます。",
+          "reading": "ごしてきのとおりです。じゅうようなていせいがあります。さきほどじゅんじょはたもたれるとのべましたが、あらためてかくにんしたところせいかくではありませんでした。groupingBy がきていでかえすのは HashMap なので、ならびじゅんはどこにもほしょうされていません。いぜん ID じゅんにみえていたのは、たまたまそうならんでいただけです。Map のせいせいそのものを TreeMap にさしかえて、ならびをかたとしてもたせます。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import java.util.List;\nimport java.util.Map;\nimport java.util.TreeMap;\nimport java.util.stream.Collectors;\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/Collectors\\.groupingBy(Order::customerId))/Collectors.groupingBy(Order::customerId, TreeMap::new, Collectors.toList()))/' -e 's/Collectors\\.groupingBy(Order::customerId,$/Collectors.groupingBy(Order::customerId, TreeMap::new,/' src/main/java/com/example/OrderReport.java"
+        }
+      ]
+    },
+    {
+      "user": "件数 100 万になったから parallelStream にして。あと合計だけじゃなく件数も一緒に出したい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "順を追って直します。並列化は stream を parallelStream に変えるだけで、groupingBy は部分結果を結合するので Map の中身は変わりません。速度の観点から groupingByConcurrent も候補ですが、あちらは ConcurrentMap を要求するため TreeMap を供給できず、並び順を落とします。件数は teeing で合計と同時に集めて、Summary という record に受けます。まとめると、状態を外に置かない、並びは型で担保する、の二点です。",
+          "reading": "じゅんをおってなおします。へいれつかは stream を parallelStream にかえるだけで、groupingBy はぶぶんけっかをけつごうするので Map のなかみはかわりません。そくどのかんてんから groupingByConcurrent もこうほですが、あちらは ConcurrentMap をようきゅうするため TreeMap をきょうきゅうできず、ならびじゅんをおとします。けんすうは teeing でごうけいとどうじにあつめて、Summary という record にうけます。まとめると、じょうたいをそとにおかない、ならびはかたでたんぽする、のにてんです。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "public record Summary(long total, long count) {\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "public Map<String, Summary> summaryByCustomer(List<Order> orders) {\n    return orders.parallelStream()\n            .collect(Collectors.groupingBy(Order::customerId, TreeMap::new,\n                    Collectors.teeing(\n                            Collectors.summingLong(Order::amount),\n                            Collectors.counting(),\n                            Summary::new)));\n}\n"
+        }
+      ]
+    }
+  ]
+}

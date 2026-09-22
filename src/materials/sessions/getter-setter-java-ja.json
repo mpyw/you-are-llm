@@ -1,0 +1,93 @@
+{
+  "id": "getter-setter-java-ja",
+  "title": "Getter と Setter を増やし続けた先に record がある",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "java",
+  "summary": "フィールドを足すたびにアクセサを書かされ、最後に record にされて全部消える。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/Invoice.java",
+      "content": "package com.example;\n\npublic class Invoice {\n    private String number;\n    private long amount;\n\n    public String getNumber() {\n        return number;\n    }\n\n    public void setNumber(String number) {\n        this.number = number;\n    }\n\n    public long getAmount() {\n        return amount;\n    }\n\n    public void setAmount(long amount) {\n        this.amount = amount;\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/InvoicePrinter.java",
+      "content": "package com.example;\n\npublic class InvoicePrinter {\n    public String print(Invoice invoice) {\n        return invoice.getNumber() + \" \" + invoice.getAmount();\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "Invoice に発行日と税率と通貨足しといて。getter と setter も全部ね",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "足します。発行日は LocalDate、税率は BigDecimal、通貨は String にします。型は java.time と java.math から持ってくるので import も増えます。アクセサはボイラープレートになりますが、既存の並びに合わせて、そのまま下に続けます。いずれまとめて削減しましょう！",
+          "reading": "たします。はっこうびは LocalDate、ぜいりつは BigDecimal、つうかは String にします。かたは java.time と java.math からもってくるので import もふえます。アクセサはボイラープレートになりますが、きそんのならびにあわせて、そのまましたにつづけます。いずれまとめてさくげんしましょう！"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "private LocalDate issuedAt;\nprivate BigDecimal taxRate;\nprivate String currency;\n\npublic LocalDate getIssuedAt() {\n    return issuedAt;\n}\n\npublic void setIssuedAt(LocalDate issuedAt) {\n    this.issuedAt = issuedAt;\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "public BigDecimal getTaxRate() {\n    return taxRate;\n}\n\npublic void setTaxRate(BigDecimal taxRate) {\n    this.taxRate = taxRate;\n}\n\npublic String getCurrency() {\n    return currency;\n}\n\npublic void setCurrency(String currency) {\n    this.currency = currency;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "支払期日も要るわ。あと通貨はコンストラクタで決めるから setter いらない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "支払期日を dueDate として足して、getter と setter を書きます。通貨のほうは setter を消して、コンストラクタで受け取る形に変えます。既に setCurrency を呼んでいる箇所があれば、そこも直す必要があります。",
+          "reading": "しはらいきじつを dueDate としてたして、getter と setter をかきます。つうかのほうは setter をけして、コンストラクタでうけとるかたちにかえます。すでに setCurrency をよんでいるかしょがあれば、そこもなおすひつようがあります。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "private LocalDate dueDate;\n\npublic LocalDate getDueDate() {\n    return dueDate;\n}\n\npublic void setDueDate(LocalDate dueDate) {\n    this.dueDate = dueDate;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "setCurrency まだ生えてるぞ。あとテストで setAmount(-1) がそのまま通った",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。申し訳ありません。削除したと述べましたが、実際には残っていました。まず該当のメソッドを開始行から閉じ括弧まで範囲で削ります。そのあと setAmount に負数のチェックを入れて、防御的に不正な値がフィールドまで届かないようにします。",
+          "reading": "するどいごしてきです。もうしわけありません。さくじょしたとのべましたが、じっさいにはのこっていました。まずがいとうのメソッドをかいしぎょうからとじかっこまではんいでけずります。そのあと setAmount にふすうのチェックをいれて、ぼうぎょてきにふせいなあたいがフィールドまでとどかないようにします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/public void setCurrency/,/^    }$/d' src/main/java/com/example/Invoice.java"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "public void setAmount(long amount) {\n    if (amount < 0) {\n        throw new IllegalArgumentException(\"amount must not be negative\");\n    }\n    this.amount = amount;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "やっぱり全部 record にして。setter 使ってるの 1 箇所しかなかったわ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "record にします。フィールドは final になるので setter は全部消えます。金額を差し替える 1 箇所には withAmount を用意して、値の保持と更新の関心の分離を保ちます。呼び出し側は getter の名前が変わるので、InvoicePrinter も合わせて直します。以上で、手で書いたアクセサは全て不要になります。",
+          "reading": "record にします。フィールドは final になるので setter はぜんぶきえます。きんがくをさしかえる 1 かしょには withAmount をよういして、あたいのほじとこうしんのかんしんのぶんりをたもちます。よびだしがわは getter のなまえがかわるので、InvoicePrinter もあわせてなおします。いじょうで、てでかいたアクセサはすべてふようになります。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "public record Invoice(String number, long amount, LocalDate issuedAt,\n        BigDecimal taxRate, String currency, LocalDate dueDate) {\n    public Invoice {\n        if (amount < 0) {\n            throw new IllegalArgumentException(\"amount must not be negative\");\n        }\n    }\n\n    public Invoice withAmount(long value) {\n        return new Invoice(number, value, issuedAt, taxRate, currency, dueDate);\n    }\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/\\.getNumber()/.number()/g' -e 's/\\.getAmount()/.amount()/g' src/main/java/com/example/InvoicePrinter.java"
+        }
+      ]
+    }
+  ]
+}

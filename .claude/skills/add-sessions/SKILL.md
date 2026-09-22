@@ -50,13 +50,16 @@ Written to a colleague, not to a machine. Keep it in Japanese, because the mater
 `src/materials/sessions/` に追加してください。既存ファイルには一切触らないでください。
 
 まず `src/materials/FORMAT.md` を読んでください。アシスタントは AI 特有の喋り方をする必要が
-あり，難易度別の言い回しの種類数（easy 3 / normal 4 / hard 5）と，normal 以上での自己訂正
-フレーズがチェッカで必須になっています。語彙は `scripts/check-material.mjs` の `AI_TELLS` と
-`SELF_CORRECTIONS` にあります。
+あり，地の文の量に応じた言い回しの種類数（2 ブロック以下 3 / 3 ブロック 4 / 4 ブロック以上 5）
+と，3 ブロック以上での自己訂正フレーズがチェッカで必須になっています。語彙は
+`scripts/check-material.mjs` の `AI_TELLS` と `SELF_CORRECTIONS` にあります。
+
+難易度は書き手が決めません。`scripts/typing-load.mjs` が打鍵数から採点するので，
+`difficulty` には仮の値を入れておけば後でまとめて直ります。
 
 既存の <言語> 題材は <既存トピック> なので，別の題材でお願いします。候補: <2〜3 個>
 
-- ファイル名と `id` は `<topic>-<codeLanguage>-<difficulty>-<language>`
+- ファイル名と `id` は `<topic>-<codeLanguage>-<language>`。難易度は含めない
 - normal と hard には `sed` でソースを書き換えるターンを必ず入れる
 - 日本語の `text` ブロックには漢字ゼロの `reading` を必ず付ける。`code` と `command` は
   `reading` なしで，中身は ASCII のみ
@@ -94,6 +97,12 @@ node scripts/check-material.mjs src/materials/sessions/*.json
 pnpm test
 pnpm lint
 pnpm build
+```
+
+Then grade the new sessions, which is measured rather than chosen.
+
+```bash
+node scripts/typing-load.mjs --apply
 ```
 
 Then update the total, which lives in three places by hand. `pnpm material:report` prints them.

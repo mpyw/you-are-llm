@@ -1,0 +1,89 @@
+{
+  "id": "sizeof-padding-c-ja",
+  "title": "パディングと sizeof の取り違えを潰す",
+  "language": "ja",
+  "difficulty": "veryhard",
+  "codeLanguage": "c",
+  "summary": "構造体をそのまま memcpy するのをやめ、sizeof の取り違えと折り返す境界検査も直す。",
+  "files": [
+    {
+      "path": "src/pkt/frame.c",
+      "content": "#include <stdint.h>\n#include <stdlib.h>\n#include <string.h>\n\n/* wire format: header then payload, big endian */\n\nstruct header {\n  uint8_t kind;\n  uint32_t length;\n  uint16_t flags;\n};\n\nstruct frame {\n  struct header head;\n  uint8_t *payload;\n};\n\nint frame_pack(const struct frame *f, uint8_t *out) {\n  memcpy(out, &f->head, sizeof(struct header));\n  memcpy(out + sizeof(struct header), f->payload, f->head.length);\n  return sizeof(struct header) + f->head.length;\n}\n\nstruct frame *frame_list(size_t n) {\n  struct frame *list = malloc(sizeof(struct frame *) * n);\n  return list;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "frame_pack、x86 だと通るのに実機で length がずれる。7 バイトのつもりが 12 出てるっぽい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "struct header は sizeof が 12 です。kind の後ろに 3 バイト、flags の後ろに 2 バイトの詰め物が入り、その中身は不定であるという点に注意することが重要です。構造体をそのまま memcpy すると詰め物まで出ていくので、ワイヤフォーマットを正本とし、フィールドを 1 つずつ書きます。出力先の大きさも引数で受けます。",
+          "reading": "struct header は sizeof が 12 です。kind のうしろに 3 ばいと、flags のうしろに 2 ばいとのつめものがはいり、そのなかみはふていであるというてんにちゅういすることがじゅうようです。こうぞうたいをそのまま memcpy するとつめものまででていくので、わいやふぉーまっとをせいほんとし、ふぃーるどを 1 つずつかきます。しゅつりょくさきのおおきさもひきすうでうけます。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#define HEADER_WIRE_BYTES 7\n\nsize_t frame_pack(const struct frame *f, uint8_t *out, size_t out_size) {\n  if (out_size < HEADER_WIRE_BYTES + f->head.length) return 0;\n  out[0] = f->head.kind;\n  out[1] = (uint8_t)(f->head.length >> 24);\n  out[2] = (uint8_t)(f->head.length >> 16);\n  out[3] = (uint8_t)(f->head.length >> 8);\n  out[4] = (uint8_t)f->head.length;\n  out[5] = (uint8_t)(f->head.flags >> 8);\n  out[6] = (uint8_t)f->head.flags;\n  memcpy(out + HEADER_WIRE_BYTES, f->payload, f->head.length);\n  return HEADER_WIRE_BYTES + (size_t)f->head.length;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "これ 32 ビットの機械にも載せるんだけど、その if の足し算って回らない?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "おっしゃるとおりです。回ります。length が大きいと HEADER_WIRE_BYTES を足した時点で折り返して、検査を素通りします。足さずに引いて比べます。引く前に out_size がヘッダ分あることを先に確かめます。",
+          "reading": "おっしゃるとおりです。まわります。length がおおきいと HEADER_WIRE_BYTES をたしたじてんでおりかえして、けんさをすどおりします。たさずにひいてくらべます。ひくまえに out_size がへっだぶんあることをさきにたしかめます。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "size_t frame_pack(const struct frame *f, uint8_t *out, size_t out_size) {\n  if (out_size < HEADER_WIRE_BYTES) return 0;\n  if (f->head.length > out_size - HEADER_WIRE_BYTES) return 0;\n  /* the rest of the function is unchanged */\n"
+        }
+      ]
+    },
+    {
+      "user": "frame_list も見てくれ。n 個取ったつもりが 3 個目あたりで壊れる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "sizeof(struct frame *) はポインタの大きさなので、1 要素 8 バイトしか取れていません。実体は詰め物込みで 24 バイトという非自明な値なので、3 分の 1 です。sizeof は型ではなく代入先から取ると、この取り違えを防ぐことが可能になります。個数の上限も決めます。",
+          "reading": "sizeof(struct frame *) はぽいんたのおおきさなので、1 ようそ 8 ばいとしかとれていません。じったいはつめものこみで 24 ばいとというひじめいなあたいなので、3 ぶんの 1 です。sizeof はかたではなくだいにゅうさきからとると、このとりちがえをふせぐことがかのうになります。こすうのじょうげんもきめます。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#define FRAME_LIST_MAX 4096\n\nstruct frame *frame_list(size_t n) {\n  if (n == 0 || n > FRAME_LIST_MAX) return NULL;\n  struct frame *list = calloc(n, sizeof *list);\n  if (list == NULL) return NULL;\n  return list;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "言い忘れてた、payload が NULL で length 0 のフレームも来る。memcpy に NULL 渡すの怒られるやつだよね",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "はい、length が 0 でも NULL を渡した時点で未定義です。申し訳ありません。ハッピーパスのみを想定しており、NULL の場合を見落としていました。呼び出しを長さの検査でくるみます。ヘッダだけのフレームはこれで通ります。",
+          "reading": "はい、length が 0 でも NULL をわたしたじてんでみていぎです。もうしわけありません。はっぴーぱすのみをそうていしており、NULL のばあいをみおとしていました。よびだしをながさのけんさでくるみます。へっだだけのふれーむはこれでとおります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/memcpy(out + HEADER_WIRE_BYTES, f->payload, f->head.length);/if (f->head.length > 0) memcpy(out + HEADER_WIRE_BYTES, f->payload, f->head.length);/' src/pkt/frame.c"
+        }
+      ]
+    },
+    {
+      "user": "あと 4096 個は多すぎる 64 でいい。先頭のコメントも実態と違うから直しといて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "上限を 64 に落とします。先頭のコメントも、ヘッダが 7 バイトで payload は空でもよいと分かるように書き直します。",
+          "reading": "じょうげんを 64 におとします。せんとうのこめんとも、へっだが 7 ばいとで payload はからでもよいとわかるようにかきなおします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/#define FRAME_LIST_MAX 4096/#define FRAME_LIST_MAX 64/' -e 's|/\\* wire format: header then payload, big endian \\*/|/* wire format: 7 byte header then payload, big endian, payload may be empty */|' src/pkt/frame.c"
+        }
+      ]
+    }
+  ]
+}

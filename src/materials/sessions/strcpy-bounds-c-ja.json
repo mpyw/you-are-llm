@@ -1,0 +1,46 @@
+{
+  "id": "strcpy-bounds-c-ja",
+  "title": "strcpy をやめて snprintf にする",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "c",
+  "summary": "固定長バッファへの strcpy を snprintf に替え、境界でもう一往復する。",
+  "files": [
+    {
+      "path": "src/log/format.c",
+      "content": "#include <stdio.h>\n#include <string.h>\n\nvoid format_line(char *out, const char *user, const char *msg) {\n  char buf[64];\n  strcpy(buf, user);\n  strcat(buf, \": \");\n  strcat(buf, msg);\n  strcpy(out, buf);\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "format_line、レビューで溢れるって言われた。直して",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。strcpy と strcat は長さを見ません。user が 64 文字を超えると buf の外に書きます。snprintf に替えて、出力先の大きさも引数で取り、防御的に境界を検査します。",
+          "reading": "しょうちしました。strcpy と strcat はながさをみません。user が 64 もじをこえると buf のそとにかきます。snprintf にかえて、しゅつりょくさきのおおきさもひきすうでとり、ぼうぎょてきにきょうかいをけんさします。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "void format_line(char *out, size_t size, const char *user, const char *msg) {\n  snprintf(out, size - 1, \"%s: %s\", user, msg);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "size - 1 は何? snprintf のそれって NUL 込みのサイズじゃなかったっけ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。失礼しました、私の実装には off-by-one がありました。込みなので、1 を引くと末尾が 1 文字切れます。size をそのまま渡して、切り詰めは返り値で見ます。",
+          "reading": "するどいごしてきです。しつれいしました、わたしのじっそうには off-by-one がありました。こみなので、1 をひくとまつびが 1 もじきれます。size をそのままわたして、きりつめはかえりちでみます。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "int format_line(char *out, size_t size, const char *user, const char *msg) {\n  int n = snprintf(out, size, \"%s: %s\", user, msg);\n  return (n < 0 || (size_t)n >= size) ? -1 : 0;\n}\n"
+        }
+      ]
+    }
+  ]
+}

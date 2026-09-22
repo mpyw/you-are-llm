@@ -1,0 +1,61 @@
+{
+  "id": "stringbuilder-csharp-en",
+  "title": "Rewrite the 30 second CSV export",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "csharp",
+  "summary": "Replace string concatenation in a loop with StringBuilder, then fix the escaping and the number format.",
+  "files": [
+    {
+      "path": "src/Export/CsvWriter.cs",
+      "content": "using System.Collections.Generic;\nusing System.Text;\n\nnamespace Acme.Export;\n\npublic sealed class CsvWriter\n{\n    public string Write(IReadOnlyList<Order> orders)\n    {\n        var csv = \"\";\n        foreach (var order in orders)\n        {\n            csv += order.Id + \",\" + order.Customer + \",\" + order.Total + \"\\n\";\n        }\n        return csv;\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "the CSV export takes 30 seconds for 10k rows. I only made the input 10x bigger",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: a string is immutable, so every += allocates a new one and copies everything written so far. That is quadratic in the row count. StringBuilder only appends. If a row were short enough, string.Join would do as well."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public string Write(IReadOnlyList<Order> orders)\n{\n    var builder = new StringBuilder();\n    foreach (var order in orders)\n    {\n        builder.Append(order.Id).Append(',')\n            .Append(order.Customer).Append(',')\n            .Append(order.Total).Append(\"\\n\");\n    }\n    return builder.ToString();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "fast now. but a customer name has a comma in it and the columns shift. also the amounts came out with a comma as the decimal point on the Paris machine",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer skipped the escaping. A field holding a comma or a quote has to be wrapped in double quotes, with inner quotes doubled. The number format is pinned to InvariantCulture so the machine locale stops mattering."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "private static readonly char[] Special = { ',', '\"', '\\n' };\n\npublic string Write(IReadOnlyList<Order> orders)\n{\n    var builder = new StringBuilder();\n    foreach (var order in orders)\n    {\n        builder.Append(order.Id.ToString(CultureInfo.InvariantCulture)).Append(',')\n            .Append(Quote(order.Customer)).Append(',')\n            .Append(order.Total.ToString(\"0.00\", CultureInfo.InvariantCulture))\n            .Append(\"\\n\");\n    }\n    return builder.ToString();\n}\n\nprivate static string Quote(string field)\n{\n    if (field.IndexOfAny(Special) < 0)\n    {\n        return field;\n    }\n    return string.Concat(\"\\\"\", field.Replace(\"\\\"\", \"\\\"\\\"\"), \"\\\"\");\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "make the line ending CRLF after all, people open it in Excel. and Quote should be internal, I want to call it from a test",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Both are one line each, so sed covers them. Making Quote internal keeps the test honest without exposing it to callers outside the assembly."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/Append(\"\\\\n\")/Append(\"\\\\r\\\\n\")/' src/Export/CsvWriter.cs"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/private static string Quote/internal static string Quote/' src/Export/CsvWriter.cs"
+        }
+      ]
+    }
+  ]
+}

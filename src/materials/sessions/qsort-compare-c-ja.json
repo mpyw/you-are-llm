@@ -1,0 +1,89 @@
+{
+  "id": "qsort-compare-c-ja",
+  "title": "qsort の比較関数を組み直す",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "c",
+  "summary": "ポインタ配列の比較関数のキャストと引き算を直し、同点の順序と固定長の名前の比較も塞ぐ。",
+  "files": [
+    {
+      "path": "src/rank/sort.c",
+      "content": "#include <stdlib.h>\n#include <string.h>\n\n/* sort the roster in place, highest score first */\n\nstruct player {\n  char name[32];\n  int score;\n};\n\nstatic int by_score(const void *a, const void *b) {\n  const struct player *pa = a;\n  const struct player *pb = b;\n  return pb->score - pa->score;\n}\n\nvoid rank(struct player **roster, size_t n) {\n  qsort(roster, n, sizeof(struct player *), by_score);\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "rank、並び順がめちゃくちゃになる。しかもたまに落ちる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい質問です。roster はポインタの配列なので、比較関数に届く a と b が指しているのは struct player ではなく struct player * です。今のキャストは 1 段足りず、ポインタの入った 8 バイトを構造体の先頭だと思って読んでいます。配列の外まで読むので落ちます。受け取りを二重のポインタにします。",
+          "reading": "すばらしいしつもんです。roster はぽいんたのはいれつなので、ひかくかんすうにとどく a と b がさしているのは struct player ではなく struct player * です。いまのきゃすとは 1 だんたりず、ぽいんたのはいった 8 ばいとをこうぞうたいのせんとうだとおもってよんでいます。はいれつのそとまでよむのでおちます。うけとりをにじゅうのぽいんたにします。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "static int by_score(const void *a, const void *b) {\n  const struct player *const *pa = a;\n  const struct player *const *pb = b;\n  return (*pb)->score - (*pa)->score;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "スコアって負も入るんだよね。-2000000000 と 2000000000 混ぜたらまた順序壊れたんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、引き算で順序を返すのは正確ではありませんでした。int の引き算は折り返すので、差が表せる範囲を超えると符号が反転します。差ではなく大小そのものを返す形にします。3 値の比較は (x > y) - (x < y) の 1 行で書けます。",
+          "reading": "あらためてかくにんしたところ、ひきざんでじゅんじょをかえすのはせいかくではありませんでした。int のひきざんはおりかえすので、さがあらわせるはんいをこえるとふごうがはんてんします。さではなくだいしょうそのものをかえすかたちにします。3 ちのひかくは (x > y) - (x < y) の 1 ぎょうでかけます。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "static int by_score(const void *a, const void *b) {\n  const struct player *const *pa = a;\n  const struct player *const *pb = b;\n  int x = (*pa)->score;\n  int y = (*pb)->score;\n  return (y > x) - (y < x);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "同点の並びが実行するたび変わるのやめてほしい。同点なら名前順で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "qsort は安定な並べ替えではありません。同点の 2 人がどちらに来るかは実装しだいなので、結び目は自分で解きます。score で決まらないときだけ name を比べる形にすれば、結果が決定論的になり、どの環境でも同じ順序になることを保証します。",
+          "reading": "qsort はあんていなならべかえではありません。どうてんの 2 にんがどちらにくるかはじっそうしだいなので、むすびめはじぶんでときます。score できまらないときだけ name をくらべるかたちにすれば、けっかがけっていろんてきになり、どのかんきょうでもおなじじゅんじょになることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "static int by_score(const void *a, const void *b) {\n  const struct player *const *pa = a;\n  const struct player *const *pb = b;\n  int x = (*pa)->score;\n  int y = (*pb)->score;\n  if (x != y) return (y > x) - (y < x);\n  return strcmp((*pa)->name, (*pb)->name);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "name って 32 バイトぴったり埋まってるレコードあるんだけど、その strcmp 大丈夫?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ご指摘のとおりです。name は固定長の配列で、32 文字埋まると終端がありません。strcmp は NUL を探して配列の外まで読み進みます。上限を渡せる strncmp に替えれば、配列の中で止まります。上限は型ではなく配列そのものから sizeof で取ります。",
+          "reading": "ごしてきのとおりです。name はこていちょうのはいれつで、32 もじうまるとしゅうたんがありません。strcmp は NUL をさがしてはいれつのそとまでよみすすみます。じょうげんをわたせる strncmp にかえれば、はいれつのなかでとまります。じょうげんはかたではなくはいれつそのものから sizeof でとります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/strcmp((\\*pa)->name, (\\*pb)->name)/strncmp((*pa)->name, (*pb)->name, sizeof (*pa)->name)/' src/rank/sort.c"
+        }
+      ]
+    },
+    {
+      "user": "by_score って名前、同点で名前まで見るなら嘘だよね。先頭のコメントも直しといて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、名前を compare_players に改めます。qsort に渡している箇所も同じ置換で追従します。先頭のコメントも、score の降順と name の昇順という 2 段であることが読み取れるように書き直します。",
+          "reading": "Now、なまえを compare_players にあらためます。qsort にわたしているかしょもおなじちかんでついじゅうします。せんとうのこめんとも、score のこうじゅんと name のしょうじゅんという 2 だんであることがよみとれるようにかきなおします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/by_score/compare_players/g' -e 's|/\\* sort the roster in place, highest score first \\*/|/* sort the roster in place: score descending, then name ascending */|' src/rank/sort.c"
+        }
+      ]
+    }
+  ]
+}

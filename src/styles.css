@@ -9,6 +9,7 @@
   --accent: #58a6ff;
   --error: #f85149;
   --gold: #e3b341;
+  --peril: #d2a8ff;
   --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
   --sans: system-ui, -apple-system, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
 
@@ -287,6 +288,11 @@ h2 {
 .badge.is-hard {
   color: var(--error);
   border-color: color-mix(in srgb, var(--error) 40%, var(--line));
+}
+
+.badge.is-veryhard {
+  color: var(--peril);
+  border-color: color-mix(in srgb, var(--peril) 45%, var(--line));
 }
 
 .meta {

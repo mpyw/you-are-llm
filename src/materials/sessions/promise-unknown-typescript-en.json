@@ -1,0 +1,57 @@
+{
+  "id": "promise-unknown-typescript-en",
+  "title": "Await the whole batch, then narrow the catch",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "typescript",
+  "summary": "Add Promise.all, narrow the unknown in catch, and redo the sed that only half landed.",
+  "files": [
+    {
+      "path": "src/report/loader.ts",
+      "content": "import { fetchRow } from './row'\n\nexport async function loadReport(ids: string[]) {\n  const rows = ids.map((id) => fetchRow(id))\n  try {\n    return rows.map((row) => row.total)\n  } catch (error) {\n    console.error(error.message)\n    return []\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "loadReport blows up on total. says Promise<Row>[] has no total on it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "map hands back an array of promises, so the elements are not rows yet. Promise.all waits on the batch and gives you Row[]. Pinning the return type down while I am in there."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "export async function loadReport(ids: string[]): Promise<number[]> {\n  const rows = await Promise.all(ids.map((id) => fetchRow(id)))\n  try {\n    return rows.map((row) => row.total)\n  } catch (error) {\n    console.error(error.message)\n    return []\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "that await sits outside the try though, so a failed fetch never reaches the catch. also error.message is unknown now",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Right. With useUnknownInCatchVariables the catch binding comes in as unknown, so it gets narrowed with instanceof before message is read. Applying that and the await move together."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/console\\.error(error\\.message)/console.error(error instanceof Error ? error.message : String(error))/' src/report/loader.ts"
+        }
+      ]
+    },
+    {
+      "user": "catch is fixed but the await is still outside the try",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was not accurate. The sed only touched the catch line and the await move never actually happened. Shuffling lines is a poor fit for sed, so here is the whole function instead."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "export async function loadReport(ids: string[]): Promise<number[]> {\n  try {\n    const rows = await Promise.all(ids.map((id) => fetchRow(id)))\n    return rows.map((row) => row.total)\n  } catch (error) {\n    console.error(error instanceof Error ? error.message : String(error))\n    return []\n  }\n}\n"
+        }
+      ]
+    }
+  ]
+}

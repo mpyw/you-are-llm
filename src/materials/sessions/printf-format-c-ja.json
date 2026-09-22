@@ -1,0 +1,46 @@
+{
+  "id": "printf-format-c-ja",
+  "title": "printf の書式指定子を型に合わせる",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "c",
+  "summary": "%d に size_t を渡していた printf を直し、終端のない文字列も塞ぐ。",
+  "files": [
+    {
+      "path": "src/stat/report.c",
+      "content": "#include <stdio.h>\n#include <string.h>\n\nvoid report(const char *name, size_t count, long total) {\n  char tag[4];\n  memcpy(tag, name, 4);\n  printf(\"%s: %d items, %d bytes\\n\", tag, count, total);\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "report の出力、64 ビットのマシンで動かすと数字が化ける。gcc も何か言ってる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。書式指定子が引数の型と合っていません。Note: 直す箇所は 3 つです。count は size_t なので %zu、total は long なので %ld を使います。さらに tag は 4 バイトを写しただけで終端がなく、%s が配列の外まで読み続けます。終端を置ける大きさにして、防御的に自分で書き込みます。",
+          "reading": "しょうちしました。しょしきしていしがひきすうのかたとあっていません。Note: なおすかしょは 3 つです。count は size_t なので %zu、total は long なので %ld をつかいます。さらに tag は 4 ばいとをうつしただけでしゅうたんがなく、%s ははいれつのそとまでよみつづけます。しゅうたんをおけるおおきさにして、ぼうぎょてきにじぶんでかきこみます。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "void report(const char *name, size_t count, long total) {\n  char tag[5];\n  memcpy(tag, name, 4);\n  tag[4] = '\\0';\n  printf(\"%s: %zu items, %ld bytes\\n\", tag, count, total);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、tag って先頭 4 文字だけのやつだったか。やっぱ name 丸ごと出して。あと bytes は 16 進で見たい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、tag は不要になります。name をそのまま %s に渡せば、長さに関わらず全部出ます。16 進は %lx ですが、これは符号なしの変換なので、引数も unsigned long で受けるのが筋です。負の値が来ない前提を型で表すことが可能になります。",
+          "reading": "Now、tag はふようになります。name をそのまま %s にわたせば、ながさにかかわらずぜんぶでます。16 しんは %lx ですが、これはふごうなしのへんかんなので、ひきすうも unsigned long でうけるのがすじです。ふのあたいがこないぜんていをかたであらわすことがかのうになります。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "void report(const char *name, size_t count, unsigned long total) {\n  printf(\"%s: %zu items, 0x%lx bytes\\n\", name, count, total);\n}\n"
+        }
+      ]
+    }
+  ]
+}

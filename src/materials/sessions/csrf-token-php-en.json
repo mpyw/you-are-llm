@@ -1,0 +1,62 @@
+{
+  "id": "csrf-token-php-en",
+  "title": "Move the CSRF token onto random_bytes and hash_equals",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "php",
+  "summary": "Fix a guessable token and a loose check, then rename the key and make it single use.",
+  "files": [
+    {
+      "path": "src/Csrf.php",
+      "content": "<?php\n\nfinal class Csrf\n{\n    public function issue(): string\n    {\n        $token = md5(uniqid());\n        $_SESSION['csrf'] = $token;\n\n        return $token;\n    }\n\n    public function check(): bool\n    {\n        return $_POST['csrf'] == $_SESSION['csrf'];\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "review called the csrf token weak. src/Csrf.php. sort it out",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "md5(uniqid()) is built from the clock, so it is guessable. Let's take 32 bytes from random_bytes and hex them instead. hash_equals replaces the loose compare and keeps the comparison time independent of the input."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function issue(): string\n{\n    $token = bin2hex(random_bytes(32));\n    $_SESSION['csrf'] = $token;\n\n    return $token;\n}\n\npublic function check(): bool\n{\n    return hash_equals($_SESSION['csrf'], $_POST['csrf']);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "calling check before anything was issued blows up though. same if the post has no key",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous version still assumed both keys were there. hash_equals raises a TypeError on anything that is not a string. Checking presence and type first turns a missing key into a plain false."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function check(): bool\n{\n    $stored = $_SESSION['csrf'] ?? null;\n    $given = $_POST['csrf'] ?? null;\n\n    if (!is_string($stored) || !is_string($given) || $stored === '') {\n        return false;\n    }\n\n    return hash_equals($stored, $given);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "the key name csrf collides with the other app on this host. call it csrf_token. and burn it once it passes",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Renaming the key in one pass, then dropping it from the session the moment a check succeeds, so the same token cannot be replayed."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' \"s/\\['csrf'\\]/['csrf_token']/g\" src/Csrf.php"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "if (!hash_equals($stored, $given)) {\n    return false;\n}\nunset($_SESSION['csrf_token']);\n\nreturn true;\n"
+        }
+      ]
+    }
+  ]
+}

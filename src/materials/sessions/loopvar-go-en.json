@@ -1,0 +1,89 @@
+{
+  "id": "loopvar-go-en",
+  "title": "One capture bug, four moving requirements",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "go",
+  "summary": "Loop variable capture, the go directive in go.mod, a swallowed Close, then a late cap on concurrency.",
+  "files": [
+    {
+      "path": "internal/upload/batch.go",
+      "content": "package upload\n\nimport (\n  \"log\"\n  \"os\"\n  \"sync\"\n)\n\nfunc UploadAll(paths []string) error {\n  var wg sync.WaitGroup\n  for _, p := range paths {\n    wg.Add(1)\n    go func() {\n      defer wg.Done()\n      f, err := os.Open(p)\n      if err != nil {\n        log.Printf(\"open %s: %v\", p, err)\n        return\n      }\n      defer f.Close()\n      if err := put(f); err != nil {\n        log.Printf(\"put %s: %v\", p, err)\n      }\n    }()\n  }\n  wg.Wait()\n  return nil\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "UploadAll keeps pushing the same file over and over. logs only ever show the last path",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "The goroutines read the loop variable directly, so by the time they run they all see whatever it ended on. Passing the path as an argument pins the value at launch."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "for _, p := range paths {\n  wg.Add(1)\n  go func(path string) {\n    defer wg.Done()\n    if err := uploadOne(path); err != nil {\n      log.Printf(\"upload %s: %v\", path, err)\n    }\n  }(p)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "hold on, we bumped to 1.22 months ago. shouldn't that be fixed already",
+      "assistant": [
+        {
+          "kind": "command",
+          "body": "grep '^go ' go.mod"
+        },
+        {
+          "kind": "text",
+          "body": "Correction: I explained that without checking go.mod. Still 1.21 here. The go directive in go.mod is the single source of truth for per-iteration loop variables, not the toolchain you build with, so 1.21 in that line means the old semantics."
+        }
+      ]
+    },
+    {
+      "user": "ugh. bumping that line touches everything, separate PR. keep the argument version for now. also isn't defer f.Close() dropping its error",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "It is. A named return lets the deferred Close report, but only when nothing else already failed. Even on a read path a dying disk surfaces right there."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func uploadOne(path string) (err error) {\n  f, err := os.Open(path)\n  if err != nil {\n    return fmt.Errorf(\"open %s: %w\", path, err)\n  }\n  defer func() {\n    if cerr := f.Close(); cerr != nil && err == nil {\n      err = fmt.Errorf(\"close %s: %w\", path, cerr)\n    }\n  }()\n  return put(f)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "logging isn't enough actually. if any upload fails the caller needs an error back. and stop firing 1000 goroutines at once",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Failures get collected and returned with errors.Join. A buffered channel works as a semaphore, so at most eight uploads run and the rest wait for a slot."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "var errs []error\nsem := make(chan struct{}, 8) // up to 8 in flight\nfor _, p := range paths {\n  wg.Add(1)\n  go func(path string) {\n    defer wg.Done()\n    sem <- struct{}{}\n    defer func() { <-sem }()\n    if err := uploadOne(path); err != nil {\n      errs = append(errs, err)\n    }\n  }(p)\n}\nwg.Wait()\nreturn errors.Join(errs...)\n"
+        }
+      ]
+    },
+    {
+      "user": "that append races doesn't it. and 8 is too many for the storage box, do 4",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch! It does, and -race would flag it immediately. A mutex guards the slice, with var mu sync.Mutex next to the WaitGroup, and sed takes the limit and its comment down to four."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "if err := uploadOne(path); err != nil {\n  mu.Lock()\n  errs = append(errs, err)\n  mu.Unlock()\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/struct{}, 8)/struct{}, 4)/' -e 's|// up to 8|// up to 4|' internal/upload/batch.go"
+        }
+      ]
+    }
+  ]
+}

@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import process from 'node:process'
 
 const DIR = 'src/materials/sessions'
-const ORDER = ['easy', 'normal', 'hard']
+const ORDER = ['easy', 'normal', 'hard', 'veryhard']
 
 function load() {
   return readdirSync(DIR)
@@ -17,10 +17,7 @@ function load() {
 
 /** `retry-typescript-easy-ja` is the retry topic. The rest is metadata. */
 function topicOf(session) {
-  return session.id.replace(
-    new RegExp(`-${session.codeLanguage}-${session.difficulty}-${session.language}$`),
-    '',
-  )
+  return session.id.replace(new RegExp(`-${session.codeLanguage}-${session.language}$`), '')
 }
 
 function main() {
@@ -30,11 +27,11 @@ function main() {
   console.log(`${sessions.length} sessions in ${DIR}\n`)
 
   const width = Math.max(...languages.map((l) => l.length), 8)
-  console.log(`${'language'.padEnd(width)}  ${ORDER.map((d) => d.padEnd(7)).join('')} topics`)
+  console.log(`${'language'.padEnd(width)}  ${ORDER.map((d) => d.padEnd(9)).join('')} topics`)
   for (const language of languages) {
     const mine = sessions.filter((s) => s.codeLanguage === language)
     const counts = ORDER.map((d) =>
-      String(mine.filter((s) => s.difficulty === d).length).padEnd(7),
+      String(mine.filter((s) => s.difficulty === d).length).padEnd(9),
     ).join('')
     const topics = [...new Set(mine.map(topicOf))].sort().join(', ')
     console.log(`${language.padEnd(width)}  ${counts}${topics}`)

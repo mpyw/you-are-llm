@@ -1,0 +1,46 @@
+{
+  "id": "disposable-csharp-ja",
+  "title": "空になるファイルを using で直す",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "csharp",
+  "summary": "StreamWriter の破棄漏れを using 宣言に直し、非同期版も足す。",
+  "files": [
+    {
+      "path": "src/Reporting/ReportExporter.cs",
+      "content": "using System.IO;\n\nnamespace Acme.Reporting;\n\npublic sealed class ReportExporter\n{\n    public void Export(string path, string body)\n    {\n        var writer = new StreamWriter(path);\n        writer.Write(body);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "ReportExporter、書き出したファイルがたまに空なんだけど何これ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ポイントは破棄のタイミングです。StreamWriter を破棄していないので、バッファが書き出されないまま終わっています。using 宣言に変えれば、スコープの終わりで決定論的に解放されます。",
+          "reading": "ぽいんとははきのたいみんぐです。StreamWriter をはきしていないので、ばっふぁがかきだされないままおわっています。using せんげんにかえれば、すこーぷのおわりでけっていろんてきにかいほうされます。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public void Export(string path, string body)\n{\n    using var writer = new StreamWriter(path);\n    writer.Write(body);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ついでに非同期にして。あ、Dispose じゃなく DisposeAsync が呼ばれるようにね",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。それなら await using です。戻り値は Task にして、書き込みも WriteAsync に変えます。同期版は残したまま、呼び出し側から順に移行することをお勧めします。",
+          "reading": "しょうちしました。それなら await using です。もどりちは Task にして、かきこみも WriteAsync にかえます。どうきばんはのこしたまま、よびだしがわからじゅんにいこうすることをおすすめします。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public async Task ExportAsync(string path, string body)\n{\n    await using var writer = new StreamWriter(path);\n    await writer.WriteAsync(body);\n}\n"
+        }
+      ]
+    }
+  ]
+}

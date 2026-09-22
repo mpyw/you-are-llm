@@ -1,0 +1,89 @@
+{
+  "id": "lifetime-borrow-rust-en",
+  "title": "Going back and forth on get_or_insert",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "rust",
+  "summary": "Two rounds with the borrow checker, a &str rewrite, and a landing on Cow.",
+  "files": [
+    {
+      "path": "src/cache.rs",
+      "content": "use std::collections::HashMap;\n\n#[derive(Default)]\npub struct Cache {\n    entries: HashMap<String, String>,\n}\n\nimpl Cache {\n    pub fn get(&self, key: &str) -> Option<&String> {\n        self.entries.get(key)\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "can you add get_or_insert to Cache. on a miss compute it, stick it in, hand me back the ref",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! get_or_insert is implemented. It peeks with get first, and on a miss it runs compute, inserts the result and hands back a reference to what landed in the map. compute comes in as a closure so callers aren't building the value every time."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "pub fn get_or_insert(&mut self, key: &str, compute: impl FnOnce() -> String) -> &String {\n    if let Some(found) = self.entries.get(key) {\n        return found;\n    }\n    let value = compute();\n    self.entries.insert(key.to_string(), value);\n    self.entries.get(key).unwrap()\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "doesn't build. E0502",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "On a closer look, my implementation did not actually get past the borrow checker. Apologies. The early return ties that reference to the return lifetime, so the shared borrow is still live at the insert and the mutable borrow is refused. entry does the whole thing with one borrow."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "pub fn get_or_insert(&mut self, key: &str, compute: impl FnOnce() -> String) -> &String {\n    self.entries.entry(key.to_string()).or_insert_with(compute)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ok that's through. also can the return be &str not &String. get too",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Both go to &str. Signatures first in one pass, then the bodies. The & on the right side of a substitution stands for the whole match, so each one needs a backslash in front of it or sed pastes the pattern back in."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/-> Option<&String>/-> Option<\\&str>/; s/) -> &String {/) -> \\&str {/' src/cache.rs"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/self.entries.get(key)$/self.entries.get(key).map(String::as_str)/; s/or_insert_with(compute)$/or_insert_with(compute).as_str()/' src/cache.rs"
+        }
+      ]
+    },
+    {
+      "user": "sorry one more thing. i also want one that just gives back a default i pass in on a miss. no insert",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Adding get_or. With elision the return lifetime binds to &self, so returning default is rejected on the spot. Naming one lifetime and putting it on both &self and default lets either side be returned."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "pub fn get_or<'a>(&'a self, key: &str, default: &'a str) -> &'a str {\n    self.entries.get(key).map(String::as_str).unwrap_or(default)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "hmm the default i'd pass is a String i build at the call site... how does that even work with a ref. cow?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Cow it is. default comes in as Cow<'a, str>, a hit returns Borrowed, a miss returns whatever was handed in. In other words, the caller decides who owns the value. Callers pass Cow::Owned for a String they built and Cow::Borrowed for a literal."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::borrow::Cow;\n\npub fn get_or<'a>(&'a self, key: &str, default: Cow<'a, str>) -> Cow<'a, str> {\n    match self.entries.get(key) {\n        Some(found) => Cow::Borrowed(found.as_str()),\n        None => default,\n    }\n}\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "id": "any-to-unknown-typescript-en",
+  "title": "Trade any for unknown",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "typescript",
+  "summary": "Type a thin API client, argue about unknown, then walk the first answer back.",
+  "files": [
+    {
+      "path": "src/api/client.ts",
+      "content": "export async function get(url: string): Promise<any> {\n  const res = await fetch(url)\n  return res.json()\n}\n\nexport function pick(data: any, key: string): any {\n  return data[key]\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "want to get the any out of client.ts. start with get",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Adding a type parameter so the caller names the shape. res.json hands back any, so I park it in an unknown first and cast once at the end, where you can actually see it."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "export async function get<T>(url: string): Promise<T> {\n  const res = await fetch(url)\n  const body: unknown = await res.json()\n  return body as T\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "whats the actual difference vs unknown though. both of them take anything as far as i can tell",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question. Going in they are the same. Coming out they are not. any flows anywhere and switches checking off, unknown does nothing until you narrow it. And as T is just you promising you narrowed it, so a wrong promise ends the checking too."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "const a: any = JSON.parse(text)\na.trim().whateverYouLike()\n\nconst u: unknown = JSON.parse(text)\nif (typeof u === 'string') u.trim()\n"
+        }
+      ]
+    },
+    {
+      "user": "ok drop the T then, just return unknown. and fix pick while you are in there",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "You are right. The type parameter I suggested lets the caller lie, which puts it about where any was. get goes back to returning unknown, and pick takes the value type instead so indexing gives T | undefined."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/get(url: string): Promise<any>/get(url: string): Promise<unknown>/' -e 's/pick(data: any, key: string): any/pick<T>(data: Record<string, T>, key: string): T | undefined/' src/api/client.ts"
+        }
+      ]
+    }
+  ]
+}

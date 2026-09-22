@@ -1,0 +1,61 @@
+{
+  "id": "typed-nil-go-en",
+  "title": "It returned nil and err != nil is still true",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "go",
+  "summary": "A typed nil in an interface, fixed at the signature instead of at every call site.",
+  "files": [
+    {
+      "path": "internal/api/handler.go",
+      "content": "package api\n\nimport (\n  \"encoding/json\"\n  \"net/http\"\n)\n\ntype ValidationError struct {\n  Field string\n}\n\nfunc (e *ValidationError) Error() string {\n  return \"invalid field: \" + e.Field\n}\n\nfunc validate(r *Request) *ValidationError {\n  if r.Name == \"\" {\n    return &ValidationError{Field: \"name\"}\n  }\n  return nil\n}\n\nfunc checkQuota(u *User) *ValidationError {\n  if u.Used > u.Limit {\n    return &ValidationError{Field: \"quota\"}\n  }\n  return nil\n}\n\nfunc Handle(w http.ResponseWriter, r *Request) {\n  var err error = validate(r)\n  if err != nil {\n    http.Error(w, err.Error(), http.StatusBadRequest)\n    return\n  }\n  json.NewEncoder(w).Encode(r)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "every POST /users comes back 400. validate returns nil on the good path and we still go into err != nil",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "An interface value is a type and a value together. Storing a nil *ValidationError in an error keeps the type, so the interface itself is not nil and the check fires. The quick shape is to assign in Handle only when there is something to assign."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func Handle(w http.ResponseWriter, r *Request) {\n  var err error\n  if verr := validate(r); verr != nil {\n    err = verr\n  }\n  if err != nil {\n    http.Error(w, err.Error(), http.StatusBadRequest)\n    return\n  }\n  json.NewEncoder(w).Encode(r)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "hang on. i am about to wire checkQuota into Handle too. do i write those four lines every single time",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "You are right, and I am dropping that suggestion. Catching it at each call site is the wrong place. The signature is the problem: return error from the start and the nil stays a plain nil."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func validate(r *Request) error {\n  if r.Name == \"\" {\n    return &ValidationError{Field: \"name\"}\n  }\n  return nil\n}\n\nfunc Handle(w http.ResponseWriter, r *Request) {\n  if err := validate(r); err != nil {\n    http.Error(w, err.Error(), http.StatusBadRequest)\n    return\n  }\n  json.NewEncoder(w).Encode(r)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "there are probably more of these around. checkQuota looked the same",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Listing the functions that hand back a concrete pointer first. checkQuota has the same shape, so only its signature drops to error. Nothing inside changes, so errors.As for *ValidationError keeps working at the call sites."
+        },
+        {
+          "kind": "command",
+          "body": "grep -n ') \\*ValidationError {' internal/api/handler.go"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's|func checkQuota(u \\*User) \\*ValidationError {|func checkQuota(u *User) error {|' internal/api/handler.go"
+        }
+      ]
+    }
+  ]
+}

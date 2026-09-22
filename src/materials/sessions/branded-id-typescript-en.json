@@ -1,0 +1,85 @@
+{
+  "id": "branded-id-typescript-en",
+  "title": "Stop UserId and PostId swapping places",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "typescript",
+  "summary": "Brand the ids with a unique symbol, add type predicates, then win inference back with satisfies.",
+  "files": [
+    {
+      "path": "src/db/repo.ts",
+      "content": "import { db } from './client'\nimport type { Post } from './types'\n\nexport type UserId = string\nexport type PostId = string\n\nexport async function findPost(userId: UserId, postId: PostId): Promise<Post | null> {\n  return db.post.find({ where: { id: postId, authorId: userId } })\n}\n\nexport async function loadFeed(userId: UserId, postIds: PostId[]): Promise<(Post | null)[]> {\n  return Promise.all(postIds.map((postId) => findPost(postId, userId)))\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "loadFeed had findPost(postId, userId) backwards for months and nothing caught it. i want the types to stop that",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Both are aliases for string, so structurally they are one type. Mixing in a brand keyed by a unique symbol makes them distinct by name alone, and the symbol stays unexported so nothing outside this file can forge one."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "declare const brand: unique symbol\n\nexport type Brand<T, B extends string> = T & { readonly [brand]: B }\n\nexport type UserId = Brand<string, 'UserId'>\nexport type PostId = Brand<string, 'PostId'>\n"
+        }
+      ]
+    },
+    {
+      "user": "what comes out of the db is a plain string though. how does that become a UserId",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "An as cast just switches the checker off at that point, so the narrowing goes at the entrance instead. A function declared value is UserId narrows string to UserId only on the branch where it returned true, which keeps the runtime check and the type in agreement."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "const USER_ID = /^u_[0-9a-f]{8}$/\n\nexport function isUserId(value: string): value is UserId {\n  return USER_ID.test(value)\n}\n\nexport function asUserId(value: string): UserId {\n  if (!isUserId(value)) throw new TypeError(`not a UserId: ${value}`)\n  return value\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "each kind has a fixed prefix so put them in a table. u_ is user, p_ is post",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the table. One place holds the values, so that is the single source of truth, and keyof typeof hands back the union of kinds without writing the names twice."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "export const PREFIX: Record<string, string> = {\n  user: 'u_',\n  post: 'p_',\n}\n\nexport type IdKind = keyof typeof PREFIX\n"
+        }
+      ]
+    },
+    {
+      "user": "IdKind is just string. it never narrows to 'user' | 'post' and i get no completion",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. The annotation widened the literals to string the moment it was written. as const pins the values and satisfies checks the shape without feeding back into inference, so IdKind comes out as 'user' | 'post'."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "export const PREFIX = {\n  user: 'u_',\n  post: 'p_',\n} as const satisfies Record<string, string>\n\nexport type IdKind = keyof typeof PREFIX\nexport type Prefix = (typeof PREFIX)[IdKind]\n"
+        }
+      ]
+    },
+    {
+      "user": "review came back. rename PREFIX to ID_PREFIX, and u_ is apparently usr_ now",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Only the name and the value change. The ^, [ and $ inside the regex literal have to be escaped on the pattern side of sed; the replacement side takes them as they are."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/PREFIX/ID_PREFIX/g' -e \"s/user: 'u_'/user: 'usr_'/\" -e 's/\\^u_\\[0-9a-f\\]{8}\\$/^usr_[0-9a-f]{8}$/' src/db/repo.ts"
+        }
+      ]
+    }
+  ]
+}

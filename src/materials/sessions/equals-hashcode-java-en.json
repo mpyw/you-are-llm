@@ -1,0 +1,43 @@
+{
+  "id": "equals-hashcode-java-en",
+  "title": "equals without hashCode",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "java",
+  "summary": "A User that forgot hashCode lands twice in the same HashSet.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/User.java",
+      "content": "package com.example;\n\nimport java.util.Objects;\n\npublic class User {\n    private final String id;\n\n    public User(String id) {\n        this.id = id;\n    }\n\n    @Override\n    public boolean equals(Object other) {\n        if (!(other instanceof User)) {\n            return false;\n        }\n        return Objects.equals(id, ((User) other).id);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "added two Users with the same id to a HashSet and size() says 2. bug?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! Not a bug. The class has equals but no hashCode, so the set drops the two into different buckets. Override one, you owe the other: that is the contract."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Override\npublic int hashCode() {\n    return Objects.hash(id);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "bet it's not the only one. can you find the classes with equals and no hashCode?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Certainly. List the files that implement equals, then keep only the ones with no hashCode in them."
+        },
+        {
+          "kind": "command",
+          "body": "grep -rl \"public boolean equals\" src/main/java | xargs grep -L \"public int hashCode\""
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "id": "str-clone-rust-ja",
+  "title": "render で増える clone を削る",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "rust",
+  "summary": "引数を &str にしたら逆に確保が増えたので Into<String> に直し、最後はバッファ受けにする。",
+  "files": [
+    {
+      "path": "src/render.rs",
+      "content": "pub struct Label {\n    text: String,\n}\n\nimpl Label {\n    pub fn new(text: String) -> Self {\n        Label { text }\n    }\n}\n\npub fn render(labels: &[Label], prefix: String) -> String {\n    let mut out = String::new();\n    for label in labels {\n        out.push_str(&prefix.clone());\n        out.push_str(&label.text.clone());\n        out.push('\\n');\n    }\n    out\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "render 呼ぶたびに prefix.clone() 渡してて馬鹿らしい。中の clone もいらんでしょ。整理して",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい着眼点です。ループの中の clone は 2 つとも不要です。push_str は &str を取るので、prefix も label.text も参照のまま渡せます。あわせて prefix は String ではなく &str で受け取ることをお勧めします。呼び出し側は文字列リテラルをそのまま渡せます。Label::new も同じ理由で &str にしておきます。",
+          "reading": "すばらしいちゃくがんてんです。るーぷのなかの clone は 2 つともふようです。push_str は &str をとるので、prefix も label.text もさんしょうのままわたせます。あわせて prefix は String ではなく &str でうけとることをおすすめします。よびだしがわはもじれつりてらるをそのままわたせます。Label::new もおなじりゆうで &str にしておきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "pub fn new(text: &str) -> Self {\n    Label { text: text.to_string() }\n}\n\npub fn render(labels: &[Label], prefix: &str) -> String {\n    let mut out = String::new();\n    for label in labels {\n        out.push_str(prefix);\n        out.push_str(&label.text);\n        out.push('\\n');\n    }\n    out\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "prefix はそれでいい。でも new は戻して。こっちは format! で組み立てた String を渡してるから、&str にされると to_string でもう一回コピーされる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。呼び出し側が既に String を持っているケースを見落としていました。&str で受けると、その String を借りてもう一度確保し直すので、確かにコピーが一回増えます。new は impl Into<String> で受けるのが正しいです。言い換えると、確保するかどうかは呼び出し側が決めます。リテラルでも String でも、余計な確保なしで渡せます。",
+          "reading": "もうしわけありません。よびだしがわがすでに String をもっているけーすをみおとしていました。&str でうけると、その String をかりてもういちどかくほしなおすので、たしかにこぴーがいっかいふえます。new は impl Into<String> でうけるのがただしいです。いいかえると、かくほするかどうかはよびだしがわがきめます。りてらるでも String でも、よけいなかくほなしでわたせます。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "pub fn new(text: impl Into<String>) -> Self {\n    Label { text: text.into() }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ありがと。最後に一個。render、呼ぶ側で既に String バッファ持ってるからそこに書き足したい。毎回 String 返すのやめられる？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "まとめると、確保は呼び出し側の一回だけになります。render はバッファを &mut String で受け取り、戻り値を無くします。sed の左側は正規表現なので [ と ] をバックスラッシュで逃がし、右側の & はマッチ全体という意味になるのでこちらも逃がします。二本目で不要になった行を消します。",
+          "reading": "まとめると、かくほはよびだしがわのいっかいだけになります。render はばっふぁを &mut String でうけとり、もどりちをなくします。sed のひだりがわはせいきひょうげんなので [ と ] をばっくすらっしゅでにがし、みぎがわの & はまっちぜんたいといういみになるのでこちらもにがします。にほんめでふようになったぎょうをけします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/pub fn render(labels: &\\[Label\\], prefix: &str) -> String {/pub fn render(out: \\&mut String, labels: \\&[Label], prefix: \\&str) {/' src/render.rs"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/let mut out = String::new();/d; /^    out$/d' src/render.rs"
+        }
+      ]
+    }
+  ]
+}

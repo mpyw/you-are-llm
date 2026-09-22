@@ -1,0 +1,92 @@
+{
+  "id": "nullable-csharp-en",
+  "title": "Clear the nullable warnings",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "csharp",
+  "summary": "Instead of silencing CS8603 with !, let Product?, NotNullWhen and MemberNotNullWhen carry it.",
+  "files": [
+    {
+      "path": "src/Catalog/Acme.Catalog.csproj",
+      "content": "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n    <Nullable>enable</Nullable>\n    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>\n  </PropertyGroup>\n</Project>\n"
+    },
+    {
+      "path": "src/Catalog/ProductLookup.cs",
+      "content": "using System.Collections.Generic;\n\nnamespace Acme.Catalog;\n\npublic sealed class ProductLookup\n{\n    private readonly Dictionary<string, Product> _bySku;\n\n    public Product Find(string sku)\n    {\n        _bySku.TryGetValue(sku, out var product);\n        return product;\n    }\n\n    public string DescribeCategory(Product product)\n    {\n        return product.Category.Name.ToUpperInvariant();\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "turned nullable on and got 600 warnings. just slap ! on all of them for now",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "The ! only silences the check, the NullReferenceException at runtime stays. Let the type annotation be the single source of truth: Find returns Product?, so the missing case is visible in the type."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public Product? Find(string sku)\n{\n    return _bySku.TryGetValue(sku, out var product) ? product : null;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "there are like 200 call sites. am I writing an if in every one of them? throwing is fine when it's missing",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Then split the call sites. Where the product must exist, Get throws for you; where you want to check, TryGet does it. NotNullWhen on the out parameter means the true branch is warning free. It needs a using for System.Diagnostics.CodeAnalysis."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using System.Diagnostics.CodeAnalysis;\n\npublic Product Get(string sku)\n{\n    return _bySku.TryGetValue(sku, out var product)\n        ? product\n        : throw new KeyNotFoundException(sku);\n}\n\npublic bool TryGet(string sku, [NotNullWhen(true)] out Product? product)\n{\n    return _bySku.TryGetValue(sku, out product);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "DescribeCategory still trips CS8602. Category can be null too, forgot to mention",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "That was my bad assumption. Make Category nullable and move the check into a property annotated with MemberNotNullWhen. Past the if the compiler treats Category as non null, so no ! anywhere."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public sealed class Product\n{\n    public required string Sku { get; init; }\n    public Category? Category { get; init; }\n\n    [MemberNotNullWhen(true, nameof(Category))]\n    public bool HasCategory => Category is not null;\n}\n\npublic string DescribeCategory(Product product)\n{\n    return product.HasCategory ? product.Category.Name.ToUpperInvariant() : \"UNCATEGORIZED\";\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "build is still red. CS8618 on _bySku. and the exception message, sku on its own tells me nothing about which key",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "On a second look, the warnings were not fully cleared. The uninitialized field and the message are one line each, so sed covers both. I am keeping the comparer case sensitive, which is the default."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/Dictionary<string, Product> _bySku;$/Dictionary<string, Product> _bySku = new(StringComparer.Ordinal);/' src/Catalog/ProductLookup.cs"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/KeyNotFoundException(sku)/KeyNotFoundException($\"unknown sku: {sku}\")/' src/Catalog/ProductLookup.cs"
+        }
+      ]
+    },
+    {
+      "user": "changed my mind, DescribeCategory should return an empty string. the view will render UNCATEGORIZED",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Only the fallback changes. The return type stays string, so no call site is affected."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/: \"UNCATEGORIZED\"/: string.Empty/' src/Catalog/ProductLookup.cs"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "id": "goroutine-leak-go-ja",
+  "title": "止まらない Watcher を context で畳む",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "go",
+  "summary": "無限ループのゴルーチンに context を通し、送信側の詰まりも塞ぐ。",
+  "files": [
+    {
+      "path": "internal/poll/watcher.go",
+      "content": "package poll\n\nimport (\n  \"log\"\n  \"time\"\n)\n\ntype Watcher struct {\n  interval time.Duration\n  out      chan<- Event\n}\n\nfunc New(out chan<- Event) *Watcher {\n  return &Watcher{interval: 5 * time.Second, out: out}\n}\n\nfunc (w *Watcher) Start() {\n  go func() {\n    for {\n      time.Sleep(w.interval)\n      ev, err := w.fetch()\n      if err != nil {\n        log.Printf(\"poll: %v\", err)\n        continue\n      }\n      w.out <- ev\n    }\n  }()\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "テスト終わっても Watcher のゴルーチンが残ってる。goleak が毎回怒る。止まるようにして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。キャンセルの伝播は第一級の関心事です。Start に context を渡して、Done が閉じたら抜ける形にします。Sleep はタイマに替えて、待っている途中で来たキャンセルもその場で拾えるようにします。これで全ての経路が確実に停止します。",
+          "reading": "しょうちしました。きゃんせるのでんぱはだいいっきゅうのかんしんじです。Start に context をわたして、Done がとじたらぬけるかたちにします。Sleep はたいまにかえて、まっているとちゅうできたきゃんせるもそのばでひろえるようにします。これですべてのけいろがかくじつにていしします。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (w *Watcher) Start(ctx context.Context) {\n  t := time.NewTicker(w.interval)\n  go func() {\n    defer t.Stop()\n    for {\n      select {\n      case <-ctx.Done():\n        return\n      case <-t.C:\n        w.tick(ctx)\n      }\n    }\n  }()\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "w.out <- ev のとこ、受け手がもういなかったら結局そこで止まったままじゃない？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。全ての経路で止まると述べましたが、送信側は塞げていませんでした。送信も select に入れて、受け手が居なくても ctx.Done() が来たらイベントを捨てて優雅に戻ります。",
+          "reading": "もうしわけありません。すべてのけいろでとまるとのべましたが、そうしんがわはふさげていませんでした。そうしんも select にいれて、うけてがいなくても ctx.Done() がきたらいべんとをすててゆうがにもどります。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (w *Watcher) tick(ctx context.Context) {\n  ev, err := w.fetch()\n  if err != nil {\n    log.Printf(\"poll: %v\", err)\n    return\n  }\n  select {\n  case w.out <- ev:\n  case <-ctx.Done():\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あと 5 秒待つのテストがだるいんだよね。既定 1 秒にして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "既定値だけ変えます。Note: 本番まで 1 秒にするつもりは無いので、設定ファイル側には 5 秒を明示的に書いておくことをお勧めします。テストからは New を通さず interval を直接入れる手もあります。",
+          "reading": "きていちだけかえます。Note: ほんばんまで 1 びょうにするつもりはないので、せっていふぁいるがわには 5 びょうをめいじてきにかいておくことをおすすめします。てすとからは New をとおさず interval をちょくせついれるてもあります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/interval: 5 \\* time.Second/interval: 1 * time.Second/' internal/poll/watcher.go"
+        }
+      ]
+    }
+  ]
+}

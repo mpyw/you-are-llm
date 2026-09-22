@@ -1,0 +1,60 @@
+{
+  "id": "promise-unknown-typescript-ja",
+  "title": "await 忘れと catch の unknown を片付ける",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "typescript",
+  "summary": "Promise.all でまとめて待ち、catch に来る unknown を絞り、当てたと言い張った sed をやり直す。",
+  "files": [
+    {
+      "path": "src/report/loader.ts",
+      "content": "import { fetchRow } from './row'\n\nexport async function loadReport(ids: string[]) {\n  const rows = ids.map((id) => fetchRow(id))\n  try {\n    return rows.map((row) => row.total)\n  } catch (error) {\n    console.error(error.message)\n    return []\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "loadReport が total のところで死ぬ。Promise<Row>[] に total は無いって言われる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。map が返すのは Promise の配列なので、要素にはまだ total がありません。Promise.all でまとめて待てば、要素を Row として扱うことが可能になります。戻り値の型も明示しておきます。",
+          "reading": "しょうちしました。map がかえすのは Promise のはいれつなので、ようそにはまだ total がありません。Promise.all でまとめてまてば、ようそを Row としてあつかうことがかのうになります。もどりちのかたもめいじしておきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "export async function loadReport(ids: string[]): Promise<number[]> {\n  const rows = await Promise.all(ids.map((id) => fetchRow(id)))\n  try {\n    return rows.map((row) => row.total)\n  } catch (error) {\n    console.error(error.message)\n    return []\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "それ await が try の外だから fetch がコケても catch されなくない？ あと error.message も unknown で怒られてる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ご指摘のとおりです。catch の変数は useUnknownInCatchVariables で unknown になるので、instanceof で絞ってから message を読みます。await を try の中へ動かすのと合わせて、まとめて当てます。",
+          "reading": "ごしてきのとおりです。catch のへんすうは useUnknownInCatchVariables で unknown になるので、instanceof でしぼってから message をよみます。await を try のなかへうごかすのとあわせて、まとめてあてます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/console\\.error(error\\.message)/console.error(error instanceof Error ? error.message : String(error))/' src/report/loader.ts"
+        }
+      ]
+    },
+    {
+      "user": "catch は直った。けど await まだ try の外にいるんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの実装は反映されていませんでした。sed は catch の行しか当てておらず、await の移動は口で言っただけになっていました。結論から言うと、行の入れ替えは sed に向かないので、関数ごと置き直します。",
+          "reading": "もうしわけありません。さきほどのじっそうははんえいされていませんでした。sed は catch のぎょうしかあてておらず、await のいどうはくちでいっただけになっていました。けつろんからいうと、ぎょうのいれかえは sed にむかないので、かんすうごとおきなおします。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "export async function loadReport(ids: string[]): Promise<number[]> {\n  try {\n    const rows = await Promise.all(ids.map((id) => fetchRow(id)))\n    return rows.map((row) => row.total)\n  } catch (error) {\n    console.error(error instanceof Error ? error.message : String(error))\n    return []\n  }\n}\n"
+        }
+      ]
+    }
+  ]
+}

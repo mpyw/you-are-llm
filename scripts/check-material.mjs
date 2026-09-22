@@ -112,11 +112,25 @@ export const SELF_CORRECTIONS = [
   '正しくありませんでした',
 ]
 
-/** How many distinct tells a Japanese session has to wear, by difficulty. */
-const TELL_FLOOR = { easy: 3, normal: 4, hard: 5 }
+/**
+ * How many distinct tells a Japanese session has to wear, by how much prose it
+ * has to wear them on. This used to key off difficulty, which stopped making
+ * sense once difficulty came to mean typing load rather than session length: a
+ * two block session cannot carry five tells without becoming a parody.
+ */
+function tellFloor(proseBlocks) {
+  if (proseBlocks <= 2) return 3
+  if (proseBlocks === 3) return 4
+  return 5
+}
+
+/** A slip needs somewhere to happen and somewhere to be owned. */
+function needsSelfCorrection(proseBlocks) {
+  return proseBlocks >= 3
+}
 
 const LANGUAGES = new Set(['ja', 'en'])
-const DIFFICULTIES = new Set(['easy', 'normal', 'hard'])
+const DIFFICULTIES = new Set(['easy', 'normal', 'hard', 'veryhard'])
 const CODE_LANGUAGES = new Set(['c', 'cpp', 'csharp', 'go', 'java', 'php', 'rust', 'typescript'])
 const BLOCK_KINDS = new Set(['text', 'code', 'command'])
 
@@ -163,20 +177,19 @@ export function validate(session) {
   }
 
   if (session.language === 'ja') {
-    const prose = session.turns
+    const blocks = session.turns
       .flatMap((turn) => turn.assistant ?? [])
       .filter((block) => block.kind === 'text')
-      .map((block) => block.body ?? '')
-      .join('\n')
-    const floor = TELL_FLOOR[session.difficulty] ?? 3
+    const prose = blocks.map((block) => block.body ?? '').join('\n')
+    const floor = tellFloor(blocks.length)
     const worn = AI_TELLS.filter((tell) => prose.includes(tell))
     if (worn.length < floor) {
       say(
-        `assistant prose needs ${floor} distinct AI tells and has ${worn.length}` +
+        `${blocks.length} prose blocks need ${floor} distinct AI tells and have ${worn.length}` +
           `${worn.length > 0 ? ` (${worn.join(', ')})` : ''}`,
       )
     }
-    if (session.difficulty !== 'easy') {
+    if (needsSelfCorrection(blocks.length)) {
       const owned = SELF_CORRECTIONS.filter((phrase) => prose.includes(phrase))
       if (owned.length === 0) {
         say('the assistant slips in this session, so it needs a self correction phrase')

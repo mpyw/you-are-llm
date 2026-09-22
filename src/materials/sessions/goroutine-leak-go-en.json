@@ -1,0 +1,57 @@
+{
+  "id": "goroutine-leak-go-en",
+  "title": "A watcher that never stops",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "go",
+  "summary": "Thread a context through a polling goroutine and unblock the send side too.",
+  "files": [
+    {
+      "path": "internal/poll/watcher.go",
+      "content": "package poll\n\nimport (\n  \"log\"\n  \"time\"\n)\n\ntype Watcher struct {\n  interval time.Duration\n  out      chan<- Event\n}\n\nfunc New(out chan<- Event) *Watcher {\n  return &Watcher{interval: 5 * time.Second, out: out}\n}\n\nfunc (w *Watcher) Start() {\n  go func() {\n    for {\n      time.Sleep(w.interval)\n      ev, err := w.fetch()\n      if err != nil {\n        log.Printf(\"poll: %v\", err)\n        continue\n      }\n      w.out <- ev\n    }\n  }()\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "goleak fails every run now, the Watcher goroutine outlives the test. make it stoppable",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Cancellation propagation is a first-class concern here, so Start takes a context and returns on Done. A ticker replaces the Sleep so a cancel lands during the wait instead of after it. Every path stops on cancel now."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (w *Watcher) Start(ctx context.Context) {\n  t := time.NewTicker(w.interval)\n  go func() {\n    defer t.Stop()\n    for {\n      select {\n      case <-ctx.Done():\n        return\n      case <-t.C:\n        w.tick(ctx)\n      }\n    }\n  }()\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "what about w.out <- ev, if nobody is reading anymore doesn't it just park there forever",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies. I said every path stops, and the send side was still open. The send goes in a select as well, so a cancel drops the event and the goroutine shuts down gracefully."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (w *Watcher) tick(ctx context.Context) {\n  ev, err := w.fetch()\n  if err != nil {\n    log.Printf(\"poll: %v\", err)\n    return\n  }\n  select {\n  case w.out <- ev:\n  case <-ctx.Done():\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "also waiting 5s in tests is painful. default it to 1s",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Default only. Production should not poll every second, so pin 5s explicitly in the config file before this ships anywhere."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/interval: 5 \\* time.Second/interval: 1 * time.Second/' internal/poll/watcher.go"
+        }
+      ]
+    }
+  ]
+}

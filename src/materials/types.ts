@@ -29,8 +29,12 @@ export interface SourceFile {
 /** The language the session is written in. */
 export type Language = 'ja' | 'en'
 
-/** How long and how awkward the session is. */
-export type Difficulty = 'easy' | 'normal' | 'hard'
+/**
+ * How hard the session is to type, measured across every language rather than
+ * within one. Rust reaches for `&`, `<>` and `::` in its gentlest session, so
+ * an easy Rust session does not exist. `scripts/typing-load.mjs` does the sums.
+ */
+export type Difficulty = 'easy' | 'normal' | 'hard' | 'veryhard'
 
 /** The language of the code under discussion. */
 export type CodeLanguage =
@@ -58,6 +62,7 @@ export const DIFFICULTY_LABELS: Readonly<Record<Difficulty, string>> = {
   easy: 'Easy',
   normal: 'Normal',
   hard: 'Hard',
+  veryhard: 'Very Hard',
 }
 
 export interface Session {

@@ -8,8 +8,12 @@ with no completion. Everything here exists to keep that typable and worth typing
 One session is one file at `src/materials/sessions/<id>.json`. The file name matches the `id`
 inside it. Nothing registers the file. The loader picks up the whole directory.
 
-Use `<topic>-<codeLanguage>-<difficulty>-<language>` for the id, all lower case.
-An example is `lifetime-borrow-rust-hard-ja`.
+Use `<topic>-<codeLanguage>-<language>` for the id, all lower case. An example is
+`lifetime-borrow-rust-ja`.
+
+> [!IMPORTANT]
+> The difficulty is not in the id. It is measured rather than chosen, so it changes, and an id has
+> to survive that because it is the URL people share.
 
 ## Fields
 
@@ -25,6 +29,8 @@ An example is `lifetime-borrow-rust-hard-ja`.
 | `turns` | array | The conversation, in order |
 
 `codeLanguage` is one of `c`, `cpp`, `csharp`, `go`, `java`, `php`, `rust`, `typescript`.
+`difficulty` is one of `easy`, `normal`, `hard`, `veryhard`, and `scripts/typing-load.mjs` decides
+it. Write whatever session you meant to write and let the script grade it.
 
 Each turn holds a `user` string and an `assistant` array of blocks.
 
@@ -66,23 +72,28 @@ words stay as ASCII. Keep the reading faithful to the body, including particles.
 | `Vec を 2 回借りています。` | `Vec を 2 かいかりています。` |
 | `then を 3 つ繋げます。` | `then を 3 つつなげます。` |
 
-## Difficulty budget
+## How long a session runs
 
-Count a block's length by its typed target, which is the `reading` when there is one.
+Difficulty no longer says anything about length. It measures how hard the session is to type,
+across every language rather than within one, which is why Rust has no easy session at all.
 
-| Difficulty | Turns | Blocks in total | Median block | Typical range |
-| --- | --- | --- | --- | --- |
-| `easy` | 2 | 3 to 4 | 135 characters | 84 to 293 |
-| `normal` | 3 | 5 to 7 | 165 characters | 79 to 309 |
-| `hard` | 4 to 5 | 8 to 11 | 187 characters | 99 to 355 |
+| Difficulty | Weighted keystrokes | Sessions today |
+| --- | --- | --- |
+| `easy` | under 900 | 13 |
+| `normal` | 900 to 1600 | 17 |
+| `hard` | 1600 to 2600 | 13 |
+| `veryhard` | over 2600 | 5 |
 
-Those are measured over the sessions that ship today, not a target to hit. Prose blocks run short
-and code blocks run long, so the spread inside one session is wide by design. Only the block count
-is enforced.
+A keystroke that needs Shift counts twice, because it does.
 
-`normal` and `hard` must each contain at least one `command` block that edits the source with
-`sed`. That is the point of the trainer. Escaping `*` and `/` inside a `sed` pattern is exactly
-the kind of typing the learner came for.
+```bash
+node scripts/typing-load.mjs            # what every session scores
+node scripts/typing-load.mjs --apply    # write the grades back
+```
+
+What you control is the shape. Aim for two to five turns and three to fourteen blocks in total.
+A third turn means the requirements changed, and a change of requirements is applied with `sed`.
+The suite holds you to both.
 
 ## Voice
 
@@ -124,15 +135,16 @@ Every session above `easy` already has the assistant slip once. That slip has to
 voice, and the checker enforces it.
 
 `scripts/check-material.mjs` holds both lists, `AI_TELLS` and `SELF_CORRECTIONS`. How many distinct
-tells a Japanese session needs depends on how long it is.
+tells a Japanese session needs depends on how much prose it has to wear them on.
 
-| Difficulty | Distinct tells | Self correction |
+| Prose blocks | Distinct tells | Self correction |
 | --- | --- | --- |
-| `easy` | 3 | not required |
-| `normal` | 4 | required |
-| `hard` | 5 | required |
+| 2 or fewer | 3 | not required |
+| 3 | 4 | required |
+| 4 or more | 5 | required |
 
-Those are floors. Lay it on thick.
+Those are floors. Lay it on thick. Two blocks cannot carry five tells without turning into parody,
+which is why the floor follows the prose rather than the difficulty.
 
 > [!WARNING]
 > Thick is not uniform. Every block opening with `素晴らしい質問です！` stops being funny by the

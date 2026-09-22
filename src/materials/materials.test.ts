@@ -4,14 +4,16 @@ import { TypingSession, untypeableCharacters } from '../engine'
 import { toSteps } from '../typing/steps'
 import { sessions } from './index'
 import { parseSession } from './parse'
-import type { Difficulty } from './types'
 
-/** Slack around the budget in FORMAT.md, wide enough to allow judgement. */
-const BLOCK_BUDGET: Readonly<Record<Difficulty, readonly [number, number]>> = {
-  easy: [3, 5],
-  normal: [4, 8],
-  hard: [7, 12],
-}
+/**
+ * A sanity range rather than a budget per difficulty. Difficulty measures how
+ * hard a session is to type, which says nothing about how many blocks it took
+ * to tell the story.
+ */
+const BLOCKS: readonly [number, number] = [3, 14]
+
+/** A third turn is a change of requirements, and that is what `sed` is for. */
+const TURNS_THAT_NEED_A_COMMAND = 3
 
 const files = import.meta.glob<unknown>('./sessions/*.json', { eager: true, import: 'default' })
 
@@ -59,14 +61,14 @@ describe.each(sessions.map((session) => [session.id, session] as const))('%s', (
     expect([...new Set(offenders)]).toEqual([])
   })
 
-  it('stays inside the block budget for its difficulty', () => {
-    const [low, high] = BLOCK_BUDGET[session.difficulty]
+  it('is a sensible size', () => {
+    const [low, high] = BLOCKS
     expect(steps.length).toBeGreaterThanOrEqual(low)
     expect(steps.length).toBeLessThanOrEqual(high)
   })
 
-  it('edits the source with a command when it is not easy', () => {
-    if (session.difficulty === 'easy') return
+  it('edits the source with a command once the requirements change', () => {
+    if (session.turns.length < TURNS_THAT_NEED_A_COMMAND) return
     const commands = steps.filter((step) => step.block.kind === 'command')
     expect(commands.length).toBeGreaterThan(0)
   })

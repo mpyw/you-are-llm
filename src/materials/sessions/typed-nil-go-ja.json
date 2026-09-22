@@ -1,0 +1,64 @@
+{
+  "id": "typed-nil-go-ja",
+  "title": "nil を返したのに err != nil が真になる",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "go",
+  "summary": "インターフェースに入った typed nil を、対症療法ではなくシグネチャの変更で断つ。",
+  "files": [
+    {
+      "path": "internal/api/handler.go",
+      "content": "package api\n\nimport (\n  \"encoding/json\"\n  \"net/http\"\n)\n\ntype ValidationError struct {\n  Field string\n}\n\nfunc (e *ValidationError) Error() string {\n  return \"invalid field: \" + e.Field\n}\n\nfunc validate(r *Request) *ValidationError {\n  if r.Name == \"\" {\n    return &ValidationError{Field: \"name\"}\n  }\n  return nil\n}\n\nfunc checkQuota(u *User) *ValidationError {\n  if u.Used > u.Limit {\n    return &ValidationError{Field: \"quota\"}\n  }\n  return nil\n}\n\nfunc Handle(w http.ResponseWriter, r *Request) {\n  var err error = validate(r)\n  if err != nil {\n    http.Error(w, err.Error(), http.StatusBadRequest)\n    return\n  }\n  json.NewEncoder(w).Encode(r)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "POST /users が全部 400 で返ってくる。validate は nil 返してるはずなんだけど、err != nil に入ってる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。原因は非自明な方の nil です。インターフェース値は型と値の対で出来ていて、*ValidationError の nil を error に入れると、値は nil でも型が残るので err != nil が真になります。まずは Handle 側で、nil でないときだけ代入する形にします。",
+          "reading": "しょうちしました。げんいんはひじめいなほうの nil です。いんたーふぇーすちはかたとあたいのついでできていて、*ValidationError の nil を error にいれると、あたいは nil でもかたがのこるので err != nil がしんになります。まずは Handle がわで、nil でないときだけだいにゅうするかたちにします。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func Handle(w http.ResponseWriter, r *Request) {\n  var err error\n  if verr := validate(r); verr != nil {\n    err = verr\n  }\n  if err != nil {\n    http.Error(w, err.Error(), http.StatusBadRequest)\n    return\n  }\n  json.NewEncoder(w).Encode(r)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "いや待って。checkQuota もこの後 Handle に足すんだけど、その度にこの 4 行書くの？ さすがに嫌なんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ご指摘のとおりです。前言を撤回します。呼び出し側で毎回受け止めるのは間違いで、直すべきは関数のシグネチャでした。戻り値を最初から error にすれば、nil は素の nil のまま返るので、呼び出し側は普通に書けます。",
+          "reading": "ごしてきのとおりです。ぜんげんをてっかいします。よびだしがわでまいかいうけとめるのはまちがいで、なおすべきはかんすうのしぐねちゃでした。もどりちをさいしょから error にすれば、nil はすの nil のままかえるので、よびだしがわはふつうにかけます。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func validate(r *Request) error {\n  if r.Name == \"\" {\n    return &ValidationError{Field: \"name\"}\n  }\n  return nil\n}\n\nfunc Handle(w http.ResponseWriter, r *Request) {\n  if err := validate(r); err != nil {\n    http.Error(w, err.Error(), http.StatusBadRequest)\n    return\n  }\n  json.NewEncoder(w).Encode(r)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "他にも同じ書き方のやつ居そう。checkQuota も同じだったはず",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: 具体型のポインタを返している関数を先に洗い出します。checkQuota も同じ形なので、同様にシグネチャだけ error に落とします。中身は触らないので、errors.As で *ValidationError を取り出す使い方は今まで通り動くことを保証します。",
+          "reading": "Note: ぐたいがたのぽいんたをかえしているかんすうをさきにあらいだします。checkQuota もおなじかたちなので、どうようにしぐねちゃだけ error におとします。なかみはさわらないので、errors.As で *ValidationError をとりだすつかいかたはいままでどおりうごくことをほしょうします。"
+        },
+        {
+          "kind": "command",
+          "body": "grep -n ') \\*ValidationError {' internal/api/handler.go"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's|func checkQuota(u \\*User) \\*ValidationError {|func checkQuota(u *User) error {|' internal/api/handler.go"
+        }
+      ]
+    }
+  ]
+}

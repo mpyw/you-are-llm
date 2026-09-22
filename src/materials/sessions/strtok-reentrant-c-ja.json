@@ -1,0 +1,60 @@
+{
+  "id": "strtok-reentrant-c-ja",
+  "title": "strtok をやめて strtok_r にする",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "c",
+  "summary": "共有状態を持つ strtok を strtok_r に替え、破壊的な書き換えと本数の上限も塞ぐ。",
+  "files": [
+    {
+      "path": "src/csv/parse.c",
+      "content": "#include <stdio.h>\n#include <string.h>\n\n/* split a comma separated line */\n\nstatic char *fields[8];\n\nint split_line(char *line) {\n  int n = 0;\n  char *tok = strtok(line, \",\");\n  while (tok != NULL) {\n    fields[n] = tok;\n    n = n + 1;\n    tok = strtok(NULL, \",\");\n  }\n  return n;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "split_line、スレッド 2 本で回したら結果が混ざる。長い行だと落ちるし",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "strtok は次の位置を関数の内側の静的な領域に持つので、同時に 2 本から呼ぶと互いの状態を踏みます。まとめると、直す点は 3 つです。strtok_r に替えて位置を呼び出し側で持つこと、fields を引数で受け取って共有をやめること、本数の上限を見ることです。今は 8 本を超えた時点で配列の外に書いています。これで line を壊さずに済むことを保証します。",
+          "reading": "strtok はつぎのいちをかんすうのうちがわのせいてきなりょういきにもつので、どうじに 2 ほんからよぶとたがいのじょうたいをふみます。まとめると、なおすてんは 3 つです。strtok_r にかえていちをよびだしがわでもつこと、fields をひきすうでうけとってきょうゆうをやめること、ほんすうのじょうげんをみることです。いまは 8 ほんをこえたじてんではいれつのそとにかいています。これで line をこわさずにすむことをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#define DELIM \",\"\n\nint split_line(char *line, char **fields, int max) {\n  char *save = NULL;\n  int n = 0;\n  for (char *tok = strtok_r(line, DELIM, &save); tok != NULL; tok = strtok_r(NULL, DELIM, &save)) {\n    if (n >= max) return -1;\n    fields[n] = tok;\n    n = n + 1;\n  }\n  return n;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "line 壊さないって書いてあるけど、デバッガで見たらカンマが 0 に化けてるよ。呼び出し側で line あとから使ってるんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの説明は正確ではありませんでした。strtok_r が直すのは再入の問題だけで、区切りを NUL に置き換える破壊的な動作は strtok と同じです。line は const で受けて、作業用の領域に写してからそちらを刻みます。写す前に長さを比べ、入らなければ -1 を返します。",
+          "reading": "もうしわけありません。さきほどのせつめいはせいかくではありませんでした。strtok_r がなおすのはさいにゅうのもんだいだけで、くぎりを NUL におきかえるはかいてきなどうさは strtok とおなじです。line は const でうけて、さぎょうようのりょういきにうつしてからそちらをきざみます。うつすまえにながさをくらべ、はいらなければ -1 をかえします。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "int split_line(const char *line, char *work, size_t work_size, char **fields, int max) {\n  size_t len = strlen(line);\n  if (len >= work_size) return -1;\n  memcpy(work, line, len + 1);\n  char *save = NULL;\n  int n = 0;\n  for (char *tok = strtok_r(work, DELIM, &save); tok != NULL; tok = strtok_r(NULL, DELIM, &save)) {\n    if (n >= max) return -1;\n    fields[n] = tok;\n    n = n + 1;\n  }\n  return n;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "タブ区切りのファイルも流れてくるようになった。区切りにタブ足しといて。先頭のコメントも実態と合ってないよね",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ご指摘のとおり、コメントが実態と合っていません。DELIM にタブを足して、両方を一度に置換します。ただし strtok_r は区切りが連続しても 1 つとして扱うので、空のフィールドは消えるという点に注意することが重要です。そこまで要るなら strsep が向いています。",
+          "reading": "ごしてきのとおり、こめんとがじったいとあっていません。DELIM にたぶをたして、りょうほうをいちどにちかんします。ただし strtok_r はくぎりがれんぞくしても 1 つとしてあつかうので、からのふぃーるどはきえるというてんにちゅういすることがじゅうようです。そこまでいるなら strsep がむいています。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/#define DELIM \",\"/#define DELIM \",\\\\t\"/' -e 's|/\\* split a comma separated line \\*/|/* split a line on commas or tabs */|' src/csv/parse.c"
+        }
+      ]
+    }
+  ]
+}

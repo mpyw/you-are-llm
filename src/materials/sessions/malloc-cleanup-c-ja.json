@@ -1,0 +1,60 @@
+{
+  "id": "malloc-cleanup-c-ja",
+  "title": "エラーパスの解放漏れを塞ぐ",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "c",
+  "summary": "malloc の失敗を見ていない関数を直し、途中で抜ける枝の fclose と free を揃える。",
+  "files": [
+    {
+      "path": "src/config/load.c",
+      "content": "#include <stdio.h>\n#include <stdlib.h>\n\nchar *read_all(const char *path, size_t *len) {\n  FILE *fp = fopen(path, \"rb\");\n  char *buf = malloc(4096);\n  size_t n = fread(buf, 1, 4096, fp);\n  if (ferror(fp)) return NULL;\n  fclose(fp);\n  *len = n;\n  return buf;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "read_all、たまに落ちるし valgrind も怒ってる。見て",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から述べると、戻り値を見ていないのが 2 か所あります。fopen が NULL でも fread に渡していて、malloc の失敗も見ていません。ferror で抜ける枝では fp も buf も漏れます。終端もないので 1 バイト余分に取り、順を追って堅牢な形に直します。",
+          "reading": "けつろんからのべると、かえりちをみていないのが 2 かしょあります。fopen が NULL でも fread にわたしていて、malloc のしっぱいもみていません。ferror でぬけるえだでは fp も buf ももれます。しゅうたんもないので 1 ばいとよぶんにとり、じゅんをおってけんろうなかたちになおします。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "char *read_all(const char *path, size_t *len) {\n  FILE *fp = fopen(path, \"rb\");\n  if (fp == NULL) return NULL;\n  char *buf = malloc(4096 + 1);\n  if (buf == NULL) goto fail;\n  size_t n = fread(buf, 1, 4096, fp);\n  if (ferror(fp)) goto fail;\n  fclose(fp);\n  buf[n] = '\\0';\n  *len = n;\n  return buf;\nfail:\n  free(buf);\n  fclose(fp);\n  return NULL;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "goto はうちダメなんだわ。言ってなかったけど規約で禁止",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "失礼しました。既存の規約を確認していませんでした。Now、goto を使わずに、失敗した時点でその場で閉じます。枝は増えますが、開いたものを持っている枝でだけ fclose と free を呼び、リソースを優雅に解放します。",
+          "reading": "しつれいしました。きそんのきやくをかくにんしていませんでした。Now、goto をつかわずに、しっぱいしたじてんでそのばでとじます。えだはふえますが、ひらいたものをもっているえだでだけ fclose と free をよび、りそーすをゆうがにかいほうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "char *read_all(const char *path, size_t *len) {\n  FILE *fp = fopen(path, \"rb\");\n  if (fp == NULL) return NULL;\n  char *buf = malloc(4096 + 1);\n  if (buf == NULL) { fclose(fp); return NULL; }\n  size_t n = fread(buf, 1, 4096, fp);\n  if (ferror(fp)) { free(buf); fclose(fp); return NULL; }\n  fclose(fp);\n  buf[n] = '\\0';\n  *len = n;\n  return buf;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あー 4096 じゃ足りないファイルあったわ。64KB にして。あと buf ゼロ埋めしといて、途中まで読めたときに変なもん残るの嫌だから",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "上限を 65536 に上げて、確保も calloc に替えます。短く読めたときに前の中身が残らなくなります。",
+          "reading": "じょうげんを 65536 にあげて、かくほも calloc にかえます。みじかくよめたときにまえのなかみがのこらなくなります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/4096/65536/g' -e 's/char \\*buf = malloc(/char *buf = calloc(1, /' src/config/load.c"
+        }
+      ]
+    }
+  ]
+}

@@ -13,8 +13,8 @@
 
 ## Status
 
-The trainer runs end to end. 96 sessions cover eight programming languages, three difficulties and
-two natural languages, with two scenarios in every cell of that grid. AZIK is not implemented yet.
+The trainer runs end to end. 96 sessions cover eight programming languages and two natural
+languages, graded from Easy to Very Hard. AZIK is not implemented yet.
 
 ## Commands
 
@@ -121,8 +121,19 @@ Each session sits on three axes.
 | Axis | Values |
 | --- | --- |
 | Language | `ja`, `en` |
-| Difficulty | `easy`, `normal`, `hard` |
+| Difficulty | `easy`, `normal`, `hard`, `veryhard` |
 | Code language | C, C++, C#, Go, Java, PHP, Rust, TypeScript |
+
+Difficulty is measured, not chosen. `scripts/typing-load.mjs` counts the keystrokes a session takes
+and charges double for the ones that need Shift, across the whole set rather than within one
+language. Rust asks for `&`, `<>` and `::` in its gentlest session, so Rust has no easy session.
+
+| Difficulty | Weighted keystrokes | Sessions |
+| --- | --- | --- |
+| Easy | under 900 | 13 |
+| Normal | 900 to 1600 | 17 |
+| Hard | 1600 to 2600 | 13 |
+| Very Hard | over 2600 | 5 |
 
 The front page filters on all three, and a filtered view is a shareable URL.
 
