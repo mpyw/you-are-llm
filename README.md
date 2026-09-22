@@ -1,8 +1,15 @@
+<div align="center">
+
+<img src="docs/social-preview.png" alt="You are LLM" width="760" />
+
 # You are LLM
 
-A typing trainer where you type the LLM's side of a coding session. No completion. No shortcuts.
+**You type the LLM's side of a coding session. No completion. No shortcuts.**
 
-Live at <https://mpyw.me/you-are-llm/>.
+[![Open the trainer](https://img.shields.io/badge/open-mpyw.me%2Fyou--are--llm-58a6ff?style=flat-square)](https://mpyw.me/you-are-llm/)
+[![Deploy](https://img.shields.io/github/actions/workflow/status/mpyw/you-are-llm/deploy.yml?branch=main&style=flat-square&label=deploy)](https://github.com/mpyw/you-are-llm/actions/workflows/deploy.yml)
+
+</div>
 
 ## Status
 
@@ -28,6 +35,8 @@ A block ends only when the whole target is typed.
 The stage holds one block at a time. A finished block moves into a folded log rather than stacking
 below the next one, so the page keeps its height and a small screen stays playable.
 
+![A hard Rust session in progress, with the combo at 700 and the kana target half typed](docs/screen-typing.png)
+
 | You see | You type |
 | --- | --- |
 | The user prompt | Nothing. It is context |
@@ -47,6 +56,8 @@ The display tracks the run while it happens.
 
 A finished session is graded from S down to D. Speed alone does not earn a rank, because each tier
 has an accuracy floor as well.
+
+![The result panel showing an S rank, the time, the speed, the accuracy and the best combo](docs/screen-result.png)
 
 Cues are synthesised through Web Audio rather than loaded, so they cost nothing to ship and fire
 with no delay. The key click climbs in pitch with the combo. `Sound on` in the header turns the lot
@@ -109,6 +120,10 @@ Each session sits on three axes.
 | Language | `ja`, `en` |
 | Difficulty | `easy`, `normal`, `hard` |
 | Code language | C, C++, C#, Go, Java, PHP, Rust, TypeScript |
+
+The front page filters on all three, and a filtered view is a shareable URL.
+
+![The front page, with a line typing itself and the session list filtered by three axes](docs/screen-intro.png)
 
 `src/materials/FORMAT.md` is the authoring guide. Read it before writing a session.
 
