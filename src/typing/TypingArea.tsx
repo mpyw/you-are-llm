@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react'
 import type { SessionState } from '../engine'
+import { Speaker } from './Speaker'
 import type { Step } from './steps'
+import { Thinking } from './Thinking'
 
 /** Newlines have to be visible on the single line of key hints. */
 function visible(keys: string): string {
@@ -38,6 +40,10 @@ export function TypingArea({ step, state, mood }: TypingAreaProps) {
   return (
     <div className="typing" data-mood={mood}>
       <div className="typing-rail" style={{ transform: `scaleX(${String(progress)})` }} />
+      <div className="typing-head">
+        <Speaker who="assistant" />
+        <Thinking active={!state.done} remaining={state.remaining.length} />
+      </div>
       {showsReading ? <p className="typing-display">{step.block.body}</p> : null}
       <pre className={monospaced ? 'typing-target is-code' : 'typing-target'}>
         <span className="is-done">{step.target.slice(0, state.committed)}</span>

@@ -82,6 +82,13 @@ describe('SessionPlayer', () => {
     expect(screen.getAllByText('ls -a').length).toBeGreaterThan(0)
   })
 
+  it('names who is speaking on each line', () => {
+    const { container } = render(<SessionPlayer session={SESSION} />)
+    const stage = panel(container, '.stage')
+    expect(within(stage).getByText('You')).toBeDefined()
+    expect(within(stage).getByText('Assistant')).toBeDefined()
+  })
+
   it('folds a finished block into the log instead of stacking it', () => {
     const { container } = render(<SessionPlayer session={SESSION} />)
     typeTarget('いれます。')

@@ -430,7 +430,50 @@ h2 {
   opacity: 0.65;
 }
 
+/* Speakers */
+
+.sr-only {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.speaker {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  inline-size: 1.7rem;
+  block-size: 1.7rem;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.speaker[data-who='human'] {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+}
+
+.speaker[data-who='assistant'] {
+  border-color: color-mix(in srgb, var(--done) 45%, var(--line));
+}
+
+.said-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.6rem;
+  align-items: start;
+}
+
 .prompt {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
   margin: 0;
   padding: 0.75rem 1rem;
   border-inline-start: 2px solid var(--accent);
@@ -521,6 +564,63 @@ h2 {
   to {
     box-shadow: 0 0 0 22px transparent;
   }
+}
+
+/* An unhurried nod to the spinners every coding agent shows while it works. */
+.typing-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-block-end: 0.75rem;
+}
+
+.thinking {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+}
+
+.thinking-spinner {
+  color: var(--accent);
+  inline-size: 1ch;
+}
+
+.thinking[data-active='false'] .thinking-spinner {
+  color: var(--done);
+}
+
+.thinking-verb {
+  background: linear-gradient(90deg, var(--rest) 0%, var(--text) 45%, var(--rest) 88%);
+  background-size: 240% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2.4s linear infinite;
+}
+
+.thinking-verb[data-still='true'] {
+  animation: none;
+  color: var(--dim);
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 140% 0;
+  }
+
+  to {
+    background-position: -60% 0;
+  }
+}
+
+.thinking-left {
+  margin-inline-start: auto;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
 }
 
 .typing-display {

@@ -52,8 +52,13 @@ Cues are synthesised through Web Audio rather than loaded, so they cost nothing 
 with no delay. The key click climbs in pitch with the combo. `Sound on` in the header turns the lot
 off, and the choice is remembered in the browser.
 
+Each line carries who said it. The prompt sits behind a person, the block being typed behind a
+robot, and the robot's line shows a spinner and a word that keeps changing while the block runs. It
+is a nod to what every coding agent puts on screen while it works, in this project's own words.
+
 > [!NOTE]
-> Every animation is dropped under `prefers-reduced-motion`.
+> Every animation is dropped under `prefers-reduced-motion`, and the spinner and its words stop
+> changing as well.
 
 ## The input engine
 

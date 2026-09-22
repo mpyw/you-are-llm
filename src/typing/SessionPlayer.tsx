@@ -6,6 +6,7 @@ import type { Block, Session } from '../materials'
 import { CODE_LANGUAGE_LABELS, DIFFICULTY_LABELS } from '../materials'
 import { Burst } from './Burst'
 import { Hud } from './Hud'
+import { Speaker } from './Speaker'
 import type { Mood } from './TypingArea'
 import { TypingArea } from './TypingArea'
 import type { Rank, Tally } from './stats'
@@ -166,7 +167,10 @@ export function SessionPlayer({ session }: { readonly session: Session }) {
           ) : (
             /* Keyed by step so each one animates in rather than growing the page. */
             <div className="stage" key={progress.index}>
-              <p className="prompt">{step.prompt}</p>
+              <p className="prompt">
+                <Speaker who="human" />
+                {step.prompt}
+              </p>
               <TypingArea step={step} state={state} mood={mood} />
               <Burst trigger={progress.clears} />
             </div>
@@ -198,7 +202,12 @@ function Log({ steps, done }: { readonly steps: readonly Step[]; readonly done: 
       <div className="log-body">
         {steps.slice(0, done).map((step) => (
           <Fragment key={`${String(step.turnIndex)}:${String(step.blockIndex)}`}>
-            {step.blockIndex === 0 ? <p className="prompt is-past">{step.prompt}</p> : null}
+            {step.blockIndex === 0 ? (
+              <p className="prompt is-past">
+                <Speaker who="human" />
+                {step.prompt}
+              </p>
+            ) : null}
             <CompletedBlock block={step.block} />
           </Fragment>
         ))}
@@ -220,11 +229,17 @@ function ProgressBar({ current, total }: { readonly current: number; readonly to
 }
 
 function CompletedBlock({ block }: { readonly block: Block }) {
-  if (block.kind === 'text') return <p className="said">{block.body}</p>
   return (
-    <pre className="said is-code">
-      <code>{block.body}</code>
-    </pre>
+    <div className="said-row">
+      <Speaker who="assistant" />
+      {block.kind === 'text' ? (
+        <p className="said">{block.body}</p>
+      ) : (
+        <pre className="said is-code">
+          <code>{block.body}</code>
+        </pre>
+      )}
+    </div>
   )
 }
 
