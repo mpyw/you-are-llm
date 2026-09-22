@@ -41,11 +41,11 @@
       ]
     },
     {
-      "user": "look at frame_list while you're in there. we ask for n and it falls apart around the fifth one",
+      "user": "look at frame_list while you're in there. we ask for n and it falls apart around the third one",
       "assistant": [
         {
           "kind": "text",
-          "body": "sizeof(struct frame *) is the size of a pointer, so on 64 bit it reserves 8 bytes per entry where the struct needs 16, which is half of what we asked for. Taking sizeof from the destination rather than a spelled out type makes that mistake impossible. I am capping the count as well."
+          "body": "sizeof(struct frame *) is the size of a pointer, so it reserves 8 bytes per entry where the struct, padding and all, needs 24. That is a third of what we asked for. Taking sizeof from the destination rather than a spelled out type makes that mistake impossible. I am capping the count as well."
         },
         {
           "kind": "code",
