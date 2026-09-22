@@ -134,6 +134,59 @@ const DIFFICULTIES = new Set(['easy', 'normal', 'hard', 'veryhard'])
 const CODE_LANGUAGES = new Set(['c', 'cpp', 'csharp', 'go', 'java', 'php', 'rust', 'typescript'])
 const BLOCK_KINDS = new Set(['text', 'code', 'command'])
 
+/** A katakana word of three or more characters, which has one transcription. */
+const KATAKANA_WORD = /[ァ-ヶー]{3,}/gu
+
+/**
+ * Kanji cannot be checked without a dictionary. These are the terms that have
+ * already been got wrong once, so they never get to be wrong twice. Add to it
+ * whenever a reading slips through.
+ */
+const GLOSSARY = {
+  戻り値: 'もどりち',
+  返り値: 'かえりち',
+  引数: 'ひきすう',
+  添字: 'そえじ',
+  正本: 'せいほん',
+  堅牢: 'けんろう',
+  非自明: 'ひじめい',
+  第一級: 'だいいっきゅう',
+  銀の弾丸: 'ぎんのだんがん',
+  冪等: 'べきとう',
+  関心の分離: 'かんしんのぶんり',
+  決定論的: 'けっていろんてき',
+}
+
+function toHiragana(text) {
+  let out = ''
+  for (const char of text) {
+    const code = char.codePointAt(0)
+    out += code >= 0x30a1 && code <= 0x30f6 ? String.fromCodePoint(code - 0x60) : char
+  }
+  return out
+}
+
+/**
+ * The reading is what gets typed and the body is what is read, so the two have
+ * to say the same thing. Nothing used to compare them, and two readings that
+ * disagreed with their body shipped.
+ */
+function readingProblems(body, reading) {
+  const said = toHiragana(reading)
+  const problems = []
+  for (const word of new Set(body.match(KATAKANA_WORD) ?? [])) {
+    if (!said.includes(toHiragana(word))) {
+      problems.push(`the body says ${word} and the reading does not`)
+    }
+  }
+  for (const [term, kana] of Object.entries(GLOSSARY)) {
+    if (body.includes(term) && !reading.includes(kana)) {
+      problems.push(`the body says ${term}, which reads ${kana}`)
+    }
+  }
+  return problems
+}
+
 const KANA = /[ぁ-ゟァ-ヺ]/u
 const ASCII = /[\x20-\x7e\n]/u
 
@@ -227,6 +280,11 @@ export function validate(session) {
       const bad = targetProblems(target)
       if (bad.length > 0) {
         say(`${here}.${reading === null ? 'body' : 'reading'} cannot be typed: ${bad.join(' ')}`)
+      }
+      if (reading !== null) {
+        for (const problem of readingProblems(block.body, reading)) {
+          say(`${here}.reading disagrees with the body: ${problem}`)
+        }
       }
     })
   })

@@ -121,7 +121,15 @@ function buildTable(): ReadonlyMap<string, readonly Spelling[]> {
   return table
 }
 
+/**
+ * A JIS keyboard sends `¥` from the key where a backslash lives, so a typist
+ * on one could not finish a line holding `'\0'`. Both yen signs are accepted
+ * wherever a backslash is wanted.
+ */
+const BACKSLASH_KEYS = ['\\', '\u00a5', '\uffe5'] as const
+
 const PUNCTUATION = new Map<string, readonly string[]>([
+  ['\\', BACKSLASH_KEYS],
   ['、', [',']], ['。', ['.']], ['・', ['/']], ['ー', ['-']],
   ['「', ['[']], ['」', [']']], ['　', [' ']],
   ['，', [',']], ['．', ['.']], ['！', ['!']], ['？', ['?']],
