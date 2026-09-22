@@ -4,9 +4,14 @@
 //   node scripts/typing-load.mjs            report only
 //   node scripts/typing-load.mjs --apply    write the grades back
 //
-// Difficulty used to be judged inside one language, which made an easy Rust
-// session harder to type than a normal Java one. It is measured across the
-// whole set now.
+// Two things make a session hard to type, and counting only the first gets the
+// answer wrong. Volume is how many keys, charging double for the ones that need
+// Shift. Variety is how many different symbol shapes the fingers have to learn.
+//
+// PHP beats Rust on volume: every variable wears a `$` and every call an `->`.
+// It loses badly on variety, because those two tokens are most of what it asks
+// for. Rust spreads the same weight of symbols across `&mut`, `::`, `<'a>`, `?`
+// and a dozen more, and a dozen shapes cost more than two.
 
 import { readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -17,11 +22,21 @@ const DIR = 'src/materials/sessions'
 /** Keys that need Shift on a US layout. They cost about twice as much. */
 const SHIFTED = new Set([...'~!@#$%^&*()_+{}|:"<>?', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'])
 
+/** Runs of punctuation. An underscore inside a name is part of the word. */
+const SYMBOL_RUN = /[`~!@#$%^&*()\-=+[\]{}\\|;:'",.<>/?]+/gu
+const NAME_UNDERSCORE = /(?<=[0-9A-Za-z])_(?=[0-9A-Za-z])/gu
+
+/** A token this many languages share is one every typist already knows. */
+const UNIVERSAL_AT = 7
+
+/** How much the variety of symbol shapes adds on top of the volume. */
+const VARIETY_WEIGHT = 0.02
+
 /** Upper bound of each tier, in weighted keystrokes per scenario. */
 const TIERS = [
-  { limit: 900, name: 'easy' },
-  { limit: 1600, name: 'normal' },
-  { limit: 2600, name: 'hard' },
+  { limit: 1100, name: 'easy' },
+  { limit: 2000, name: 'normal' },
+  { limit: 3200, name: 'hard' },
   { limit: Infinity, name: 'veryhard' },
 ]
 
@@ -32,17 +47,67 @@ function load() {
 }
 
 /** Weighted keystrokes: every key counts once, and a shifted key counts twice. */
-function effortOf(session) {
-  let keys = 0
-  let shifted = 0
+function volumeOf(session) {
+  let volume = 0
   for (const turn of session.turns) {
     for (const block of turn.assistant) {
       const target = block.reading ?? block.body
-      keys += target.length
-      for (const char of target) if (SHIFTED.has(char)) shifted += 1
+      volume += target.length
+      for (const char of target) if (SHIFTED.has(char)) volume += 1
     }
   }
-  return keys + shifted
+  return volume
+}
+
+/** Symbol runs in the code of one session, counted. Prose has no shapes to learn. */
+function symbolRuns(session) {
+  const runs = new Map()
+  for (const turn of session.turns) {
+    for (const block of turn.assistant) {
+      if (block.kind === 'text') continue
+      for (const [run] of block.body.replaceAll(NAME_UNDERSCORE, '\u0000').matchAll(SYMBOL_RUN)) {
+        runs.set(run, (runs.get(run) ?? 0) + 1)
+      }
+    }
+  }
+  return runs
+}
+
+/** Tokens that show up across the corpus are muscle memory, not difficulty. */
+function universalTokens(sessions) {
+  const languages = new Map()
+  for (const { data } of sessions) {
+    for (const run of symbolRuns(data).keys()) {
+      const seen = languages.get(run) ?? new Set()
+      seen.add(data.codeLanguage)
+      languages.set(run, seen)
+    }
+  }
+  return new Set(
+    [...languages.entries()].filter(([, seen]) => seen.size >= UNIVERSAL_AT).map(([run]) => run),
+  )
+}
+
+/**
+ * The effective number of distinct symbol shapes, which is two to the power of
+ * the entropy. Twenty shapes used evenly score twenty. Twenty shapes where one
+ * of them is nearly all of the traffic score close to one, which is what makes
+ * `$` cheap however often it turns up.
+ */
+function varietyOf(session, universal) {
+  const runs = [...symbolRuns(session)].filter(([run]) => !universal.has(run))
+  const total = runs.reduce((sum, [, count]) => sum + count, 0)
+  if (total === 0) return 1
+  let entropy = 0
+  for (const [, count] of runs) {
+    const share = count / total
+    entropy -= share * Math.log2(share)
+  }
+  return 2 ** entropy
+}
+
+function effortOf(session, universal) {
+  return Math.round(volumeOf(session) * (1 + VARIETY_WEIGHT * varietyOf(session, universal)))
 }
 
 /** The id may or may not still carry the difficulty. Both forms reduce to the topic. */
@@ -59,7 +124,7 @@ function grade(effort) {
   return TIERS.find((tier) => effort < tier.limit).name
 }
 
-function group(sessions) {
+function group(sessions, universal) {
   const scenarios = new Map()
   for (const entry of sessions) {
     const key = `${topicOf(entry.data)}-${entry.data.codeLanguage}`
@@ -70,23 +135,29 @@ function group(sessions) {
     .map(([key, entries]) => ({
       key,
       entries,
-      effort: Math.round(entries.reduce((sum, e) => sum + effortOf(e.data), 0) / entries.length),
+      effort: Math.round(
+        entries.reduce((sum, e) => sum + effortOf(e.data, universal), 0) / entries.length,
+      ),
+      variety: varietyOf(entries[0].data, universal),
     }))
     .sort((left, right) => left.effort - right.effort)
 }
 
 function report(rows) {
-  console.log(`${'effort'.padStart(7)}  ${'language'.padEnd(11)}${'scenario'.padEnd(24)}now -> next`)
+  console.log(
+    `${'effort'.padStart(7)}${'shapes'.padStart(8)}  ${'language'.padEnd(11)}${'scenario'.padEnd(24)}grade`,
+  )
   let moved = 0
-  for (const { key, entries, effort } of rows) {
+  for (const { key, entries, effort, variety } of rows) {
     const now = entries[0].data.difficulty
     const next = grade(effort)
     if (now !== next) moved += 1
-    const arrow = now === next ? '' : `  ${now} -> ${next}`
     const { codeLanguage } = entries[0].data
     const topic = key.slice(0, -(codeLanguage.length + 1))
+    const arrow = now === next ? '' : `  ${now} -> ${next}`
     console.log(
-      `${String(effort).padStart(7)}  ${codeLanguage.padEnd(11)}${topic.padEnd(24)}${next}${arrow}`,
+      `${String(effort).padStart(7)}${variety.toFixed(1).padStart(8)}  ` +
+        `${codeLanguage.padEnd(11)}${topic.padEnd(24)}${next}${arrow}`,
     )
   }
   const counts = {}
@@ -107,7 +178,6 @@ function apply(rows) {
       const id = `${topicOf(data)}-${data.codeLanguage}-${data.language}`
       if (data.difficulty === difficulty && data.id === id) continue
       const next = { ...data, id, difficulty }
-      // Keep the field order the authors see.
       const ordered = {}
       for (const field of Object.keys(data)) ordered[field] = next[field]
       writeFileSync(join(DIR, file), `${JSON.stringify(ordered, null, 2)}\n`)
@@ -118,6 +188,7 @@ function apply(rows) {
   console.log(`\nwrote ${touched} files`)
 }
 
-const rows = group(load())
+const all = load()
+const rows = group(all, universalTokens(all))
 report(rows)
 if (process.argv.includes('--apply')) apply(rows)

@@ -2,7 +2,7 @@
   "id": "lifetime-borrow-rust-ja",
   "title": "get_or_insert のライフタイムで往復する",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "veryhard",
   "codeLanguage": "rust",
   "summary": "借用チェッカに二回怒られ、戻り値を &str に直し、最後は Cow に落ち着く。",
   "files": [

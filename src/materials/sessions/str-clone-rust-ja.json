@@ -2,7 +2,7 @@
   "id": "str-clone-rust-ja",
   "title": "render で増える clone を削る",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "rust",
   "summary": "引数を &str にしたら逆に確保が増えたので Into<String> に直し、最後はバッファ受けにする。",
   "files": [

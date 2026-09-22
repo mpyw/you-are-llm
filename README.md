@@ -124,16 +124,24 @@ Each session sits on three axes.
 | Difficulty | `easy`, `normal`, `hard`, `veryhard` |
 | Code language | C, C++, C#, Go, Java, PHP, Rust, TypeScript |
 
-Difficulty is measured, not chosen. `scripts/typing-load.mjs` counts the keystrokes a session takes
-and charges double for the ones that need Shift, across the whole set rather than within one
-language. Rust asks for `&`, `<>` and `::` in its gentlest session, so Rust has no easy session.
+Difficulty is measured, not chosen. `scripts/typing-load.mjs` scores every session across the whole
+set rather than within one language, so Rust has no easy session at all.
 
-| Difficulty | Weighted keystrokes | Sessions |
+| Difficulty | Score | Sessions |
 | --- | --- | --- |
-| Easy | under 900 | 13 |
-| Normal | 900 to 1600 | 17 |
-| Hard | 1600 to 2600 | 13 |
-| Very Hard | over 2600 | 5 |
+| Easy | under 1100 | 13 |
+| Normal | 1100 to 2000 | 16 |
+| Hard | 2000 to 3200 | 12 |
+| Very Hard | over 3200 | 7 |
+
+The score is volume times variety. Volume counts keystrokes and charges double for the ones that
+need Shift. Variety counts how many different symbol shapes the session asks for, ignoring the
+brackets and commas every language shares.
+
+Counting volume alone gets the answer wrong. PHP types more symbols per character than Rust does,
+because every variable wears a `$` and every call an `->`. Two shapes cover most of it. Rust spends
+the same weight on `&mut`, `::`, `<'a>`, `?` and a dozen more, and a dozen shapes are harder to
+learn than two.
 
 The front page filters on all three, and a filtered view is a shareable URL.
 

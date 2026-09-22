@@ -77,14 +77,21 @@ words stay as ASCII. Keep the reading faithful to the body, including particles.
 Difficulty no longer says anything about length. It measures how hard the session is to type,
 across every language rather than within one, which is why Rust has no easy session at all.
 
-| Difficulty | Weighted keystrokes | Sessions today |
+| Difficulty | Score | Sessions today |
 | --- | --- | --- |
-| `easy` | under 900 | 13 |
-| `normal` | 900 to 1600 | 17 |
-| `hard` | 1600 to 2600 | 13 |
-| `veryhard` | over 2600 | 5 |
+| `easy` | under 1100 | 13 |
+| `normal` | 1100 to 2000 | 16 |
+| `hard` | 2000 to 3200 | 12 |
+| `veryhard` | over 3200 | 7 |
 
-A keystroke that needs Shift counts twice, because it does.
+The score multiplies two things. Volume is the keystroke count, charging double for a key that
+needs Shift. Variety is how many different symbol shapes the session asks for, counting only the
+ones that are not shared by most languages.
+
+Variety is what stops volume from lying. PHP types more symbols than Rust, because every variable
+wears a `$` and every call an `->`, but those two shapes are most of what it asks for. Rust spreads
+the same weight across `&mut`, `::`, `<'a>`, `?` and a dozen others, and a dozen shapes cost more
+than two.
 
 ```bash
 node scripts/typing-load.mjs            # what every session scores
