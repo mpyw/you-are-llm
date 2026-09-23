@@ -776,9 +776,36 @@ h2 {
 
 .typing-target {
   margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
+  /* break-spaces keeps a space that wrapping leaves at the end of a line on
+     that line, where its mark can be seen. pre-wrap lets it hang off the edge. */
+  white-space: break-spaces;
+  overflow-wrap: break-word;
   font-size: 1.05rem;
+}
+
+/* A newline and a space at the end of a line are typed but show nothing. The
+   marks are drawn in place and take no width, so the text wraps where it did. */
+.typing-target .newline::before {
+  content: '↵';
+  opacity: 0.4;
+}
+
+.typing-target .space[data-eol] {
+  position: relative;
+}
+
+.typing-target .space[data-eol]::after {
+  content: '·';
+  position: absolute;
+  inset-inline: 0;
+  text-align: center;
+  color: var(--accent);
+  opacity: 0.8;
+}
+
+.typing-target .is-done .newline::before,
+.typing-target .is-done .space[data-eol]::after {
+  opacity: 0.25;
 }
 
 .typing-keys {
@@ -801,11 +828,19 @@ h2 {
   color: var(--rest);
 }
 
+/* The caret takes no width and is not a box of its own. An inline-block caret
+   is a place where a line may break, so a word being typed wrapped at the caret
+   and jumped between lines as it moved. */
 .caret {
-  display: inline-block;
+  position: relative;
+}
+
+.caret::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: -1px;
   inline-size: 2px;
-  block-size: 1.1em;
-  vertical-align: text-bottom;
   background: var(--accent);
   box-shadow: 0 0 8px var(--accent);
   animation: blink 1s steps(1) infinite;

@@ -181,3 +181,14 @@ body is its own chunk, fetched by the route loader when its session opens.
 Keep `eager: false` on the glob in `src/materials/index.ts`. If the list ever needs another field,
 add it to the index rather than importing bodies. `materials.test.ts` checks that the index agrees
 with every body, so a field that drifts fails there.
+
+## The caret must not be a box
+
+The caret used to be an `inline-block`. An atomic inline is a place where a line may break, so a word
+being typed could wrap at the caret, and the break moved with every key. Typing 160 characters of
+English prose at phone width produced six different layouts. It is a zero-width inline with its line
+drawn by `::after` now, and the same run produces one.
+
+The marks for a newline and for a space that ends a line follow the same rule. They are pseudo
+elements that take no width, so marking a space never moves where the text wraps. Which spaces end a
+line after wrapping is measured in `TypingArea.tsx`, because it depends on the width.
