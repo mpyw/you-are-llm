@@ -113,6 +113,14 @@ describe('indentation', () => {
     expect(new TypingSession('hello').state.nextKeys).toEqual(['h'])
   })
 
+  it('does not multiply when a step is one space wide', () => {
+    // A C++ access specifier indented by one space makes every leading space a
+    // step. Each one is reachable as a step and as a plain space, and the
+    // copies used to double per key until the heap ran out.
+    const lines = [' public:', ...Array.from({ length: 40 }, () => '            x();')]
+    expect(completes(lines.join('\n'), lines.join('\n'))).toBe(true)
+  }, 2000)
+
   it('offers no tab part way along a line', () => {
     const session = new TypingSession(code)
     for (const key of 'function') session.press(key)

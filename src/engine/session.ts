@@ -29,6 +29,22 @@ export interface SessionState {
 }
 
 /**
+ * Drops cursors that stand in the same place. Two paths can reach one state:
+ * a leading space is both one step of indent and a plain space. Kept apart, the
+ * copies double on every such key and never merge again.
+ */
+function distinct(cursors: readonly Cursor[]): Cursor[] {
+  const seen = new Set<string>()
+  return cursors.filter((cursor) => {
+    const { pos, kana, index, spelling } = cursor
+    const key = JSON.stringify([pos, kana, index, spelling.text, spelling.requiresConsonantNext])
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+/**
  * Tracks one typing run over one target string.
  *
  * The engine keeps every spelling alive at once rather than committing to a
@@ -93,7 +109,7 @@ export class TypingSession {
       this.finished = true
       this.cursors = []
     } else {
-      this.cursors = next
+      this.cursors = distinct(next)
     }
     return true
   }
