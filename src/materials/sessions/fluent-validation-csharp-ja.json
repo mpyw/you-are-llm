@@ -2,7 +2,7 @@
   "id": "fluent-validation-csharp-ja",
   "title": "コントローラの if を FluentValidation に移す",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "csharp",
   "summary": "Create アクションに並んだ if を AbstractValidator に移し、全項目のエラーを ValidationProblem でまとめて返す。",
   "files": [
@@ -38,7 +38,7 @@
         {
           "kind": "text",
           "body": "NotEmpty で落ちた時点で、そのプロパティの残りのルールを止めれば 1 件になります。コンストラクタの先頭で RuleLevelCascadeMode を CascadeMode.Stop にすると、全ルールに一括で効きます。Note: 止まるのは同じ RuleFor の中だけで、ほかのプロパティのエラーは引き続きまとめて返ります。",
-          "reading": "NotEmpty でおちたじてんで、そのぷろぱてぃののこりのるーるをとめれば 1 けんになります。こんすとらくたのせんとうで RuleLevelCascadeMode を CascadeMode.Stop にすると、ぜんるーるにいっかつできます。Note: とまるのはおなじ RuleFor のなかだけで、ほかのぷろぱてぃのえらーはひきつづきまとめてかえります。"
+          "reading": "NotEmpty でおちたじてんで、そのぷろぱてぃののこりのるーるをとめれば 1 けんになります。こんすとらくたのせんとうで RuleLevelCascadeMode を CascadeMode.Stop にすると、ぜんるーるにいっかつでききます。Note: とまるのはおなじ RuleFor のなかだけで、ほかのぷろぱてぃのえらーはひきつづきまとめてかえります。"
         },
         {
           "kind": "code",

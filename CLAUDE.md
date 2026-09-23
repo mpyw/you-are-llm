@@ -104,9 +104,17 @@ The suite proves a target can be typed. That is not the same as proving it says 
 says. Two readings shipped that did not: `戻り値` read as `かえりち`, and `セマンティクス` gaining a
 `っ`. Both were found by a player, not by us.
 
-`readingProblems` in `scripts/check-material.mjs` compares the two now. Katakana is checked outright
-because a katakana word has exactly one transcription. Kanji cannot be, so `GLOSSARY` holds the
-terms that have already been wrong once. When a reading slips through, fix it and add the term.
+`readingProblems` in `scripts/check-material.mjs` compares the two now, in three ways.
+
+| Check | What it catches |
+| --- | --- |
+| Everything that is not kanji appears in the reading in order, and each kanji run reads as at least one kana | A dropped kana, a swapped particle, a stray comma or space, a Latin word in the wrong case |
+| A katakana word appears outright, because it has exactly one transcription | A katakana word typed as something else |
+| A `GLOSSARY` term uses its listed reading | A kanji term that has been wrong once already |
+
+The first check was added after reviewers reading by eye found four such slips across 183 sessions
+and missed a fifth. What a kanji reads as still needs a person. When a reading slips through, fix it
+and add the term to `GLOSSARY`.
 
 ## The yen key types a backslash
 
@@ -155,8 +163,8 @@ the number of distinct symbol shapes.
 The result is the one that matches anyone who has typed both. Rust mostly lands at Hard or
 above, and the exceptions are attributes on a type or one library call, which really are easier.
 Java mostly lands at Hard or below, and the exceptions have a `sed` dense with escapes or a long test
-setup. The only Expert+ session is the Rust `transaction` that takes a closure, which scores 39.6
-against 33.1 for the next one down.
+setup. The only Expert+ session is the Rust `transaction` that takes a closure, which scores 37.0
+against 31.8 for the next one down.
 
 The grade is relative to the whole set, so adding a batch moves old sessions too. Describe these
 patterns as tendencies, not as lists of names, or every batch breaks the sentence.

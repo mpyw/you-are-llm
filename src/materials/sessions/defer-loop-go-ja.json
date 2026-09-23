@@ -52,7 +52,7 @@
         {
           "kind": "text",
           "body": "結論から言うと、積んでいました。exportOne に移した今は 1 件ごとに走ります。Commit 済みの Rollback は sql.ErrTxDone が返るだけで、データには何も起きません。戻り値を捨てているのを linter が拾うので、無視する意図を明示しておきます。",
-          "reading": "けつろんからいうと、つんでいました。exportOne にうつしたいまは 1 けんごとにはしります。commit ずみの Rollback は sql.ErrTxDone がかえるだけで、でーたにはなにもおきません。もどりちをすてているのを linter がひろうので、むしするいとをめいじしておきます。"
+          "reading": "けつろんからいうと、つんでいました。exportOne にうつしたいまは 1 けんごとにはしります。Commit ずみの Rollback は sql.ErrTxDone がかえるだけで、でーたにはなにもおきません。もどりちをすてているのを linter がひろうので、むしするいとをめいじしておきます。"
         }
       ]
     },

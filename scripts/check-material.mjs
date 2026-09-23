@@ -171,9 +171,52 @@ function toHiragana(text) {
  * to say the same thing. Nothing used to compare them, and two readings that
  * disagreed with their body shipped.
  */
+const HAN = /[\p{Script=Han}々〆ヶ]/u
+
+function escapeRegExp(char) {
+  return char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * Everything in the body that is not kanji has to appear in the reading as it
+ * stands: kana, Latin letters, digits, spaces and punctuation. Each run of kanji
+ * has to read as at least one kana. What a kanji reads as cannot be checked
+ * without a dictionary, but a dropped kana, a swapped particle or a stray
+ * comma can, and all three shipped before this existed.
+ */
+function alignment(body) {
+  let source = ''
+  let inKanji = false
+  for (const char of body) {
+    if (HAN.test(char)) {
+      if (!inKanji) source += '[ぁ-ゟー]+?'
+      inKanji = true
+      continue
+    }
+    inKanji = false
+    source += escapeRegExp(toHiragana(char))
+  }
+  return source
+}
+
+/** Where the reading stops following the body, as a stretch of the body. */
+function divergence(body, said) {
+  const chars = [...body]
+  for (let end = 1; end <= chars.length; end += 1) {
+    const prefix = chars.slice(0, end).join('')
+    if (!new RegExp(`^${alignment(prefix)}`, 'u').test(said)) {
+      return chars.slice(Math.max(0, end - 12), end + 4).join('')
+    }
+  }
+  return chars.slice(-16).join('')
+}
+
 function readingProblems(body, reading) {
   const said = toHiragana(reading)
   const problems = []
+  if (!new RegExp(`^${alignment(body)}$`, 'u').test(said)) {
+    problems.push(`the reading stops following the body near "${divergence(body, said)}"`)
+  }
   for (const word of new Set(body.match(KATAKANA_WORD) ?? [])) {
     if (!said.includes(toHiragana(word))) {
       problems.push(`the body says ${word} and the reading does not`)

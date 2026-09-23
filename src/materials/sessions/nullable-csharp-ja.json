@@ -52,7 +52,7 @@
         {
           "kind": "text",
           "body": "よく気づかれました。ご指摘のとおりです。こちらの想定違いでした。Category を null 許容にして、判定は MemberNotNullWhen を付けたプロパティに寄せます。これで if を通った後の Category は非 null として扱われ、! は要りません。",
-          "reading": "よくきづかれました。ごしてきのとおりです。こちらのそうていちがいでした。Category を null きょようにして、はんていは MemberNotNullWhen をつけたぷろぱてぃによせます。これで if をとおったあとの Category は ひ null としてあつかわれ、! はいりません。"
+          "reading": "よくきづかれました。ごしてきのとおりです。こちらのそうていちがいでした。Category を null きょようにして、はんていは MemberNotNullWhen をつけたぷろぱてぃによせます。これで if をとおったあとの Category はひ null としてあつかわれ、! はいりません。"
         },
         {
           "kind": "code",
