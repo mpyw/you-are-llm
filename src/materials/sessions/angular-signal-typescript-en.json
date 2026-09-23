@@ -2,7 +2,7 @@
   "id": "angular-signal-typescript-en",
   "title": "Turn a cart total into signal and computed",
   "language": "en",
-  "difficulty": "expert",
+  "difficulty": "expertplus",
   "codeLanguage": "typescript",
   "summary": "The total is recalculated by hand after each action, and remove forgets to. items becomes a signal and total a computed.",
   "files": [

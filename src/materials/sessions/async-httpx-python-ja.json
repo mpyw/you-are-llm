@@ -2,7 +2,7 @@
   "id": "async-httpx-python-ja",
   "title": "async def の中の requests を httpx.AsyncClient にする",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "python",
   "summary": "requests がイベントループを止めていたのを lifespan で作った AsyncClient に替え、gather で並列にし、リダイレクトを追わない違いで 500 を出し、上流の失敗を 502 にする。",
   "files": [

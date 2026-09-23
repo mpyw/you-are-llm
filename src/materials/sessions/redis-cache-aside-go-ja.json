@@ -2,7 +2,7 @@
   "id": "redis-cache-aside-go-ja",
   "title": "go-redis の redis.Nil を 500 にしない",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "go",
   "summary": "キーが無いだけの redis.Nil を 500 にしていたので errors.Is で分け、DB から取って TTL 付きで書き戻す。構造体をそのまま Set に渡して怒られる。",
   "files": [

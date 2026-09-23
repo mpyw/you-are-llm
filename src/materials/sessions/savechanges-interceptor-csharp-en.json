@@ -2,7 +2,7 @@
   "id": "savechanges-interceptor-csharp-en",
   "title": "Move CreatedAt and UpdatedAt into a SaveChangesInterceptor",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "csharp",
   "summary": "Hand-set timestamps move into SavingChangesAsync, ExecuteUpdateAsync skips change tracking and stops touching UpdatedAt, and Update wiping CreatedAt gets fixed too.",
   "files": [

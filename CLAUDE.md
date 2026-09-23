@@ -137,7 +137,9 @@ spends a similar weight across `&mut`, `::`, `<'a>`, `?`, `|x|` and more.
 `typing-load.mjs` multiplies volume by variety now, where variety is the effective number of
 distinct symbol shapes, two to the power of the entropy of their distribution. That last part is
 what makes `$` cheap however often it appears, and it is the part to keep if the model is ever
-rewritten. Tokens shared by most languages are excluded, because a bracket is muscle memory.
+rewritten. Tokens shared by most languages are excluded, because a bracket is muscle memory. Most
+means a share of the languages, seven in eight, and not a count. A fixed count of seven loosened
+with every language added, and every score drifted down with it.
 
 Measured per session: Rust 18.1 shapes, PHP 13.3, Java 7.6.
 
@@ -163,8 +165,8 @@ the number of distinct symbol shapes.
 The result is the one that matches anyone who has typed both. Rust mostly lands at Hard or
 above, and the exceptions are attributes on a type or one library call, which really are easier.
 Java mostly lands at Hard or below, and the exceptions have a `sed` dense with escapes or a long test
-setup. The only Expert+ session is the Rust `transaction` that takes a closure, which scores 37.0
-against 31.0 for the next one down.
+setup. The Rust `transaction` that takes a closure tops the set at 41.0. The few others at Expert+
+are short, but ask for a new symbol shape on nearly every line.
 
 The grade is relative to the whole set, so adding a batch moves old sessions too. Describe these
 patterns as tendencies, not as lists of names, or every batch breaks the sentence.

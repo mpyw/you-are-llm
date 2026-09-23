@@ -2,7 +2,7 @@
   "id": "qt-concurrent-cpp-en",
   "title": "The window stops responding during a scan",
   "language": "en",
-  "difficulty": "expert",
+  "difficulty": "expertplus",
   "codeLanguage": "cpp",
   "summary": "Send the heavy work to the thread pool with QtConcurrent::run and collect the result on the GUI thread through a QFutureWatcher. Keep the watcher off the stack, and keep the worker away from widgets.",
   "files": [

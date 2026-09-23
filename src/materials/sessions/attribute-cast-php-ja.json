@@ -2,7 +2,7 @@
   "id": "attribute-cast-php-ja",
   "title": "手書きの json_decode と文字列ステータスを casts() に寄せる",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "php",
   "summary": "status を enum キャスト、options を配列キャスト、税込み金額を Attribute::make にし、添字代入が効かない罠で AsArrayObject に替える。",
   "files": [

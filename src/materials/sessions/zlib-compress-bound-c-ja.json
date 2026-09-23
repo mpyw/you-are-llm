@@ -2,7 +2,7 @@
   "id": "zlib-compress-bound-c-ja",
   "title": "zlib の圧縮先を compressBound で確保する",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "c",
   "summary": "入力と同じ大きさのバッファで Z_BUF_ERROR になる compress を直し、uncompress の長さも合わせる。",
   "files": [

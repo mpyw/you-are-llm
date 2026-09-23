@@ -2,7 +2,7 @@
   "id": "split-query-csharp-en",
   "title": "Split a product list that includes two collections",
   "language": "en",
-  "difficulty": "easy",
+  "difficulty": "normal",
   "codeLanguage": "csharp",
   "summary": "Two sibling Includes multiply the row count. Split the query with AsSplitQuery, then close the ordering trap that EF Core 9 and earlier have with ThenBy.",
   "files": [

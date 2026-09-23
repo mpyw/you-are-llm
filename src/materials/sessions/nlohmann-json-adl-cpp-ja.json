@@ -2,7 +2,7 @@
   "id": "nlohmann-json-adl-cpp-ja",
   "title": "構造体の変換を get<T>() 一つで済ませる",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "cpp",
   "summary": "to_json と from_json を型と同じ名前空間に置くと、ADL で見つかって vector<User> までそのまま変換できる。フィールドが増えたら _WITH_DEFAULT のマクロに任せる。",
   "files": [

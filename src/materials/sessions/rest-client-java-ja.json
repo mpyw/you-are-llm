@@ -2,7 +2,7 @@
   "id": "rest-client-java-ja",
   "title": "RestTemplate を RestClient に置き換える",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "java",
   "summary": "404 を Optional.empty にしようと何もしない onStatus を足したら、エラー本文が在庫 0 の Stock として読まれていた。",
   "files": [

@@ -2,7 +2,7 @@
   "id": "nullable-csharp-en",
   "title": "Clear the nullable warnings",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "csharp",
   "summary": "Instead of silencing CS8603 with !, let Product?, NotNullWhen and MemberNotNullWhen carry it.",
   "files": [

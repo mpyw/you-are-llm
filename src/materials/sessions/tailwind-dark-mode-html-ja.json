@@ -2,7 +2,7 @@
   "id": "tailwind-dark-mode-html-ja",
   "title": "Tailwind v4 の dark: をボタンで切り替える",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "html",
   "summary": "v4 の dark: は既定で OS の設定に従うので、dark クラスを付けても変わらない。@custom-variant で .dark に結び付け、選んだテーマを保存し、読み込み時のちらつきを head のスクリプトで消す。",
   "files": [

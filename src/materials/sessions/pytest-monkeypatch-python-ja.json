@@ -2,7 +2,7 @@
   "id": "pytest-monkeypatch-python-ja",
   "title": "mock.patch(\"requests.get\") が効かないのを直して monkeypatch と比べる",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "python",
   "summary": "from requests import get しているモジュールで requests.get を patch して本物の通信が走り、使う側の名前を patch し直してから monkeypatch に寄せる。",
   "files": [

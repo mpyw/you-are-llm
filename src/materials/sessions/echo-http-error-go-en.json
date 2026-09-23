@@ -2,7 +2,7 @@
   "id": "echo-http-error-go-en",
   "title": "One place for Echo error responses",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "go",
   "summary": "Move per handler c.JSON calls to echo.NewHTTPError and a custom HTTPErrorHandler, then stop sending he.Error() to the client.",
   "files": [

@@ -3,7 +3,7 @@
   "title": "Unclosed pgx rows drain the pool",
   "language": "en",
   "codeLanguage": "go",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "files": [
     {
       "path": "internal/store/orders.go",

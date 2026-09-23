@@ -2,7 +2,7 @@
   "id": "controller-advice-java-ja",
   "title": "コントローラの try/catch を @RestControllerAdvice にまとめる",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "java",
   "summary": "例外処理を ProblemDetail に揃えたら、継承元のハンドラとぶつかって起動しなくなった。",
   "files": [

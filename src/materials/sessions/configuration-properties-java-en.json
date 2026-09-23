@@ -2,7 +2,7 @@
   "id": "configuration-properties-java-en",
   "title": "Gather scattered @Value into @ConfigurationProperties",
   "language": "en",
-  "difficulty": "easy",
+  "difficulty": "normal",
   "codeLanguage": "java",
   "summary": "Two classes disagreed on the default mail.port, and the record that fixed it stopped a missing host from failing startup.",
   "files": [

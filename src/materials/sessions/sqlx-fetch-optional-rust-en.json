@@ -2,7 +2,7 @@
   "id": "sqlx-fetch-optional-rust-en",
   "title": "Swap sqlx fetch_one for fetch_optional",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "rust",
   "summary": "Take an unknown email as an Option and answer 401, fold row.get into FromRow, then trip on a NULL column.",
   "files": [

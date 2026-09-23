@@ -2,7 +2,7 @@
   "id": "pytest-monkeypatch-python-en",
   "title": "Fix a mock.patch(\"requests.get\") that does nothing, then compare monkeypatch",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "python",
   "summary": "Patching requests.get in a module that did from requests import get still hits the network, so patch the name where it is used, then move to monkeypatch.",
   "files": [

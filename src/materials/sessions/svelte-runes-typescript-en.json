@@ -2,7 +2,7 @@
   "id": "svelte-runes-typescript-en",
   "title": "Move a Svelte 4 cart to runes",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "typescript",
   "summary": "Replace let and $: in a Svelte 4 component with Svelte 5 $state and $derived, and see why push never reached the screen before.",
   "files": [

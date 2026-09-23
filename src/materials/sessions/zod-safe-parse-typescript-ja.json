@@ -2,7 +2,7 @@
   "id": "zod-safe-parse-typescript-ja",
   "title": "リクエストボディを Zod で検証する",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "typescript",
   "summary": "as でキャストしていた req.body を Zod 3 のスキーマと safeParse で検証し、型は z.infer で導く。Zod 4 で変わる箇所も押さえる。",
   "files": [

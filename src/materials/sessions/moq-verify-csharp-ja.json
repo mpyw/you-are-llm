@@ -2,7 +2,7 @@
   "id": "moq-verify-csharp-ja",
   "title": "Setup しかしていない Moq のテストに Verify を足す",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "csharp",
   "summary": "Setup は呼ばれたかを確かめない。Verify と Times.Once で数え、class の引数は Equals で比べられるので It.Is<T> にし、VerifyNoOtherCalls で余計な送信も落とす。",
   "files": [

@@ -2,7 +2,7 @@
   "id": "vue-watch-cleanup-typescript-en",
   "title": "A search watch lets old results overwrite new ones",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "typescript",
   "summary": "A watch that fetches on every keystroke gets overwritten by a slow old response. onWatcherCleanup aborts it, until it is registered after an await.",
   "files": [

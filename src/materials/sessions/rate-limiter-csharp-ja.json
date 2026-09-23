@@ -2,7 +2,7 @@
   "id": "rate-limiter-csharp-ja",
   "title": "レポート API にユーザーごとのレート制限を掛ける",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "csharp",
   "summary": "AddRateLimiter でユーザー単位のパーティションを切り、既定の 503 を 429 に直し、認証より前に置いてしまった UseRateLimiter を後ろへ動かす。",
   "files": [

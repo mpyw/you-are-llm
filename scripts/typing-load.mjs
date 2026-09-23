@@ -29,8 +29,14 @@ const SHIFTED = new Set([...'~!@#$%^&*()_+{}|:"<>?', ...'ABCDEFGHIJKLMNOPQRSTUVW
 const SYMBOL_RUN = /[`~!@#$%^&*()\-=+[\]{}\\|;:'",.<>/?]+/gu
 const NAME_UNDERSCORE = /(?<=[0-9A-Za-z])_(?=[0-9A-Za-z])/gu
 
-/** A token this many languages share is one every typist already knows. */
-const UNIVERSAL_AT = 7
+/**
+ * A token this share of the languages uses is one every typist already knows.
+ * It used to be a fixed count of seven, picked when there were eight languages.
+ * Each language added made seven a smaller share, more tokens counted as known,
+ * and every score drifted down: the one Expert+ session fell from 41.9 to 37.0
+ * over four batches without a keystroke of it changing.
+ */
+const UNIVERSAL_SHARE = 7 / 8
 
 /** How much each distinct symbol shape adds to the hardness of a keystroke. */
 const VARIETY_WEIGHT = 0.05
@@ -97,8 +103,10 @@ function universalTokens(sessions) {
       languages.set(run, seen)
     }
   }
+  const everyLanguage = new Set(sessions.map(({ data }) => data.codeLanguage))
+  const needed = Math.ceil(everyLanguage.size * UNIVERSAL_SHARE)
   return new Set(
-    [...languages.entries()].filter(([, seen]) => seen.size >= UNIVERSAL_AT).map(([run]) => run),
+    [...languages.entries()].filter(([, seen]) => seen.size >= needed).map(([run]) => run),
   )
 }
 

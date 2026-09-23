@@ -135,11 +135,11 @@ set rather than within one language, so Rust mostly lands at Hard or above.
 
 | Difficulty | Score | Sessions |
 | --- | --- | --- |
-| Easy | under 11 | 112 |
-| Normal | 11 to 16 | 196 |
-| Hard | 16 to 22 | 216 |
-| Expert | 22 to 34 | 88 |
-| Expert+ | over 34 | 2 |
+| Easy | under 11 | 84 |
+| Normal | 11 to 16 | 166 |
+| Hard | 16 to 22 | 206 |
+| Expert | 22 to 34 | 152 |
+| Expert+ | over 34 | 6 |
 
 The score is how hard a session is per keystroke, stretched a little by how much of it there is.
 
@@ -153,8 +153,8 @@ Length counts symbol keystrokes rather than all of them. A session is not harder
 
 Rust mostly comes out at Hard or above. The exceptions are attributes on a type or one library
 call. Java mostly comes out at Hard or below, and the exceptions are the ones whose `sed` is dense
-with escapes or whose test setup is long. The only Expert+ session is the Rust `transaction` that
-takes a closure.
+with escapes or whose test setup is long. Expert+ is the Rust `transaction` that takes a closure,
+and a few short sessions that ask for a new symbol shape on nearly every line.
 
 The front page filters on all three, and a filtered view is a shareable URL. It opens on Japanese,
 because that is what most of the material is for. `All` shows both languages and says so in the

@@ -2,7 +2,7 @@
   "id": "gorm-unscoped-go-en",
   "title": "Soft deleted rows break a unique index and a report",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "go",
   "summary": "Admit a composite unique index lets NULLs through, switch to a partial index, and use Unscoped to count and restore.",
   "files": [

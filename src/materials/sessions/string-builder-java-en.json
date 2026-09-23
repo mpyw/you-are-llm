@@ -2,7 +2,7 @@
   "id": "string-builder-java-en",
   "title": "Move the loop concatenation into a StringBuilder",
   "language": "en",
-  "difficulty": "easy",
+  "difficulty": "normal",
   "codeLanguage": "java",
   "summary": "A CSV glued together one plus at a time, until the row count catches up with it.",
   "files": [

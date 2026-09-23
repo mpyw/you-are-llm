@@ -2,7 +2,7 @@
   "id": "thiserror-derive-rust-en",
   "title": "Fold a hand-written Display into thiserror",
   "language": "en",
-  "difficulty": "easy",
+  "difficulty": "normal",
   "codeLanguage": "rust",
   "summary": "Replace impl Display, impl Error and From with derive(Error), then stop printing the cause twice.",
   "files": [

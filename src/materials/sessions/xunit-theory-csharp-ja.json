@@ -2,7 +2,7 @@
   "id": "xunit-theory-csharp-ja",
   "title": "コピペされた Fact を Theory にまとめる",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "csharp",
   "summary": "境界値ごとにコピペされた [Fact] を [Theory] にまとめる。decimal は属性に書けないので TheoryData と MemberData で渡す。",
   "files": [

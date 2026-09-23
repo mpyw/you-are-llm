@@ -2,7 +2,7 @@
   "id": "graceful-shutdown-go-en",
   "title": "Replace Gin r.Run with a graceful shutdown",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "go",
   "summary": "The server started with r.Run, so every deploy cut off requests in flight. Own the http.Server, wait on signal.NotifyContext and call Shutdown. Calling log.Fatal on ErrServerClosed killed it early.",
   "files": [

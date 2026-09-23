@@ -2,7 +2,7 @@
   "id": "gin-context-copy-go-ja",
   "title": "goroutine に *gin.Context をそのまま渡さない",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "go",
   "summary": "ハンドラから起動した goroutine が使い回し後の Context を読んでいたので c.Copy() を渡し、ctx はキャンセルだけ外して渡す。",
   "files": [

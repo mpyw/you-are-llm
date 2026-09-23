@@ -2,7 +2,7 @@
   "id": "local-scope-php-ja",
   "title": "公開済みの where をローカルスコープにまとめる",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "php",
   "summary": "3 か所にコピペされた公開条件を Post::published() に寄せ、#[Scope] 属性の書き方も比べる。",
   "files": [

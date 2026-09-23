@@ -2,7 +2,7 @@
   "id": "pthread-once-c-en",
   "title": "Replace hand rolled double checked locking with pthread_once",
   "language": "en",
-  "difficulty": "easy",
+  "difficulty": "normal",
   "codeLanguage": "c",
   "summary": "Double checked locking that reads outside the lock breaks on ARM, and volatile does not fix it. pthread_once does.",
   "files": [

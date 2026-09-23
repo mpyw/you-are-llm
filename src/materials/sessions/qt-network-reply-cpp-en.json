@@ -2,7 +2,7 @@
   "id": "qt-network-reply-cpp-en",
   "title": "Every update check leaves a QNetworkReply behind",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "cpp",
   "summary": "Nobody deletes a reply from QNetworkAccessManager, and finished fires on failure too. Check reply->error(), call deleteLater, and keep an early return from skipping it.",
   "files": [

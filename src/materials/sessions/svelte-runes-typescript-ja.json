@@ -2,7 +2,7 @@
   "id": "svelte-runes-typescript-ja",
   "title": "Svelte 4 のカートを runes に書き換える",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "typescript",
   "summary": "let と $: で書いた Svelte 4 のコンポーネントを、Svelte 5 の $state と $derived に置き換える。push が画面に出なかった理由も片付く。",
   "files": [

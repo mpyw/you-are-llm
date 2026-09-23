@@ -2,7 +2,7 @@
   "id": "mass-assignment-php-ja",
   "title": "登録 API で管理者になれる穴を塞ぐ",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "php",
   "summary": "$request->all() をそのまま create() して is_admin まで通る登録を、$fillable と検証済みの値で塞ぐ。",
   "files": [

@@ -2,7 +2,7 @@
   "id": "sizeof-padding-c-en",
   "title": "Padding and the wrong sizeof",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "c",
   "summary": "Stop putting a struct on the wire as it stands, and fix a sizeof mistake and a bound check that wraps.",
   "files": [

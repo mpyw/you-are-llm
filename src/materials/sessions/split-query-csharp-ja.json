@@ -2,7 +2,7 @@
   "id": "split-query-csharp-ja",
   "title": "Include を 2 本並べた商品一覧を AsSplitQuery で分ける",
   "language": "ja",
-  "difficulty": "easy",
+  "difficulty": "normal",
   "codeLanguage": "csharp",
   "summary": "画像とレビューを同時に Include して行数が掛け算になったクエリを分割し、EF Core 9 以前の並び順の罠を ThenBy で塞ぐ。",
   "files": [

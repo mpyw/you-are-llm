@@ -2,7 +2,7 @@
   "id": "bootstrap-modal-html-ja",
   "title": "Bootstrap 5.3 のモーダルが開かない",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "html",
   "summary": "v4 からコピーした data-toggle は v5 では黙って無視される。Popper を疑って遠回りしたあと data-bs-* に直し、tabindex と aria-labelledby を足し、行を消したあとのフォーカスの行き先を決める。",
   "files": [

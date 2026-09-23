@@ -2,7 +2,7 @@
   "id": "echo-validator-go-ja",
   "title": "Echo の c.Bind で validate タグが効かない",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "go",
   "summary": "c.Bind は検証しないので、go-playground/validator を e.Validator に登録して c.Validate を呼ぶ。スライスの要素は dive が無いと検査されない。エラーは json の名前でフィールドごとに返す。",
   "files": [

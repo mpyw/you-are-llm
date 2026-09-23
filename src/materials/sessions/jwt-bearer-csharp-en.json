@@ -2,7 +2,7 @@
   "id": "jwt-bearer-csharp-en",
   "title": "AddJwtBearer keeps answering 401",
   "language": "en",
-  "difficulty": "easy",
+  "difficulty": "normal",
   "codeLanguage": "csharp",
   "summary": "A Keycloak token fails on an audience mismatch, and once it passes, sub is missing because MapInboundClaims renamed it.",
   "files": [

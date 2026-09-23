@@ -2,7 +2,7 @@
   "id": "zlib-compress-bound-c-en",
   "title": "Size a zlib output buffer with compressBound",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "c",
   "summary": "Fix a compress call that hits Z_BUF_ERROR with an input sized buffer, then get uncompress lengths right.",
   "files": [

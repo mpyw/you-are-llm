@@ -2,7 +2,7 @@
   "id": "gtest-assert-expect-cpp-en",
   "title": "The test crashes right after checking for nullptr",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "cpp",
   "summary": "A failed EXPECT_NE lets the test carry on to the next line. Checks that later lines depend on belong in ASSERT_, and an ASSERT_ inside a helper is caught with ASSERT_NO_FATAL_FAILURE.",
   "files": [

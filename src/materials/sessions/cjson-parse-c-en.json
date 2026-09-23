@@ -2,7 +2,7 @@
   "id": "cjson-parse-c-en",
   "title": "Check cJSON types before reading values",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "c",
   "summary": "Check types with cJSON_IsString, free the tree with cJSON_Delete, and stop holding a valuestring after it is freed.",
   "files": [

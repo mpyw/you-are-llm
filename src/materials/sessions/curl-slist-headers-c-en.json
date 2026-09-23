@@ -2,7 +2,7 @@
   "id": "curl-slist-headers-c-en",
   "title": "Add headers to a libcurl request",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "c",
   "summary": "Pass headers built with curl_slist_append through CURLOPT_HTTPHEADER, and free them after perform.",
   "files": [

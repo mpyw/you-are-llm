@@ -2,7 +2,7 @@
   "id": "rest-client-java-en",
   "title": "Replace RestTemplate with RestClient",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "java",
   "summary": "An onStatus handler that does nothing was meant to turn 404 into Optional.empty, and read the error body as a Stock with zero left.",
   "files": [

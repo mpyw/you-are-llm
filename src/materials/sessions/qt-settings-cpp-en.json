@@ -2,7 +2,7 @@
   "id": "qt-settings-cpp-en",
   "title": "An = in the folder name wipes the setting",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "cpp",
   "summary": "Drop the hand written key=value file and let QSettings do it. Pass value a default, and set the organization and application names before the first QSettings.",
   "files": [

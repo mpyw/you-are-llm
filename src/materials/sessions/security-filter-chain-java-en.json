@@ -2,7 +2,7 @@
   "id": "security-filter-chain-java-en",
   "title": "Move WebSecurityConfigurerAdapter to a SecurityFilterChain",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "java",
   "summary": "The security config is rewritten for Boot 3, then a new role goes in below a broader rule that catches it first.",
   "files": [

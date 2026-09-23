@@ -2,7 +2,7 @@
   "id": "vue-watch-cleanup-typescript-ja",
   "title": "検索の watch で古い結果が後から上書きする",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "typescript",
   "summary": "入力ごとに fetch する watch が、遅れて返った古いレスポンスで一覧を上書きする。onWatcherCleanup で abort するが、await の後で登録して効かなくなる。",
   "files": [

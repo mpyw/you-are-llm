@@ -2,7 +2,7 @@
   "id": "gtest-assert-expect-cpp-ja",
   "title": "nullptr を確かめた次の行でテストが落ちる",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "cpp",
   "summary": "EXPECT_NE が失敗してもテストは次の行へ進む。後続の前提になる確認は ASSERT_ で止め、ヘルパーの中の ASSERT_ は ASSERT_NO_FATAL_FAILURE で受ける。",
   "files": [

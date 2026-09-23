@@ -2,7 +2,7 @@
   "id": "schedule-overlap-php-en",
   "title": "Stop a scheduled report from overlapping and running twice",
   "language": "en",
-  "difficulty": "easy",
+  "difficulty": "normal",
   "codeLanguage": "php",
   "summary": "withoutOverlapping keeps runs apart, onOneServer stops two servers doubling up once the cache driver is shared, and runInBackground stops the next task from waiting.",
   "files": [

@@ -2,7 +2,7 @@
   "id": "qt-concurrent-cpp-ja",
   "title": "スキャン中にウィンドウが応答なしになる",
   "language": "ja",
-  "difficulty": "expert",
+  "difficulty": "expertplus",
   "codeLanguage": "cpp",
   "summary": "重い処理を QtConcurrent::run でスレッドプールに出し、結果は QFutureWatcher で GUI スレッドに受け取る。watcher はスタックに置かず、ワーカーからウィジェットは触らない。",
   "files": [

@@ -2,7 +2,7 @@
   "id": "cache-remember-php-en",
   "title": "Wrap the dashboard sales query in Cache::remember",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "php",
   "summary": "Cache the daily sales aggregate that runs on every request for ten minutes, and drop the key when an order is saved.",
   "files": [

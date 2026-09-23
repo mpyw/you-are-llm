@@ -2,7 +2,7 @@
   "id": "redis-cache-aside-go-en",
   "title": "Stop answering 500 for redis.Nil in go-redis",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "go",
   "summary": "A missing key came back as redis.Nil and went out as a 500. Split it off with errors.Is, load from the DB and write it back with a TTL. Passing the struct straight to Set fails.",
   "files": [

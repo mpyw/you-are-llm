@@ -2,7 +2,7 @@
   "id": "blazor-bind-csharp-ja",
   "title": "Blazor の検索欄が打つたびに絞り込まれない",
   "language": "ja",
-  "difficulty": "easy",
+  "difficulty": "normal",
   "codeLanguage": "csharp",
   "summary": "@bind はフォーカスが外れたときにしか書き戻さない。@bind:event=\"oninput\" で打鍵ごとにし、サーバー検索は @bind:after で走らせる。",
   "files": [

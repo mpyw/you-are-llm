@@ -2,7 +2,7 @@
   "id": "container-queries-html-ja",
   "title": "カードの切り替えを @container にする",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "html",
   "summary": "メディアクエリで横並びにしたカードが、サイドバーに置くと潰れる。置き場所の幅で切り替えるコンテナクエリにする。",
   "files": [

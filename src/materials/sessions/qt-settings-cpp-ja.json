@@ -2,7 +2,7 @@
   "id": "qt-settings-cpp-ja",
   "title": "フォルダ名に = があると設定が消える",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "cpp",
   "summary": "自前の key=value ファイルをやめて QSettings に任せる。value には既定値を渡し、組織名とアプリ名は最初の QSettings より先に決める。",
   "files": [

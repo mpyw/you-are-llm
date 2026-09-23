@@ -2,7 +2,7 @@
   "id": "security-filter-chain-java-ja",
   "title": "WebSecurityConfigurerAdapter を SecurityFilterChain に移す",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "java",
   "summary": "Boot 3 に上げてセキュリティ設定を書き直し、ロールを 1 つ足したら広いルールが先に当たっていた。",
   "files": [

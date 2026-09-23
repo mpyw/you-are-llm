@@ -2,7 +2,7 @@
   "id": "sqlx-named-go-en",
   "title": "sqlx Get fails with missing destination name",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "go",
   "summary": "Fix Get into a struct without db tags by adding the tags, then move writes to NamedExec. LastInsertId does not work on Postgres, so take the id back with RETURNING.",
   "files": [

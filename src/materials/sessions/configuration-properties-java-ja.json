@@ -2,7 +2,7 @@
   "id": "configuration-properties-java-ja",
   "title": "散らばった @Value を @ConfigurationProperties にまとめる",
   "language": "ja",
-  "difficulty": "easy",
+  "difficulty": "normal",
   "codeLanguage": "java",
   "summary": "mail.port のデフォルトが二か所で食い違っていたので record に寄せたら、今度は設定漏れで起動が止まらなくなった。",
   "files": [

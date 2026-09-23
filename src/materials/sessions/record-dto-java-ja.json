@@ -2,7 +2,7 @@
   "id": "record-dto-java-ja",
   "title": "エンティティを返すコントローラを record の DTO に詰め替える",
   "language": "ja",
-  "difficulty": "easy",
+  "difficulty": "normal",
   "codeLanguage": "java",
   "summary": "GET /users が遅延ロードで 500 になり、ついでに passwordHash まで返していたので、record に詰め替える。",
   "files": [

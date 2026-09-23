@@ -2,7 +2,7 @@
   "id": "controller-advice-java-en",
   "title": "Move controller try/catch into @RestControllerAdvice",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "java",
   "summary": "Error handling moves to ProblemDetail, then a handler collides with the one it inherits and the app will not start.",
   "files": [

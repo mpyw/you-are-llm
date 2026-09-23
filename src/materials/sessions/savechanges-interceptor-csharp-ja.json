@@ -2,7 +2,7 @@
   "id": "savechanges-interceptor-csharp-ja",
   "title": "CreatedAt と UpdatedAt を SaveChangesInterceptor にまとめる",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "csharp",
   "summary": "手書きのタイムスタンプを SavingChangesAsync に寄せたら変更追跡を通らない ExecuteUpdateAsync の分が更新されなくなり、Update で CreatedAt が消える穴も塞ぐ。",
   "files": [

@@ -2,7 +2,7 @@
   "id": "echo-http-error-go-ja",
   "title": "Echo のエラーレスポンスを 1 か所にまとめる",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "go",
   "summary": "ハンドラごとの c.JSON を echo.NewHTTPError と独自の HTTPErrorHandler に寄せ、he.Error() をそのまま返していたのを Message に直す。",
   "files": [

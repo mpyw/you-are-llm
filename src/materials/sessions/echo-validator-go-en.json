@@ -2,7 +2,7 @@
   "id": "echo-validator-go-en",
   "title": "Echo c.Bind ignores validate tags",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "go",
   "summary": "c.Bind does not validate, so register go-playground/validator as e.Validator and call c.Validate. Slice elements are not checked without dive. Errors come back per field under their json names.",
   "files": [

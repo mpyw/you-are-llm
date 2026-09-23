@@ -2,7 +2,7 @@
   "id": "cancellation-token-rust-ja",
   "title": "CancellationToken でワーカーを止めて TaskTracker で待つ",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "rust",
   "summary": "AtomicBool では 30 秒眠るワーカーが止まらず main が先に抜ける。cancelled() を select! で待ち、close し忘れた TaskTracker で固まり、child_token で mailer だけ止める。",
   "files": [

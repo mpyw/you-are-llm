@@ -2,7 +2,7 @@
   "id": "fluent-validation-csharp-ja",
   "title": "コントローラの if を FluentValidation に移す",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "csharp",
   "summary": "Create アクションに並んだ if を AbstractValidator に移し、全項目のエラーを ValidationProblem でまとめて返す。",
   "files": [

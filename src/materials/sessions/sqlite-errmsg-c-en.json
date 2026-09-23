@@ -2,7 +2,7 @@
   "id": "sqlite-errmsg-c-en",
   "title": "Surface why SQLite failed",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "c",
   "summary": "Check SQLITE_OK and SQLITE_DONE on a DELETE that ignored every return value, and print sqlite3_errmsg.",
   "files": [

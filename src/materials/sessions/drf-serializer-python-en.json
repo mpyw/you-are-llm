@@ -2,7 +2,7 @@
   "id": "drf-serializer-python-en",
   "title": "Make a nested DRF serializer writable",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "python",
   "summary": "Clear the writable nested fields AssertionError with explicit create and update, then fix the read only id that made every update renumber the items.",
   "files": [

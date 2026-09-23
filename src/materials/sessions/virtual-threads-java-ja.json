@@ -2,7 +2,7 @@
   "id": "virtual-threads-java-ja",
   "title": "仮想スレッドで詰まる synchronized を ReentrantLock に替える",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "java",
   "summary": "spring.threads.virtual.enabled を入れたら synchronized の中の HTTP 呼び出しでキャリアスレッドが pinning され、テナント対応で同じ罠をもう一度踏む。",
   "files": [

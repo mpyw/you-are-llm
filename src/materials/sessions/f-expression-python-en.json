@@ -2,7 +2,7 @@
   "id": "f-expression-python-en",
   "title": "Fix drifting Django stock with F and select_for_update",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "python",
   "summary": "Concurrent orders lose stock updates. Push the decrement into UPDATE with F, fix the missing refresh_from_db, make the update conditional, then guard one per customer with select_for_update.",
   "files": [

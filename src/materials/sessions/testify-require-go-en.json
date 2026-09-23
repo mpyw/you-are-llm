@@ -2,7 +2,7 @@
   "id": "testify-require-go-en",
   "title": "Nil pointer panic right after assert.NoError",
   "language": "en",
-  "difficulty": "easy",
+  "difficulty": "normal",
   "codeLanguage": "go",
   "summary": "assert keeps going after a failure, so the checks later lines depend on become require.",
   "files": [

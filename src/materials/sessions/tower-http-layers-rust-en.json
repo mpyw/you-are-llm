@@ -2,7 +2,7 @@
   "id": "tower-http-layers-rust-en",
   "title": "Get preflight through tower-http CorsLayer",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "rust",
   "summary": "CorsLayer and TraceLayer go in, Any plus allow_credentials panics at startup, so the origins are named and listed.",
   "files": [

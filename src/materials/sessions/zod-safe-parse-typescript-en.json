@@ -2,7 +2,7 @@
   "id": "zod-safe-parse-typescript-en",
   "title": "Validate a request body with Zod",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "typescript",
   "summary": "Replace an as cast on req.body with a Zod 3 schema and safeParse, derive the type with z.infer, and note what Zod 4 renames.",
   "files": [

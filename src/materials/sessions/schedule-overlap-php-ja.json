@@ -2,7 +2,7 @@
   "id": "schedule-overlap-php-ja",
   "title": "重なって二重に走る集計バッチをスケジューラで止める",
   "language": "ja",
-  "difficulty": "easy",
+  "difficulty": "normal",
   "codeLanguage": "php",
   "summary": "withoutOverlapping で前回と重ならないようにし、onOneServer で 2 台の二重起動を止め、キャッシュドライバの前提を踏み抜き、runInBackground で後ろのタスクを待たせない。",
   "files": [

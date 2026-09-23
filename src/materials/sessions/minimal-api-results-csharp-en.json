@@ -2,7 +2,7 @@
   "id": "minimal-api-results-csharp-en",
   "title": "Return 404 for a missing order",
   "language": "en",
-  "difficulty": "easy",
+  "difficulty": "normal",
   "codeLanguage": "csharp",
   "summary": "A Minimal API handler answers 200 with null. Return Results.NotFound, then put the 404 in the type with TypedResults.",
   "files": [

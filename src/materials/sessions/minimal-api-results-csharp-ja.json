@@ -2,7 +2,7 @@
   "id": "minimal-api-results-csharp-ja",
   "title": "見つからない注文に 404 を返す",
   "language": "ja",
-  "difficulty": "easy",
+  "difficulty": "normal",
   "codeLanguage": "csharp",
   "summary": "Minimal API が null を 200 で返していたのを Results.NotFound に直し、TypedResults で 404 を型に載せる。",
   "files": [

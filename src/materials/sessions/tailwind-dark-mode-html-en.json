@@ -2,7 +2,7 @@
   "id": "tailwind-dark-mode-html-en",
   "title": "Toggle Tailwind v4 dark: with a button",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "html",
   "summary": "In v4, dark: follows the OS setting by default, so adding a dark class changes nothing. Tie it to .dark with @custom-variant, remember the choice, and stop the flash on load with a script in head.",
   "files": [

@@ -2,7 +2,7 @@
   "id": "spdlog-logger-cpp-en",
   "title": "Swap debug std::cout for spdlog",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "cpp",
   "summary": "Raw std::cout lines become leveled spdlog calls. The default level and the pattern are set once in main.",
   "files": [

@@ -2,7 +2,7 @@
   "id": "curl-slist-headers-c-ja",
   "title": "libcurl のリクエストにヘッダを足す",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "c",
   "summary": "curl_slist_append で積んだヘッダを CURLOPT_HTTPHEADER で渡し、解放を perform のあとに回す。",
   "files": [

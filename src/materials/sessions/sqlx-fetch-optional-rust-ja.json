@@ -2,7 +2,7 @@
   "id": "sqlx-fetch-optional-rust-ja",
   "title": "sqlx の fetch_one を fetch_optional にする",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "rust",
   "summary": "未登録メールの 500 を Option で受けて 401 にし、row.get を FromRow に畳み、NULL の列で転ぶ。",
   "files": [

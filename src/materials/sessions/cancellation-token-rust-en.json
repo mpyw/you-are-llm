@@ -2,7 +2,7 @@
   "id": "cancellation-token-rust-en",
   "title": "Stop workers with CancellationToken and wait with TaskTracker",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "rust",
   "summary": "An AtomicBool cannot wake a worker asleep for 30 seconds, and main exits first. Race cancelled() in select!, hang on a TaskTracker nobody closed, and stop only the mailer with child_token.",
   "files": [

@@ -3,7 +3,7 @@
   "title": "pgxpool のコネクションが rows の閉じ忘れで枯れる",
   "language": "ja",
   "codeLanguage": "go",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "files": [
     {
       "path": "internal/store/orders.go",

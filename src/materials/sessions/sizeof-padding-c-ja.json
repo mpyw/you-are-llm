@@ -2,7 +2,7 @@
   "id": "sizeof-padding-c-ja",
   "title": "パディングと sizeof の取り違えを潰す",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "c",
   "summary": "構造体をそのまま memcpy するのをやめ、sizeof の取り違えと折り返す境界検査も直す。",
   "files": [

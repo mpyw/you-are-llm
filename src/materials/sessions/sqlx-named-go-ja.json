@@ -2,7 +2,7 @@
   "id": "sqlx-named-go-ja",
   "title": "sqlx の Get が missing destination name で落ちる",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "go",
   "summary": "db タグの無い struct に Get していたのをタグで直し、書き込みを NamedExec に寄せる。Postgres で LastInsertId が使えない件は RETURNING で受け直す。",
   "files": [

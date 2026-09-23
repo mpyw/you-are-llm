@@ -2,7 +2,7 @@
   "id": "testify-suite-go-en",
   "title": "The same setup pasted into three tests",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "go",
   "summary": "Move the setup into a testify suite.Suite and redo it in SetupTest and TearDownTest. Open the DB only once with SetupSuite.",
   "files": [

@@ -2,7 +2,7 @@
   "id": "nlohmann-json-adl-cpp-en",
   "title": "Converting a struct with a single get<T>()",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "cpp",
   "summary": "Put to_json and from_json in the same namespace as the type and ADL finds them, all the way up to vector<User>. When the fields pile up, hand them to the _WITH_DEFAULT macro.",
   "files": [

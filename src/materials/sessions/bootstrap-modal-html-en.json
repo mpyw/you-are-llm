@@ -2,7 +2,7 @@
   "id": "bootstrap-modal-html-en",
   "title": "The Bootstrap 5.3 modal will not open",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "html",
   "summary": "data-toggle copied from a v4 project is silently ignored by v5. After a detour through Popper, the attributes become data-bs-*, the modal gets tabindex and aria-labelledby, and focus gets somewhere to go once its row is deleted.",
   "files": [

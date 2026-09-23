@@ -2,7 +2,7 @@
   "id": "testify-require-go-ja",
   "title": "assert.NoError の後で nil 参照の panic",
   "language": "ja",
-  "difficulty": "easy",
+  "difficulty": "normal",
   "codeLanguage": "go",
   "summary": "assert は失敗しても先へ進むので、後ろの行が頼る前提条件だけ require で止める。",
   "files": [

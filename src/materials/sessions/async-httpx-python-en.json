@@ -2,7 +2,7 @@
   "id": "async-httpx-python-en",
   "title": "Swap requests in async def for httpx.AsyncClient",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "python",
   "summary": "requests blocks the event loop. Move to one AsyncClient made in lifespan, fetch two APIs with gather, trip over httpx not following redirects, and turn upstream failures into 502.",
   "files": [

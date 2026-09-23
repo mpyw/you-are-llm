@@ -2,7 +2,7 @@
   "id": "graceful-shutdown-go-ja",
   "title": "Gin の r.Run をやめて graceful shutdown する",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "go",
   "summary": "r.Run で起動していたのでデプロイのたびに処理中のリクエストが切れていた。http.Server と signal.NotifyContext で Shutdown を待つ。ErrServerClosed を log.Fatal して即死していた。",
   "files": [

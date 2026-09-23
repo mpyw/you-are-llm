@@ -2,7 +2,7 @@
   "id": "tower-http-layers-rust-ja",
   "title": "tower-http の CorsLayer でプリフライトを通す",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "rust",
   "summary": "CorsLayer と TraceLayer を足したら Any と allow_credentials の併用で起動時に panic したので、オリジンを明示して列挙する。",
   "files": [

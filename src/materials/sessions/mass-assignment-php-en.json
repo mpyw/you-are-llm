@@ -2,7 +2,7 @@
   "id": "mass-assignment-php-en",
   "title": "Stop the register endpoint from making admins",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "php",
   "summary": "Registration passes $request->all() straight to create(), so is_admin goes through. Close it with $fillable and validated input.",
   "files": [

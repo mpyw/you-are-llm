@@ -2,7 +2,7 @@
   "id": "pthread-once-c-ja",
   "title": "自作の二重チェックを pthread_once に替える",
   "language": "ja",
-  "difficulty": "easy",
+  "difficulty": "normal",
   "codeLanguage": "c",
   "summary": "ロックの外で読む二重チェックロッキングが ARM で壊れるので、volatile ではなく pthread_once で初期化する。",
   "files": [

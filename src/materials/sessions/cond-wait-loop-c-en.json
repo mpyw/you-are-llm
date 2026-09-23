@@ -2,7 +2,7 @@
   "id": "cond-wait-loop-c-en",
   "title": "Wait on pthread_cond_wait in a while loop",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "c",
   "summary": "Move the consumer wait from if to while, then make push wait when the queue is full.",
   "files": [

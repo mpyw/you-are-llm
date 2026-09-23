@@ -2,7 +2,7 @@
   "id": "protobuf-presence-cpp-en",
   "title": "Setting stock to zero does nothing",
   "language": "en",
-  "difficulty": "easy",
+  "difficulty": "normal",
   "codeLanguage": "cpp",
   "summary": "A proto3 scalar cannot tell 0 from unset, so a 0 never arrives. Mark the field optional, regenerate, and test it with has_.",
   "files": [

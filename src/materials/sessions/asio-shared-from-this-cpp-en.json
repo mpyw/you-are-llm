@@ -2,7 +2,7 @@
   "id": "asio-shared-from-this-cpp-en",
   "title": "The echo server hangs up on connect",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "cpp",
   "summary": "A Boost.Asio Session dies before its handlers run. shared_from_this keeps it alive, and make_shared creates it.",
   "files": [

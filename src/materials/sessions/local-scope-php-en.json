@@ -2,7 +2,7 @@
   "id": "local-scope-php-en",
   "title": "Pull the published where clauses into a local scope",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "php",
   "summary": "A published filter copied into three places becomes Post::published(), with the #[Scope] attribute as the newer spelling.",
   "files": [

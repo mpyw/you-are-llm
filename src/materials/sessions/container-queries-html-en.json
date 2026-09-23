@@ -2,7 +2,7 @@
   "id": "container-queries-html-en",
   "title": "Switch a card layout with @container",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "html",
   "summary": "A card laid out in a row by a media query gets crushed when placed in the sidebar. Switch it on the width of where it sits, with a container query.",
   "files": [

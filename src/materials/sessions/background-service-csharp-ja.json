@@ -2,7 +2,7 @@
   "id": "background-service-csharp-ja",
   "title": "OutboxRelay がホストを止める",
   "language": "ja",
-  "difficulty": "easy",
+  "difficulty": "normal",
   "codeLanguage": "csharp",
   "summary": "最初の await に届かない ExecuteAsync が起動を塞ぎ、投げた例外がホストごと落とす。PeriodicTimer に替え、周回ごとに例外を受け止め、停止時のキャンセルはエラーにしない。",
   "files": [

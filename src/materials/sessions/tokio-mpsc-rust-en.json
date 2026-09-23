@@ -2,7 +2,7 @@
   "id": "tokio-mpsc-rust-en",
   "title": "Backpressure with a bounded mpsc channel",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "rust",
   "summary": "Replace an unbounded channel that eats memory with mpsc::channel, then find the receive loop never ends because the original tx is still alive.",
   "files": [

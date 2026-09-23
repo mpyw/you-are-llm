@@ -2,7 +2,7 @@
   "id": "getaddrinfo-free-c-en",
   "title": "Replace gethostbyname with getaddrinfo",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "c",
   "summary": "Drop the obsolete gethostbyname, try each getaddrinfo result in turn, and release the list with freeaddrinfo.",
   "files": [

@@ -2,7 +2,7 @@
   "id": "drf-serializer-python-ja",
   "title": "DRF のネストしたシリアライザで書き込めるようにする",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "python",
   "summary": "writable nested fields の AssertionError を create と update で解消し、明細の id が振り直される読み取り専用の落とし穴を直す。",
   "files": [

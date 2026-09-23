@@ -2,7 +2,7 @@
   "id": "protobuf-presence-cpp-ja",
   "title": "在庫を 0 にする更新だけ効かない",
   "language": "ja",
-  "difficulty": "easy",
+  "difficulty": "normal",
   "codeLanguage": "cpp",
   "summary": "proto3 のスカラーは 0 と未設定を区別できず、0 を送っても届かない。フィールドに optional を付けて生成し直し、has_ で判定する。",
   "files": [

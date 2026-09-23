@@ -2,7 +2,7 @@
   "id": "rate-limiter-csharp-en",
   "title": "Rate limit the report API per user",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "csharp",
   "summary": "Partition AddRateLimiter by user, replace the default 503 with 429, and move the UseRateLimiter call that ran before authentication.",
   "files": [

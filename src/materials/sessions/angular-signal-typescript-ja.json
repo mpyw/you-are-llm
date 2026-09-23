@@ -2,7 +2,7 @@
   "id": "angular-signal-typescript-ja",
   "title": "カートの合計を signal と computed にする",
   "language": "ja",
-  "difficulty": "expert",
+  "difficulty": "expertplus",
   "codeLanguage": "typescript",
   "summary": "操作のたびに手で合計を再計算していて、remove で呼び忘れる。items を signal に、total を computed にする。",
   "files": [

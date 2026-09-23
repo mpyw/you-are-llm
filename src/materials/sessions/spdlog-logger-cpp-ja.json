@@ -2,7 +2,7 @@
   "id": "spdlog-logger-cpp-ja",
   "title": "デバッグ用の std::cout を spdlog に",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "cpp",
   "summary": "垂れ流しの std::cout を spdlog のレベル付きログにし、既定のレベルと書式は main で一度だけ決める。",
   "files": [

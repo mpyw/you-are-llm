@@ -2,7 +2,7 @@
   "id": "getaddrinfo-free-c-ja",
   "title": "gethostbyname を getaddrinfo に置き換える",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "c",
   "summary": "非推奨の gethostbyname をやめ、getaddrinfo の結果を順に試して freeaddrinfo で解放する。",
   "files": [

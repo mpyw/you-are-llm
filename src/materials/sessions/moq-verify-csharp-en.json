@@ -2,7 +2,7 @@
   "id": "moq-verify-csharp-en",
   "title": "Add Verify to a Moq test that only calls Setup",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "csharp",
   "summary": "Setup never checks that a call happened. Verify with Times.Once counts it, It.Is<T> matches a class argument that Equals cannot, and VerifyNoOtherCalls catches the extra mail.",
   "files": [

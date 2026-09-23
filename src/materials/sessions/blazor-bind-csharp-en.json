@@ -2,7 +2,7 @@
   "id": "blazor-bind-csharp-en",
   "title": "Make a Blazor search box filter as you type",
   "language": "en",
-  "difficulty": "easy",
+  "difficulty": "normal",
   "codeLanguage": "csharp",
   "summary": "@bind writes back only when the field loses focus. @bind:event=\"oninput\" makes it per keystroke, and @bind:after runs the server search.",
   "files": [

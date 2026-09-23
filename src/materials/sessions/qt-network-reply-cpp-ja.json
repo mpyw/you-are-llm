@@ -2,7 +2,7 @@
   "id": "qt-network-reply-cpp-ja",
   "title": "更新チェックのたびに QNetworkReply が残る",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "cpp",
   "summary": "QNetworkAccessManager の reply は誰も消さず、失敗しても finished は来る。reply->error() を見て deleteLater し、早期 return で後始末を飛ばさない。",
   "files": [

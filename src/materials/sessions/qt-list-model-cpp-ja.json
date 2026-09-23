@@ -2,7 +2,7 @@
   "id": "qt-list-model-cpp-ja",
   "title": "タスクを足しても ListView に出ない",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "cpp",
   "summary": "QAbstractListModel の追加を beginInsertRows と endInsertRows で挟み、roleNames に done を載せる。last は含む側なので 1 引く。",
   "files": [

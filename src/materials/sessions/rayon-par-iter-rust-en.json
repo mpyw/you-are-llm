@@ -2,7 +2,7 @@
   "id": "rayon-par-iter-rust-en",
   "title": "Spread the hashing over every core with par_iter",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "rust",
   "summary": "Turn a single core SHA-256 batch into par_iter, then cap it at four threads with a dedicated pool.",
   "files": [

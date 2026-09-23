@@ -2,7 +2,7 @@
   "id": "libuv-close-cb-c-ja",
   "title": "libuv のハンドルを close コールバックで解放する",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "c",
   "summary": "uv_close の直後に free していたクライアントを close コールバックで解放し、Ctrl-C で uv_loop_close まで綺麗に終わらせる。",
   "files": [

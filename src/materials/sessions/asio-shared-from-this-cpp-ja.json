@@ -2,7 +2,7 @@
   "id": "asio-shared-from-this-cpp-ja",
   "title": "echo サーバが繋いだ瞬間に切れる",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "cpp",
   "summary": "Boost.Asio のハンドラより先に Session が消える。shared_from_this で寿命を延ばし、make_shared で作る。",
   "files": [

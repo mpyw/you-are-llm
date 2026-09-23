@@ -2,7 +2,7 @@
   "id": "sqlite-errmsg-c-ja",
   "title": "SQLite の失敗理由を表に出す",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "c",
   "summary": "戻り値を見ていなかった DELETE に SQLITE_OK と SQLITE_DONE の確認を入れ、sqlite3_errmsg で理由を出す。",
   "files": [

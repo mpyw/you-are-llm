@@ -2,7 +2,7 @@
   "id": "rayon-par-iter-rust-ja",
   "title": "ハッシュ計算を rayon の par_iter で全コアに散らす",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "rust",
   "summary": "1 コアしか使っていない SHA-256 の一括計算を par_iter にして、専用プールで 4 スレッドに絞る。",
   "files": [

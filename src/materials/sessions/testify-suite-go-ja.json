@@ -2,7 +2,7 @@
   "id": "testify-suite-go-ja",
   "title": "3 つのテストに同じ前準備がコピペされている",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "go",
   "summary": "testify の suite.Suite に前準備を寄せ、SetupTest と TearDownTest で毎回やり直す。DB の接続だけは SetupSuite で 1 回にする。",
   "files": [

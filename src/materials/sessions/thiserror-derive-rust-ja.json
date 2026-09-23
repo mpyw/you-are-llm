@@ -2,7 +2,7 @@
   "id": "thiserror-derive-rust-ja",
   "title": "手書きの Display を thiserror に畳む",
   "language": "ja",
-  "difficulty": "easy",
+  "difficulty": "normal",
   "codeLanguage": "rust",
   "summary": "impl Display と impl Error と From を derive(Error) に置き換え、原因の二重表示を消す。",
   "files": [
