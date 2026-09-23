@@ -42,6 +42,7 @@ export type CodeLanguage =
   | 'cpp'
   | 'csharp'
   | 'go'
+  | 'html'
   | 'java'
   | 'php'
   | 'python'
@@ -53,6 +54,7 @@ export const CODE_LANGUAGE_LABELS: Readonly<Record<CodeLanguage, string>> = {
   cpp: 'C++',
   csharp: 'C#',
   go: 'Go',
+  html: 'HTML/CSS',
   java: 'Java',
   php: 'PHP',
   python: 'Python',

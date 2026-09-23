@@ -1,0 +1,41 @@
+{
+  "id": "focus-visible-html-ja",
+  "title": "outline: none で消えたフォーカスを :focus-visible で戻す",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "html",
+  "summary": "クリックで出る枠が嫌で *:focus の outline を消したら、キーボードで操作すると現在地が分からなくなった。:focus-visible でキーボードのときだけ枠を出す。",
+  "files": [
+    {
+      "path": "src/styles/base.css",
+      "content": "*:focus {\n  outline: none;\n}\n\n.button {\n  padding: 8px 16px;\n  border: 0;\n  border-radius: 6px;\n  background: #2563eb;\n  color: #fff;\n}\n\n.input {\n  padding: 6px 10px;\n  border: 1px solid #d1d5db;\n  border-radius: 6px;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "デザイナーにボタン押したとき青い枠出るのダサいって言われて *:focus で outline 消したら、QA からキーボードだと今どこにいるか全然わからんって返ってきた。どうしろと",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。クリックでは枠を出さず、キーボードのときだけ出すための擬似クラスが :focus-visible です。ブラウザが直前の操作から判定します。言い換えると、マウスでボタンを押したときは一致せず、Tab で移動したときは一致します。いまのブラウザは既定のスタイルでも :focus-visible を使っているので、*:focus の規則を消すだけでも挙動は直ります。ただ既定の枠は見た目がブラウザごとに違うので、*:focus の規則をこれに置き換えて色と太さを揃えます。outline-offset で 2px 離しているのは、ボタンの青い背景に同じ青の枠が溶けて見えなくなるのを防ぐためです。",
+          "reading": "しょうちしました。クリックではわくをださず、キーボードのときだけだすためのぎじクラスが :focus-visible です。ブラウザがちょくぜんのそうさからはんていします。いいかえると、マウスでボタンをおしたときはいっちせず、Tab でいどうしたときはいっちします。いまのブラウザはきていのスタイルでも :focus-visible をつかっているので、*:focus のきそくをけすだけでもきょどうはなおります。ただきていのわくはみためがブラウザごとにちがうので、*:focus のきそくをこれにおきかえていろとふとさをそろえます。outline-offset で 2px はなしているのは、ボタンのあおいはいけいにおなじあおのわくがとけてみえなくなるのをふせぐためです。"
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": ":focus-visible {\n  outline: 2px solid #2563eb;\n  outline-offset: 2px;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "おお出た。けど input はマウスでクリックしても枠出るよ？バグ？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "バグではなく仕様どおりです。文字を入力する欄は、フォーカスした直後にキーボードで打つ前提なので、マウスで選んでも :focus-visible に一致します。どこに入力されるかを示す必要があるためで、ここで枠を消すと元の問題が input で再発することに注意することが重要です。デザイナーさんには、input だけは残す理由としてこの点を伝えてください。",
+          "reading": "バグではなくしようどおりです。もじをにゅうりょくするらんは、フォーカスしたちょくごにキーボードでうつぜんていなので、マウスでえらんでも :focus-visible にいっちします。どこににゅうりょくされるかをしめすひつようがあるためで、ここでわくをけすともとのもんだいが input でさいはつすることにちゅういすることがじゅうようです。デザイナーさんには、input だけはのこすりゆうとしてこのてんをつたえてください。"
+        }
+      ]
+    }
+  ]
+}

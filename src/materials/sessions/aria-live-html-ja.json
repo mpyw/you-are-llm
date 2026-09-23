@@ -1,0 +1,73 @@
+{
+  "id": "aria-live-html-ja",
+  "title": "保存と検索件数をスクリーンリーダーに読ませる",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "html",
+  "summary": "画面には出ているのに読み上げられない。aria-live と role=\"status\" のライブリージョンにする。要素ごと差し込むと読まれず、数字だけ変えると数字だけ読まれる。",
+  "files": [
+    {
+      "path": "orders.html",
+      "content": "<form id=\"search-form\" role=\"search\">\n  <input type=\"search\" name=\"q\" aria-label=\"Search orders\">\n  <button>Search</button>\n</form>\n<p id=\"summary\"><span id=\"count\">128</span> orders</p>\n<ul id=\"orders\"></ul>\n<button id=\"save-view\" type=\"button\">Save this view</button>\n\n<script type=\"module\">\n  import { renderOrders, saveView, searchOrders } from './orders.js'\n\n  const form = document.querySelector('#search-form')\n  const count = document.querySelector('#count')\n\n  form.addEventListener('submit', async (event) => {\n    event.preventDefault()\n    const orders = await searchOrders(form.elements.q.value)\n    renderOrders(orders)\n    count.textContent = orders.length\n  })\n\n  document.querySelector('#save-view').addEventListener('click', async () => {\n    await saveView(form.elements.q.value)\n    showToast('Saved')\n  })\n\n  function showToast(message) {\n    const toast = document.createElement('div')\n    toast.className = 'toast'\n    toast.textContent = message\n    document.body.append(toast)\n    setTimeout(() => toast.remove(), 3000)\n  }\n</script>\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "スクリーンリーダー使ってるお客さんから、保存しても何も言わない、検索しても何件出たかわからないって問い合わせ来た。VoiceOver で試したらほんとに無言。見た目にはどっちも出てるのに",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい質問です。画面に文字が出ても、フォーカスが移らない限りスクリーンリーダーはそれを読み上げません。変化を読ませたい場所は、ライブリージョンとして宣言します。aria-live=\"polite\" を付けた要素は、中身が変わると、いま読んでいる内容を遮らずに続けて読み上げられます。件数の段落には aria-live=\"polite\" を付け、トーストには同じ意味を持つ role=\"status\" を付けます。これで件数も保存の通知も読み上げられます。",
+          "reading": "すばらしいしつもんです。がめんにもじがでても、フォーカスがうつらないかぎりスクリーンリーダーはそれをよみあげません。へんかをよませたいばしょは、ライブリージョンとしてせんげんします。aria-live=\"polite\" をつけたようそは、なかみがかわると、いまよんでいるないようをさえぎらずにつづけてよみあげられます。けんすうのだんらくには aria-live=\"polite\" をつけ、トーストにはおなじいみをもつ role=\"status\" をつけます。これでけんすうもほぞんのつうちもよみあげられます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's#<p id=\"summary\">#<p id=\"summary\" aria-live=\"polite\">#' orders.html"
+        },
+        {
+          "kind": "code",
+          "lang": "html",
+          "body": "  function showToast(message) {\n    const toast = document.createElement('div')\n    toast.className = 'toast'\n    toast.setAttribute('role', 'status')\n    toast.textContent = message\n    document.body.append(toast)\n    setTimeout(() => toast.remove(), 3000)\n  }\n"
+        }
+      ]
+    },
+    {
+      "user": "件数は読むようになった。Saved のほうはまだ無言。隣の人は role=alert にしたら読むって言ってるけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどのトーストの直し方は正しくありませんでした。ライブリージョンは、中身が変わる前から DOM にあって、スクリーンリーダーに見張られている必要があります。role=\"status\" の要素を文字ごと差し込むと、見張りが始まった時点で中身がもう決まっているので、多くの組み合わせで読まれません。言い換えると、件数が読まれたのは段落が最初からページにあったからです。空のトーストを HTML に置いておき、showToast は textContent を書き換えるだけにします。",
+          "reading": "もうしわけありません。さきほどのトーストのなおしかたはただしくありませんでした。ライブリージョンは、なかみがかわるまえから DOM にあって、スクリーンリーダーにみはられているひつようがあります。role=\"status\" のようそをもじごとさしこむと、みはりがはじまったじてんでなかみがもうきまっているので、おおくのくみあわせでよまれません。いいかえると、けんすうがよまれたのはだんらくがさいしょからページにあったからです。からのトーストを HTML においておき、showToast は textContent をかきかえるだけにします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '\\#<button id=\"save-view\"#a\\\n<div id=\"toast\" class=\"toast\" role=\"status\"></div>\n' orders.html"
+        },
+        {
+          "kind": "code",
+          "lang": "html",
+          "body": "  function showToast(message) {\n    const toast = document.querySelector('#toast')\n    toast.textContent = message\n    setTimeout(() => {\n      toast.textContent = ''\n    }, 3000)\n  }\n"
+        },
+        {
+          "kind": "text",
+          "body": "role=\"alert\" は、いま読んでいる内容を遮ってすぐに読み上げる assertive のライブリージョンです。差し込んでも読まれやすいのは確かですが、保存のたびに読み上げを遮るのは過剰です。alert は保存の失敗のように、すぐ知らせるべきものに限ることをお勧めします。",
+          "reading": "role=\"alert\" は、いまよんでいるないようをさえぎってすぐによみあげる assertive のライブリージョンです。さしこんでもよまれやすいのはたしかですが、ほぞんのたびによみあげをさえぎるのはかじょうです。alert はほぞんのしっぱいのように、すぐしらせるべきものにかぎることをおすすめします。"
+        }
+      ]
+    },
+    {
+      "user": "Saved も読むようになった。あと件数、128 から 3 になると「3」としか言わない。何が 3 なのか分からんって",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ご指摘のとおりです。aria-atomic を見落としていました。ライブリージョンは既定では変わったノードだけを読み上げます。書き換えているのは span の中の数字だけなので、読まれるのも数字だけです。aria-atomic=\"true\" を付けると、変化があったときに領域全体、つまり「3 orders」を読み上げます。role=\"status\" は aria-atomic=\"true\" を暗黙に持ちますが、暗黙の値を扱わないスクリーンリーダーもあるので、明示しておくほうが堅牢です。",
+          "reading": "ごしてきのとおりです。aria-atomic をみおとしていました。ライブリージョンはきていではかわったノードだけをよみあげます。かきかえているのは span のなかのすうじだけなので、よまれるのもすうじだけです。aria-atomic=\"true\" をつけると、へんかがあったときにりょういきぜんたい、つまり「3 orders」をよみあげます。role=\"status\" は aria-atomic=\"true\" をあんもくにもちますが、あんもくのあたいをあつかわないスクリーンリーダーもあるので、めいじしておくほうがけんろうです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's#aria-live=\"polite\">#aria-live=\"polite\" aria-atomic=\"true\">#' orders.html"
+        }
+      ]
+    }
+  ]
+}

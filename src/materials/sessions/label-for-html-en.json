@@ -1,0 +1,44 @@
+{
+  "id": "label-for-html-en",
+  "title": "Clicking a label does not focus its input",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "html",
+  "summary": "The labels are not tied to their inputs, so a click does not focus them and a screen reader has no name to read. Connect them with for and id, and give the buttons a type.",
+  "files": [
+    {
+      "path": "signup.html",
+      "content": "<form action=\"/signup\" method=\"post\" class=\"space-y-4\">\n  <div>\n    <label class=\"block\">Email</label>\n    <input type=\"email\" name=\"email\" class=\"border\">\n  </div>\n  <div>\n    <label class=\"block\">Password</label>\n    <input type=\"password\" name=\"password\" class=\"border\">\n    <button onclick=\"togglePassword()\">Show</button>\n  </div>\n  <div class=\"flex gap-2\">\n    <input type=\"checkbox\" name=\"terms\">\n    <span>I agree to the terms</span>\n  </div>\n  <button class=\"bg-blue-600 text-white\">Sign up</button>\n</form>\n\n<script>\n  function togglePassword() {\n    const input = document.querySelector('[name=password]')\n    input.type = input.type === 'password' ? 'text' : 'password'\n  }\n</script>\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "signup form, clicking the Email text doesnt put the cursor in the box. also someone said VoiceOver just reads \"edit text\"",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch. Both come from the same place: the browser does not know which label belongs to which input. Put the input's id in the label's for attribute and the two are linked. A click on the label then focuses the input, and a screen reader reads the label as its name. Note: name is what gets submitted, and it plays no part in this link. For a checkbox sitting next to its text, wrapping both in a label is enough."
+        },
+        {
+          "kind": "code",
+          "lang": "html",
+          "body": "<label for=\"email\" class=\"block\">Email</label>\n<input id=\"email\" type=\"email\" name=\"email\" class=\"border\">\n\n<label for=\"password\" class=\"block\">Password</label>\n<input id=\"password\" type=\"password\" name=\"password\" class=\"border\">\n\n<label class=\"flex gap-2\">\n  <input type=\"checkbox\" name=\"terms\">\n  <span>I agree to the terms</span>\n</label>\n"
+        }
+      ]
+    },
+    {
+      "user": "works. also just noticed Show submits the form?? why",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "A button inside a form is a submit button unless it says otherwise, so every click on Show sent the form. A button that only toggles something gets type=\"button\". The real submit button gets type=\"submit\" too, so the intent is written down. In short, give every button in a form a type."
+        },
+        {
+          "kind": "code",
+          "lang": "html",
+          "body": "<button type=\"button\" onclick=\"togglePassword()\">Show</button>\n<button type=\"submit\" class=\"bg-blue-600 text-white\">Sign up</button>\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+{
+  "id": "bootstrap-modal-html-en",
+  "title": "The Bootstrap 5.3 modal will not open",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "html",
+  "summary": "data-toggle copied from a v4 project is silently ignored by v5. After a detour through Popper, the attributes become data-bs-*, the modal gets tabindex and aria-labelledby, and focus gets somewhere to go once its row is deleted.",
+  "files": [
+    {
+      "path": "index.html",
+      "content": "<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>Files</title>\n  <link href=\"https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css\" rel=\"stylesheet\">\n</head>\n<body class=\"container py-4\">\n  <h1>Files</h1>\n  <button type=\"button\" class=\"btn btn-primary mb-3\" id=\"uploadButton\">Upload</button>\n  <table class=\"table\">\n    <tbody>\n      <tr>\n        <td>invoice-2026-07.pdf</td>\n        <td><button type=\"button\" class=\"btn btn-sm btn-outline-danger\" data-toggle=\"modal\" data-target=\"#deleteModal\">Delete</button></td>\n      </tr>\n      <tr>\n        <td>invoice-2026-08.pdf</td>\n        <td><button type=\"button\" class=\"btn btn-sm btn-outline-danger\" data-toggle=\"modal\" data-target=\"#deleteModal\">Delete</button></td>\n      </tr>\n      <tr>\n        <td>invoice-2026-09.pdf</td>\n        <td><button type=\"button\" class=\"btn btn-sm btn-outline-danger\" data-toggle=\"modal\" data-target=\"#deleteModal\">Delete</button></td>\n      </tr>\n    </tbody>\n  </table>\n\n  <div class=\"modal fade\" id=\"deleteModal\">\n    <div class=\"modal-dialog\">\n      <div class=\"modal-content\">\n        <div class=\"modal-header\">\n          <h5 class=\"modal-title\">Delete this file?</h5>\n          <button type=\"button\" class=\"close\" data-dismiss=\"modal\">&times;</button>\n        </div>\n        <div class=\"modal-body\">This cannot be undone.</div>\n        <div class=\"modal-footer\">\n          <button type=\"button\" class=\"btn btn-secondary\" data-dismiss=\"modal\">Cancel</button>\n          <button type=\"button\" class=\"btn btn-danger\" id=\"confirmDelete\">Delete</button>\n        </div>\n      </div>\n    </div>\n  </div>\n\n  <script src=\"https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.min.js\"></script>\n</body>\n</html>\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "delete button doesnt open the modal. nothing in the console either. copied it over from our old v4 project",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: the JavaScript is incomplete. bootstrap.min.js does not include Popper, and the modal relies on Popper to position itself. Switch to bootstrap.bundle.min.js, which ships with Popper inside."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's|bootstrap.min.js|bootstrap.bundle.min.js|' index.html"
+        }
+      ]
+    },
+    {
+      "user": "switched to bundle, no change",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. Popper is used by dropdowns, popovers and tooltips only. A modal never touches it. The bundle does no harm, so keep it. The real cause is the data attributes. In v5 data-toggle, data-target and data-dismiss all gained a bs- prefix, and the old names are silently ignored, which is why nothing shows up in the console. The .close button is gone too. v5 has .btn-close, which draws the X as a background image, so it has no content and needs an aria-label."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's|class=\"close\"|class=\"btn-close\" aria-label=\"Close\"|' -e 's|&times;||' -e 's|data-|data-bs-|g' index.html"
+        }
+      ]
+    },
+    {
+      "user": "opens now! but QA says right after it opens Esc does nothing, and after pressing Tab once it works. also VoiceOver just says \"dialog\"",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great report. When a Bootstrap modal opens, it moves focus to the .modal element itself and listens for Esc there. A div without tabindex cannot take focus, so focus stays on the Delete button behind the backdrop. Pressing Tab lets the focus trap pull it into the modal, and only then does Esc arrive. tabindex=\"-1\" makes the div focusable without putting it in the Tab order. Bootstrap adds role=\"dialog\" and aria-modal when it opens, but not a name. aria-labelledby points at the title for that."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's|id=\"deleteModal\">|id=\"deleteModal\" tabindex=\"-1\" aria-labelledby=\"deleteModalLabel\">|' -e 's|<h5 class=\"modal-title\">|<h5 class=\"modal-title\" id=\"deleteModalLabel\">|' index.html"
+        }
+      ]
+    },
+    {
+      "user": "thanks. now make Delete actually delete the row. and wait, where does focus even go after the row is gone",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the plan. Focus is the part to get right. When data-bs-toggle opened the modal, Bootstrap returns focus to that button after it closes, but only while the button is still on the page. Remove the row and focus falls to body, so a keyboard user starts again from the top. The clicked button arrives as relatedTarget on show.bs.modal, which is how the script finds the row to remove. hidden.bs.modal then moves focus to the button in the next row, or to Upload when the last row is gone. The script goes right after the bundle's script tag."
+        },
+        {
+          "kind": "code",
+          "lang": "html",
+          "body": "<script>\n  const modalEl = document.getElementById('deleteModal')\n  let opener\n\n  modalEl.addEventListener('show.bs.modal', (event) => {\n    opener = event.relatedTarget\n  })\n\n  document.getElementById('confirmDelete').addEventListener('click', () => {\n    const row = opener.closest('tr')\n    const next = row.nextElementSibling || row.previousElementSibling\n    row.remove()\n    opener = next ? next.querySelector('button') : document.getElementById('uploadButton')\n    bootstrap.Modal.getInstance(modalEl).hide()\n  })\n\n  modalEl.addEventListener('hidden.bs.modal', () => opener.focus())\n</script>\n"
+        }
+      ]
+    }
+  ]
+}

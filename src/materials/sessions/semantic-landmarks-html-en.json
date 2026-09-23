@@ -1,0 +1,44 @@
+{
+  "id": "semantic-landmarks-html-en",
+  "title": "Turn a page of divs into landmark elements",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "html",
+  "summary": "The header, nav and footer are all divs, so a screen reader cannot jump between them. Replace them with header, nav, main and footer.",
+  "files": [
+    {
+      "path": "public/pricing.html",
+      "content": "<body>\n  <div class=\"header\">\n    <div class=\"nav\">\n      <a href=\"/\">Home</a>\n      <a href=\"/pricing\">Pricing</a>\n    </div>\n  </div>\n  <div class=\"main\">\n    <h1>Pricing</h1>\n  </div>\n  <div class=\"footer\">\n    <div class=\"nav\">\n      <a href=\"/terms\">Terms</a>\n    </div>\n  </div>\n</body>\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "got a support ticket from a screen reader user, says they can only move around our page by headings. can you fix it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. A div with class=\"header\" is just a box to assistive tech. Replacing them with header, nav, main and footer turns each one into a landmark, and screen readers list landmarks so the user can jump straight to one. Note: a page should have only one main. The class attributes stay, so the existing CSS keeps working as expected. A header inside an article, on the other hand, does not become the header of the whole page."
+        },
+        {
+          "kind": "code",
+          "lang": "html",
+          "body": "<body>\n  <header class=\"header\">\n    <nav class=\"nav\">\n      <a href=\"/\">Home</a>\n      <a href=\"/pricing\">Pricing</a>\n    </nav>\n  </header>\n  <main class=\"main\">\n    <h1>Pricing</h1>\n  </main>\n  <footer class=\"footer\">\n    <nav class=\"nav\">\n      <a href=\"/terms\">Terms</a>\n    </nav>\n  </footer>\n</body>\n"
+        }
+      ]
+    },
+    {
+      "user": "done. now they say there are 2 navigations and they cant tell which is which",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Good catch. Two landmarks of the same kind are both announced as just \"navigation\". Give each one a name with aria-label. The screen reader reads the name together with the kind, so a label that says navigation would be announced twice."
+        },
+        {
+          "kind": "code",
+          "lang": "html",
+          "body": "<nav class=\"nav\" aria-label=\"Main\">\n<nav class=\"nav\" aria-label=\"Footer\">\n"
+        }
+      ]
+    }
+  ]
+}

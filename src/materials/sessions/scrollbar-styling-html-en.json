@@ -1,0 +1,70 @@
+{
+  "id": "scrollbar-styling-html-en",
+  "title": "The page jumps sideways when the modal opens",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "html",
+  "summary": "overflow: hidden on the modal takes the scrollbar away and the page shifts. scrollbar-gutter: stable keeps the space, and scrollbar-width and scrollbar-color do the styling. Since Chrome 121 those make it ignore ::-webkit-scrollbar.",
+  "files": [
+    {
+      "path": "src/styles/app.css",
+      "content": "body.modal-open {\n  overflow: hidden;\n}\n\n.sidebar {\n  position: sticky;\n  top: 0;\n  height: 100vh;\n  overflow-y: auto;\n}\n\n.sidebar::-webkit-scrollbar {\n  width: 8px;\n}\n\n.sidebar::-webkit-scrollbar-thumb {\n  background: #c4c4c4;\n  border-radius: 4px;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "when the modal opens the whole page jumps right. also going between the article list and the short settings page the header moves a few px. only windows people see it, fine on mac",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch that it only happens on Windows, because that is the clue. Both are the scrollbar taking up width. The default Windows scrollbar has a width, and while it is showing the page is that much narrower. When overflow: hidden removes it, the width comes back to the page and the content moves right. A page that is long enough to scroll and one that is not do the same thing. The default on macOS is an overlay scrollbar that sits on top of the content and takes no width, so it never shows up there. scrollbar-gutter: stable on html keeps that width reserved even when no scrollbar is showing. overflow: hidden on body is passed on to the viewport, and stable keeps the gutter under hidden too, so the modal stops shifting as well."
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": "html {\n  scrollbar-gutter: stable;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "fixed. also while youre there, in firefox the sidebar scrollbar is fat and sticks out. make it thin like chrome",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the Firefox side. Firefox never read ::-webkit-scrollbar, so it takes the standard scrollbar-width and scrollbar-color. scrollbar-width takes no length, only auto, thin or none. scrollbar-color takes the thumb color, then the track color. The existing ::-webkit-scrollbar rules keep working for Chrome and Safari, so every browser ends up with a thin scrollbar."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/overflow-y: auto;/a\\\n  scrollbar-width: thin;\\\n  scrollbar-color: #c4c4c4 transparent;\n' src/styles/app.css"
+        }
+      ]
+    },
+    {
+      "user": "firefox is thin now. but chrome lost the rounded corners and the width looks different",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. ::-webkit-scrollbar does not keep working. Chrome supports scrollbar-width and scrollbar-color since 121, and once either is set to anything but auto on an element, Chrome ignores ::-webkit-scrollbar for that element. Chrome before 121 still reads only ::-webkit-scrollbar, so the same CSS looks different by version. To keep the rounded corners and the 8px, wrap the two standard lines in @supports not selector(::-webkit-scrollbar) so only Firefox gets them. If the standard look is fine, I recommend deleting the ::-webkit-scrollbar rules."
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": "@supports not selector(::-webkit-scrollbar) {\n  .sidebar {\n    scrollbar-width: thin;\n    scrollbar-color: #c4c4c4 transparent;\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "asked design, standard is fine. delete the webkit stuff",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Deleting both ::-webkit-scrollbar rules. scrollbar-width and scrollbar-color become the single source of truth, and Chrome, Edge and Firefox all read the same two lines."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/::-webkit-scrollbar/,/^}/d' src/styles/app.css"
+        }
+      ]
+    }
+  ]
+}

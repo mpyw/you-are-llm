@@ -1,0 +1,60 @@
+{
+  "id": "tailwind-responsive-html-ja",
+  "title": "sm: を付けたらスマホと PC で逆に効いた",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "html",
+  "summary": "sm: をスマホ向けのつもりで書いた商品カードが、スマホで横並び、PC で縦並びになる。Tailwind のブレークポイントは「その幅以上」なので、素のクラスをスマホに、md: を広い画面に書く。",
+  "files": [
+    {
+      "path": "src/product-card.html",
+      "content": "<article class=\"sm:flex-col flex flex-row gap-4 rounded-lg border p-4\">\n  <img src=\"/img/lamp.jpg\" alt=\"Desk lamp\" class=\"sm:w-full w-48 rounded\">\n  <div>\n    <h2 class=\"sm:text-lg text-2xl font-bold\">Desk lamp</h2>\n    <p class=\"sm:hidden text-gray-600\">Warm light, three brightness levels, USB-C.</p>\n    <p class=\"mt-2 font-semibold\">4,980 yen</p>\n  </div>\n</article>\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "商品カード、スマホだけ縦並びにしたくて sm:flex-col 付けたんだけど、スマホは横のままで PC が縦になる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "良い質問です。class の中で sm:flex-col が flex-row より前にあるので、後ろの flex-row に上書きされています。sm: のクラスを後ろに移せば、スマホでは縦並びになります。",
+          "reading": "よいしつもんです。class のなかで sm:flex-col が flex-row よりまえにあるので、うしろの flex-row にうわがきされています。sm: のくらすをうしろにうつせば、すまほではたてならびになります。"
+        },
+        {
+          "kind": "code",
+          "lang": "html",
+          "body": "<article class=\"flex flex-row gap-4 rounded-lg border p-4 sm:flex-col\">\n"
+        }
+      ]
+    },
+    {
+      "user": "並べ替えたけど何も変わらん",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、先ほどの説明は正確ではありませんでした。class 属性の中の並び順は結果に効きません。どれが勝つかはスタイルシートの中の順番で決まり、Tailwind は sm: 付きのクラスを素のクラスより後ろに出力します。つまり sm:flex-col は最初から効いていました。本当の原因は sm: の意味です。sm: はスマホ用ではなく、幅 40rem、つまり 640px 以上で効きます。Tailwind はモバイルファーストで、素のクラスがスマホを含むすべての幅に効き、プレフィックス付きはその幅から上を上書きします。言い換えると、スマホの見た目を素のクラスで書き、広い画面の分だけ md: を足します。md: は 48rem、768px 以上です。",
+          "reading": "あらためてかくにんしたところ、さきほどのせつめいはせいかくではありませんでした。class ぞくせいのなかのならびじゅんはけっかにききません。どれがかつかはすたいるしーとのなかのじゅんばんできまり、Tailwind は sm: つきのくらすをすのくらすよりうしろにしゅつりょくします。つまり sm:flex-col はさいしょからきいていました。ほんとうのげんいんは sm: のいみです。sm: はすまほようではなく、はば 40rem、つまり 640px いじょうでききます。Tailwind はもばいるふぁーすとで、すのくらすがすまほをふくむすべてのはばにきき、ぷれふぃっくすつきはそのはばからうえをうわがきします。いいかえると、すまほのみためをすのくらすでかき、ひろいがめんのぶんだけ md: をたします。md: は 48rem、768px いじょうです。"
+        },
+        {
+          "kind": "code",
+          "lang": "html",
+          "body": "<article class=\"flex flex-col gap-4 rounded-lg border p-4 md:flex-row\">\n  <img src=\"/img/lamp.jpg\" alt=\"Desk lamp\" class=\"w-full rounded md:w-48\">\n  <div>\n    <h2 class=\"text-lg font-bold md:text-2xl\">Desk lamp</h2>\n    <p class=\"hidden text-gray-600 md:block\">Warm light, three brightness levels, USB-C.</p>\n    <p class=\"mt-2 font-semibold\">4,980 yen</p>\n  </div>\n</article>\n"
+        }
+      ]
+    },
+    {
+      "user": "なおった。あーでも iPad 縦だと横並び窮屈だわ。横並びは lg からで。説明文はそのまま md から出てていい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。横並びと画像の幅だけを lg: に上げます。lg: は 64rem、1024px 以上です。見出しと説明文は md: のまま残すので、iPad の縦では縦並びのまま説明文が出ます。ポイントは、切り替えたい幅ごとにプレフィックスを選べることです。",
+          "reading": "しょうちしました。よこならびとがぞうのはばだけを lg: にあげます。lg: は 64rem、1024px いじょうです。みだしとせつめいぶんは md: のままのこすので、iPad のたてではたてならびのまませつめいぶんがでます。ぽいんとは、きりかえたいはばごとにぷれふぃっくすをえらべることです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's|md:flex-row|lg:flex-row|; s|md:w-48|lg:w-48|' src/product-card.html"
+        }
+      ]
+    }
+  ]
+}

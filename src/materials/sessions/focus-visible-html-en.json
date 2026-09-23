@@ -1,0 +1,39 @@
+{
+  "id": "focus-visible-html-en",
+  "title": "Bring back the focus ring that outline: none took away",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "html",
+  "summary": "A blanket *:focus { outline: none } hid the ring on click, and on the keyboard too. :focus-visible shows it for the keyboard only.",
+  "files": [
+    {
+      "path": "src/styles/base.css",
+      "content": "*:focus {\n  outline: none;\n}\n\n.button {\n  padding: 8px 16px;\n  border: 0;\n  border-radius: 6px;\n  background: #2563eb;\n  color: #fff;\n}\n\n.input {\n  padding: 6px 10px;\n  border: 1px solid #d1d5db;\n  border-radius: 6px;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "design asked me to kill the blue box that shows up when you click a button, so I did *:focus outline none. now QA says with the keyboard they have no idea where they are. what do i do",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Got it. :focus-visible is the pseudo-class for exactly this. The browser decides from the last input whether focus should be shown. In other words, it does not match when a button is clicked with the mouse, and it does match when you Tab onto it. Current browsers already use :focus-visible in their default styles, so deleting the *:focus rule alone fixes the behavior. The default ring looks different in every browser, though, so replace the *:focus rule with this one to pin the color and width. The 2px outline-offset keeps a blue ring from melting into the blue button behind it."
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": ":focus-visible {\n  outline: 2px solid #2563eb;\n  outline-offset: 2px;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "nice. but inputs still show it when i click them with the mouse? bug?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Not a bug, that is the spec. A text field expects you to type right after focusing it, so it matches :focus-visible even when you pick it with the mouse. The ring shows where your typing will land. Note: removing it here brings the original problem back, just on inputs. That is the reason to give design for keeping it on inputs."
+        }
+      ]
+    }
+  ]
+}

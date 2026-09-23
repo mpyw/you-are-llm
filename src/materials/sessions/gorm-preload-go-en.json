@@ -2,7 +2,7 @@
   "id": "gorm-preload-go-en",
   "title": "N+1 in the order list, and a JOIN that cannot be one",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "go",
   "summary": "Fold a Find inside a loop into Preload, learn that Joins does not load has many, then filter the preload.",
   "files": [

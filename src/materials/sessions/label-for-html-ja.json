@@ -1,0 +1,46 @@
+{
+  "id": "label-for-html-ja",
+  "title": "ラベルを押しても入力欄にフォーカスしない",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "html",
+  "summary": "label が input とつながっていないので、押してもフォーカスせず、読み上げでも名前が出ない。for と id でつなぎ、ついでに勝手に送信するボタンに type を付ける。",
+  "files": [
+    {
+      "path": "signup.html",
+      "content": "<form action=\"/signup\" method=\"post\" class=\"space-y-4\">\n  <div>\n    <label class=\"block\">Email</label>\n    <input type=\"email\" name=\"email\" class=\"border\">\n  </div>\n  <div>\n    <label class=\"block\">Password</label>\n    <input type=\"password\" name=\"password\" class=\"border\">\n    <button onclick=\"togglePassword()\">Show</button>\n  </div>\n  <div class=\"flex gap-2\">\n    <input type=\"checkbox\" name=\"terms\">\n    <span>I agree to the terms</span>\n  </div>\n  <button class=\"bg-blue-600 text-white\">Sign up</button>\n</form>\n\n<script>\n  function togglePassword() {\n    const input = document.querySelector('[name=password]')\n    input.type = input.type === 'password' ? 'text' : 'password'\n  }\n</script>\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "登録フォーム、Email って文字のとこ押しても入力欄にカーソル行かない。あと VoiceOver だと「編集テキスト」としか読まないって言われた",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。原因はどちらも同じで、どの label がどの input のものかをブラウザが知りません。label の for に input の id を書くと 2 つがつながり、ラベルを押すと入力欄にフォーカスが移り、読み上げでもラベルが入力欄の名前になります。name は送信するときの名前で、このつながりには使われないことに注意することが重要です。チェックボックスのように隣にあるものは、label で包むだけでもつながります。",
+          "reading": "しょうちしました。げんいんはどちらもおなじで、どの label がどの input のものかをぶらうざがしりません。label の for に input の id をかくと 2 つがつながり、らべるをおすとにゅうりょくらんにふぉーかすがうつり、よみあげでもらべるがにゅうりょくらんのなまえになります。name はそうしんするときのなまえで、このつながりにはつかわれないことにちゅういすることがじゅうようです。ちぇっくぼっくすのようにとなりにあるものは、label でつつむだけでもつながります。"
+        },
+        {
+          "kind": "code",
+          "lang": "html",
+          "body": "<label for=\"email\" class=\"block\">Email</label>\n<input id=\"email\" type=\"email\" name=\"email\" class=\"border\">\n\n<label for=\"password\" class=\"block\">Password</label>\n<input id=\"password\" type=\"password\" name=\"password\" class=\"border\">\n\n<label class=\"flex gap-2\">\n  <input type=\"checkbox\" name=\"terms\">\n  <span>I agree to the terms</span>\n</label>\n"
+        }
+      ]
+    },
+    {
+      "user": "いけた。てかついでに Show 押すとフォーム送信されるんだけどなんで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "form の中の button は、type を書かないと submit として扱われます。Show を押すたびに送信されていたのはそのためです。表示を切り替えるだけのボタンには type=\"button\" を付けます。送信ボタンにも type=\"submit\" と書いておきます。言い換えると、form の中の button には毎回 type を書くのがベストプラクティスです。",
+          "reading": "form のなかの button は、type をかかないと submit としてあつかわれます。Show をおすたびにそうしんされていたのはそのためです。ひょうじをきりかえるだけのぼたんには type=\"button\" をつけます。そうしんぼたんにも type=\"submit\" とかいておきます。いいかえると、form のなかの button にはまいかい type をかくのがべすとぷらくてぃすです。"
+        },
+        {
+          "kind": "code",
+          "lang": "html",
+          "body": "<button type=\"button\" onclick=\"togglePassword()\">Show</button>\n<button type=\"submit\" class=\"bg-blue-600 text-white\">Sign up</button>\n"
+        }
+      ]
+    }
+  ]
+}

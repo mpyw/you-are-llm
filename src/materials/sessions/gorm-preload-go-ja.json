@@ -2,7 +2,7 @@
   "id": "gorm-preload-go-ja",
   "title": "注文一覧の N+1 を Preload で潰す",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "go",
   "summary": "ループ内の Find を Preload に畳み、has many に Joins は使えないと認め、条件付きの Preload にする。",
   "files": [

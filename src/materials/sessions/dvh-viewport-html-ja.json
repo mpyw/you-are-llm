@@ -1,0 +1,82 @@
+{
+  "id": "dvh-viewport-html-ja",
+  "title": "100vh のヒーローが iPhone で下まで見えない",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "html",
+  "summary": "モバイルの Safari で 100vh はツールバーの分だけはみ出す。dvh と svh を使い分け、100vh を先に書いてフォールバックにする。",
+  "files": [
+    {
+      "path": "index.html",
+      "content": "<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <link rel=\"stylesheet\" href=\"style.css\">\n</head>\n<body>\n  <section class=\"hero\">\n    <h1>Ship faster</h1>\n    <a class=\"cta\" href=\"/signup\">Start free</a>\n  </section>\n  <main>\n    <p>Everything below the fold.</p>\n  </main>\n</body>\n</html>\n"
+    },
+    {
+      "path": "style.css",
+      "content": ".hero {\n  height: 100vh;\n  display: flex;\n  flex-direction: column;\n  justify-content: space-between;\n  padding: 24px;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "LP のヒーロー、iPhone で見ると一番下の登録ボタンが見えない。アドレスバーの裏に隠れてる。PC だと完璧なのに。Safari ほんと何なの",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。モバイルの Safari では、100vh はツールバーが引っ込んだときの高さ、つまり一番大きい表示領域を指します。ページを開いた直後はツールバーが出ているので、その分だけヒーローが画面からはみ出します。表示領域の単位は 3 つあります。svh はツールバーが出ているときの小さい高さ、lvh は引っ込んだときの大きい高さ、dvh はその時点の実際の高さです。今回は dvh を使い、対応していない古いブラウザ向けに 100vh もフォールバックとして書きます。",
+          "reading": "するどいごしてきです。モバイルの Safari では、100vh はツールバーがひっこんだときのたかさ、つまりいちばんおおきいひょうじりょういきをさします。ページをひらいたちょくごはツールバーがでているので、そのぶんだけヒーローががめんからはみだします。ひょうじりょういきのたんいは 3 つあります。svh はツールバーがでているときのちいさいたかさ、lvh はひっこんだときのおおきいたかさ、dvh はそのじてんのじっさいのたかさです。こんかいは dvh をつかい、たいおうしていないふるいブラウザむけに 100vh もフォールバックとしてかきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": ".hero {\n  height: 100dvh;\n  height: 100vh;\n  display: flex;\n  flex-direction: column;\n  justify-content: space-between;\n  padding: 24px;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "iPhone で見たけど何も変わってないよ？キャッシュでもない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどのコードは順番が逆でした。同じプロパティを 2 回書くと、後ろの宣言が勝ちます。100vh はどのブラウザでも有効なので、常に 100dvh を上書きしていました。フォールバックを先に、新しい単位を後に書くのが正しい順番です。dvh を知らないブラウザは 2 行目を読み飛ばすので、100vh が残ります。1 行目を置き換えたら t で次の行へ進むので、2 行が入れ替わります。",
+          "reading": "もうしわけありません。さきほどのコードはじゅんばんがぎゃくでした。おなじプロパティを 2 かいかくと、うしろのせんげんがかちます。100vh はどのブラウザでもゆうこうなので、つねに 100dvh をうわがきしていました。フォールバックをさきに、あたらしいたんいをあとにかくのがただしいじゅんばんです。dvh をしらないブラウザは 2 ぎょうめをよみとばすので、100vh がのこります。1 ぎょうめをおきかえたら t でつぎのぎょうへすすむので、2 ぎょうがいれかわります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/100dvh/100vh/' -e 't' -e 's/100vh/100dvh/' style.css"
+        }
+      ]
+    },
+    {
+      "user": "ボタン見えるようになった。けどスクロールするとヒーローの高さがグニグニ変わって、下の文章までガタつく。これはこれでキモい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "おっしゃるとおり、それが dvh の性質です。dvh はツールバーの出し入れに追従するので、スクロールのたびにヒーローの高さが変わり、その下のレイアウトも押し動かされます。言い換えると、画面にぴったり収めたいだけなら svh のほうが向いています。svh はツールバーが出ている状態の高さで固定なので、ボタンが常に見えることを保証します。フォールバックの 100vh はそのまま残します。",
+          "reading": "おっしゃるとおり、それが dvh のせいしつです。dvh はツールバーのだしいれについじゅうするので、スクロールのたびにヒーローのたかさがかわり、そのしたのレイアウトもおしうごかされます。いいかえると、がめんにぴったりおさめたいだけなら svh のほうがむいています。svh はツールバーがでているじょうたいのたかさでこていなので、ボタンがつねにみえることをほしょうします。フォールバックの 100vh はそのままのこします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/100dvh/100svh/' style.css"
+        }
+      ]
+    },
+    {
+      "user": "あと横にすると、ヒーローの背景が左右の端まで届かなくて白い帯が出る。ノッチのとこ。ほんと iPhone だけ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、viewport と余白の両方に手が要ります。既定では iPhone のノッチや角丸にかかる安全領域の外側にページを描かないので、左右に帯が残ります。viewport に viewport-fit=cover を足すと端まで描くようになります。その代わり文字やボタンがノッチの下に入り込むので、env(safe-area-inset-*) の分だけ余白を足します。max() で 24px を下回らないようにしておけば、安全領域がゼロの端末でも今の見た目のままです。",
+          "reading": "けつろんからいうと、viewport とよはくのりょうほうにてがいります。きていでは iPhone のノッチやかどまるにかかるあんぜんりょういきのそとがわにページをえがかないので、さゆうにおびがのこります。viewport に viewport-fit=cover をたすとはしまでえがくようになります。そのかわりもじやボタンがノッチのしたにはいりこむので、env(safe-area-inset-*) のぶんだけよはくをたします。max() で 24px をしたまわらないようにしておけば、あんぜんりょういきがゼロのたんまつでもいまのみためのままです。"
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": ".hero {\n  padding: 24px;\n  padding-left: max(24px, env(safe-area-inset-left));\n  padding-right: max(24px, env(safe-area-inset-right));\n  padding-bottom: max(24px, env(safe-area-inset-bottom));\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's|initial-scale=1\">|initial-scale=1, viewport-fit=cover\">|' index.html"
+        }
+      ]
+    }
+  ]
+}

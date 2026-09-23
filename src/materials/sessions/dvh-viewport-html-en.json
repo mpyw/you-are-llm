@@ -1,0 +1,78 @@
+{
+  "id": "dvh-viewport-html-en",
+  "title": "A 100vh hero gets cut off on iPhone",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "html",
+  "summary": "On mobile Safari 100vh runs under the toolbar. Choose between dvh and svh, and write 100vh first as the fallback.",
+  "files": [
+    {
+      "path": "index.html",
+      "content": "<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <link rel=\"stylesheet\" href=\"style.css\">\n</head>\n<body>\n  <section class=\"hero\">\n    <h1>Ship faster</h1>\n    <a class=\"cta\" href=\"/signup\">Start free</a>\n  </section>\n  <main>\n    <p>Everything below the fold.</p>\n  </main>\n</body>\n</html>\n"
+    },
+    {
+      "path": "style.css",
+      "content": ".hero {\n  height: 100vh;\n  display: flex;\n  flex-direction: column;\n  justify-content: space-between;\n  padding: 24px;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "the LP hero on iphone, the signup button at the bottom is gone. its hiding behind the address bar. perfect on desktop. what is safari even doing",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch. On mobile Safari, 100vh means the height with the toolbar retracted, which is the largest the viewport ever gets. When the page first opens the toolbar is showing, so the hero runs off the screen by that much. There are three viewport units for this. svh is the small height with the toolbar showing, lvh is the large height with it retracted, and dvh is whatever the height is right now. Let's use dvh here and keep 100vh as a fallback for older browsers that do not know it."
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": ".hero {\n  height: 100dvh;\n  height: 100vh;\n  display: flex;\n  flex-direction: column;\n  justify-content: space-between;\n  padding: 24px;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "checked on the iphone, nothing changed? not a cache thing either",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, I wrote the two lines in the wrong order. When a property is declared twice, the later one wins. 100vh is valid in every browser, so it always overwrote 100dvh. The fallback goes first and the newer unit second. A browser that does not know dvh drops the second line and keeps 100vh. Once the first line is replaced, t skips to the next line, so the two lines swap."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/100dvh/100vh/' -e 't' -e 's/100vh/100dvh/' style.css"
+        }
+      ]
+    },
+    {
+      "user": "button shows now. but when i scroll the hero height keeps wobbling and the text below jumps around. thats gross in a different way",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "You're right, that is what dvh does. It follows the toolbar as it slides in and out, so the hero changes height while you scroll and pushes everything below it. If the goal is only to fit the first screen, svh suits it better. It is fixed at the height with the toolbar showing, so the button is always visible and nothing moves. The 100vh fallback stays as it is."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/100dvh/100svh/' style.css"
+        }
+      ]
+    },
+    {
+      "user": "also in landscape the hero background doesnt reach the sides, theres white strips by the notch. only on iphone of course",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "By default the iPhone keeps the page out of the safe area around the notch and the rounded corners, which leaves those strips. Adding viewport-fit=cover to the viewport lets the page paint to the edges. The catch is that text and buttons can now slide under the notch, so the padding grows by env(safe-area-inset-*). max() keeps it at 24px or more, so a device with no safe area looks exactly as before."
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": ".hero {\n  padding: 24px;\n  padding-left: max(24px, env(safe-area-inset-left));\n  padding-right: max(24px, env(safe-area-inset-right));\n  padding-bottom: max(24px, env(safe-area-inset-bottom));\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's|initial-scale=1\">|initial-scale=1, viewport-fit=cover\">|' index.html"
+        }
+      ]
+    }
+  ]
+}

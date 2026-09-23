@@ -1,0 +1,66 @@
+{
+  "id": "appearance-reset-html-en",
+  "title": "Make form controls look the same in every browser",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "html",
+  "summary": "Turn off the native look of select and search with appearance. Draw the arrow that goes with it, and hide number spinners separately for WebKit and Firefox.",
+  "files": [
+    {
+      "path": "form.html",
+      "content": "<form class=\"order\">\n  <label>Size\n    <select name=\"size\">\n      <option>S</option>\n      <option>M</option>\n      <option>L</option>\n    </select>\n  </label>\n  <label>Quantity\n    <input type=\"number\" name=\"qty\" min=\"1\" value=\"1\">\n  </label>\n  <label>Store\n    <input type=\"search\" name=\"store\" placeholder=\"Find a store\">\n  </label>\n</form>\n"
+    },
+    {
+      "path": "forms.css",
+      "content": ".order select,\n.order input {\n  font: inherit;\n  padding: 8px 12px;\n  border: 1px solid #ccc;\n  border-radius: 4px;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "order form looks different in chrome, safari and firefox. i literally wrote border-radius 4px and safari still gives me a shiny select and a weirdly round search box. make them all the square one from the design",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure thing. select and type=\"search\" are drawn by the browser as native OS controls, so only part of your CSS applies to them. appearance: none switches the native look off and lets your styles through. The -webkit- version sits next to it for older Safari. In WebKit browsers the search box also keeps a decoration and a clear button as separate pseudo-elements, so those get switched off too. Setting the background color explicitly gives the same white everywhere."
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": ".order select,\n.order input {\n  font: inherit;\n  padding: 8px 12px;\n  border: 1px solid #ccc;\n  border-radius: 4px;\n  background-color: #fff;\n}\n\n.order select,\n.order input[type=\"search\"] {\n  -webkit-appearance: none;\n  appearance: none;\n}\n\n.order input[type=\"search\"]::-webkit-search-decoration,\n.order input[type=\"search\"]::-webkit-search-cancel-button {\n  -webkit-appearance: none;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "square now. but the arrow on the select is gone. nobody will know its a dropdown. and its gone in chrome and firefox too",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, I missed that. appearance: none removes the whole native rendering, and the dropdown arrow goes with it. That is true in every browser, not just Safari. So we draw the arrow ourselves. No image is needed: two diagonal gradients laid side by side make a small down-pointing triangle. They use currentColor, so the arrow follows the text color. The right padding grows so the text never runs under the arrow."
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": ".order select {\n  padding-right: 32px;\n  background-image:\n    linear-gradient(45deg, transparent 50%, currentColor 50%),\n    linear-gradient(135deg, currentColor 50%, transparent 50%);\n  background-position:\n    calc(100% - 18px) 50%,\n    calc(100% - 13px) 50%;\n  background-size: 5px 5px;\n  background-repeat: no-repeat;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "arrow ok. next, the up/down buttons on quantity, dont want them. firefox too. and actually keep the x on the search box, turns out clearing it is kinda handy",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: every browser hides spinners differently. In Chrome and Safari they are pseudo-elements, so ::-webkit-inner-spin-button and ::-webkit-outer-spin-button get appearance: none. Firefox has no such pseudo-elements, so the input itself becomes appearance: textfield. Either way, the arrow keys still step the value. For the x, the sed drops the clear button line and turns the comma on the line before it back into a brace."
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": ".order input[type=\"number\"]::-webkit-inner-spin-button,\n.order input[type=\"number\"]::-webkit-outer-spin-button {\n  -webkit-appearance: none;\n  margin: 0;\n}\n\n.order input[type=\"number\"] {\n  -moz-appearance: textfield;\n  appearance: textfield;\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e '/::-webkit-search-cancel-button/d' -e 's/-webkit-search-decoration,/-webkit-search-decoration {/' forms.css"
+        }
+      ]
+    }
+  ]
+}

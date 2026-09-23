@@ -1,0 +1,58 @@
+{
+  "id": "bootstrap-grid-html-ja",
+  "title": "料金カードがスマホで 3 列のまま潰れる",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "html",
+  "summary": "Bootstrap 5.3 の col-4 はどの幅でも 3 等分で、container のない row は横スクロールを生む。ブレークポイントは「その幅以上」なので col-md-4 と書き、タブレットは 2 列、g-4 で縦の隙間も付ける。",
+  "files": [
+    {
+      "path": "pricing.html",
+      "content": "<main>\n  <h1 class=\"my-4\">Pricing</h1>\n  <div class=\"row\">\n    <div class=\"col-4\">\n      <div class=\"card\">\n        <div class=\"card-body\">\n          <h2 class=\"card-title h5\">Starter</h2>\n          <p class=\"card-text\">1 project, 1 GB of storage.</p>\n        </div>\n      </div>\n    </div>\n    <div class=\"col-4\">\n      <div class=\"card\">\n        <div class=\"card-body\">\n          <h2 class=\"card-title h5\">Team</h2>\n          <p class=\"card-text\">10 projects, 50 GB of storage.</p>\n        </div>\n      </div>\n    </div>\n    <div class=\"col-4\">\n      <div class=\"card\">\n        <div class=\"card-body\">\n          <h2 class=\"card-title h5\">Business</h2>\n          <p class=\"card-text\">Unlimited projects, 1 TB of storage.</p>\n        </div>\n      </div>\n    </div>\n  </div>\n</main>\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "料金ページ、スマホで見るとカード3つが横並びのまま潰れてて文字が縦に1文字ずつになってる。あとなんか横スクロール出る",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。原因は 2 つあります。1 つ目は横スクロールです。.row は左右に負のマージンを持っていて、それを打ち消すのが .container の内側の余白です。container なしで row を置くと、はみ出した分だけ横にスクロールします。2 つ目の列については、col-md-12 を足して md 以下では全幅になるようにします。言い換えると、PC では 3 列、スマホでは 1 列です。",
+          "reading": "しょうちしました。げんいんは 2 つあります。1 つめはよこすくろーるです。.row はさゆうにふのまーじんをもっていて、それをうちけすのが .container のうちがわのよはくです。container なしで row をおくと、はみだしたぶんだけよこにすくろーるします。2 つめのれつについては、col-md-12 をたして md いかではぜんぷくになるようにします。いいかえると、PC では 3 れつ、スマホでは 1 れつです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's|<main>|<main class=\"container\">|' -e 's|class=\"col-4\"|class=\"col-4 col-md-12\"|g' pricing.html"
+        }
+      ]
+    },
+    {
+      "user": "逆になった。スマホは3列のままでPCが縦1列",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません、先ほどの説明は正しくありませんでした。Bootstrap はモバイルファーストで、col-md-12 は「md、つまり 768px 以上で 12」という意味です。以下ではなく以上です。col-4 にはブレークポイントが付いていないので、どの幅でも 3 等分になります。欲しいのは逆の組み合わせなので、col-md-4 だけにします。.row の子は md 未満では幅 100% になるので、col-12 は書かなくて済みます。",
+          "reading": "もうしわけありません、さきほどのせつめいはただしくありませんでした。Bootstrap はもばいるふぁーすとで、col-md-12 は「md、つまり 768px いじょうで 12」といういみです。いかではなくいじょうです。col-4 にはぶれーくぽいんとがついていないので、どのはばでも 3 とうぶんになります。ほしいのはぎゃくのくみあわせなので、col-md-4 だけにします。.row のこは md みまんでははば 100% になるので、col-12 はかかなくてすみます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's|class=\"col-4 col-md-12\"|class=\"col-md-4\"|g' pricing.html"
+        }
+      ]
+    },
+    {
+      "user": "いいね。でもタブレット縦だと3列きつい、2列で。あとスマホでカード同士が上下くっついてる。PC だと Business だけ背が高いのも気になる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。タブレットの縦は 768px から 991px のあいだで、md に当たります。md で 6、lg、つまり 992px 以上で 4 にすれば、2 列から 3 列に切り替わります。上下がくっつくのは、.row の既定のガターが横だけで、縦は 0 だからです。g-4 を付けると縦にも 1.5rem が入り、横は既定と同じ幅のままです。高さがそろわないのは、列は行の高さまで伸びても、中の .card は中身の高さのままだからです。.card に h-100 を付けて列いっぱいに伸ばします。以上で、スマホは 1 列、タブレットは 2 列、PC は 3 列になります。",
+          "reading": "するどいごしてきです。たぶれっとのたては 768px から 991px のあいだで、md にあたります。md で 6、lg、つまり 992px いじょうで 4 にすれば、2 れつから 3 れつにきりかわります。じょうげがくっつくのは、.row のきていのがたーがよこだけで、たては 0 だからです。g-4 をつけるとたてにも 1.5rem がはいり、よこはきていとおなじはばのままです。たかさがそろわないのは、れつはぎょうのたかさまでのびても、なかの .card はなかみのたかさのままだからです。.card に h-100 をつけてれついっぱいにのばします。いじょうで、スマホは 1 れつ、タブレットは 2 れつ、PC は 3 れつになります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's|class=\"row\"|class=\"row g-4\"|' -e 's|class=\"col-md-4\"|class=\"col-md-6 col-lg-4\"|g' -e 's|class=\"card\"|class=\"card h-100\"|' pricing.html"
+        }
+      ]
+    }
+  ]
+}

@@ -13,7 +13,7 @@
 
 ## Status
 
-The trainer runs end to end. 582 sessions cover nine programming languages and two natural
+The trainer runs end to end. 614 sessions cover ten languages of code and two natural
 languages, graded from Easy to Expert+. AZIK is not implemented yet.
 
 ## Commands
@@ -128,17 +128,17 @@ Each session sits on three axes.
 | --- | --- |
 | Language | `ja`, `en` |
 | Difficulty | `easy`, `normal`, `hard`, `expert`, `expertplus` |
-| Code language | C, C++, C#, Go, Java, PHP, Python, Rust, TypeScript |
+| Code language | C, C++, C#, Go, HTML/CSS, Java, PHP, Python, Rust, TypeScript |
 
 Difficulty is measured, not chosen. `scripts/typing-load.mjs` scores every session across the whole
 set rather than within one language, so Rust mostly lands at Hard or above.
 
 | Difficulty | Score | Sessions |
 | --- | --- | --- |
-| Easy | under 11 | 94 |
-| Normal | 11 to 16 | 190 |
-| Hard | 16 to 22 | 204 |
-| Expert | 22 to 34 | 92 |
+| Easy | under 11 | 112 |
+| Normal | 11 to 16 | 196 |
+| Hard | 16 to 22 | 216 |
+| Expert | 22 to 34 | 88 |
 | Expert+ | over 34 | 2 |
 
 The score is how hard a session is per keystroke, stretched a little by how much of it there is.

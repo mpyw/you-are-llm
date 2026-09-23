@@ -28,7 +28,7 @@ Use `<topic>-<codeLanguage>-<language>` for the id, all lower case. An example i
 | `files` | array | Source the assistant is working on. `path` and `content` |
 | `turns` | array | The conversation, in order |
 
-`codeLanguage` is one of `c`, `cpp`, `csharp`, `go`, `java`, `php`, `python`, `rust`, `typescript`.
+`codeLanguage` is one of `c`, `cpp`, `csharp`, `go`, `html`, `java`, `php`, `python`, `rust`, `typescript`.
 `difficulty` is one of `easy`, `normal`, `hard`, `expert`, `expertplus`, and `scripts/typing-load.mjs` decides
 it. Write whatever session you meant to write and let the script grade it.
 

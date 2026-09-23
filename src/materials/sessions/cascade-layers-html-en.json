@@ -1,0 +1,77 @@
+{
+  "id": "cascade-layers-html-en",
+  "title": "Stop stacking !important with @layer",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "html",
+  "summary": "Beating a date picker stylesheet has piled up !important and ever longer selectors. Declare the layer order with @layer and stop fighting specificity.",
+  "files": [
+    {
+      "path": "public/index.html",
+      "content": "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <link rel=\"stylesheet\" href=\"/vendor/datepicker.css\">\n    <link rel=\"stylesheet\" href=\"/css/app.css\">\n  </head>\n  <body>\n    <div class=\"app\">\n      <div class=\"dp\" id=\"checkin\"></div>\n    </div>\n    <script src=\"/vendor/datepicker.js\"></script>\n  </body>\n</html>\n"
+    },
+    {
+      "path": "public/vendor/datepicker.css",
+      "content": ".dp .dp-day {\n  color: #222;\n  border-radius: 50%;\n}\n\n.dp .dp-day.is-selected {\n  background: #06c;\n  color: #fff;\n}\n\n.dp .dp-day:disabled {\n  color: #bbb !important;\n}\n"
+    },
+    {
+      "path": "public/css/app.css",
+      "content": "body .app .dp .dp-day {\n  border-radius: 4px !important;\n}\n\nbody .app .dp .dp-day.is-selected {\n  background: #c00 !important;\n}\n\nbody .app #checkin.dp .dp-day.is-selected:hover {\n  background: #a00 !important;\n}\n\nbody .app .dp .dp-day:disabled {\n  color: #767676 !important;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "im restyling the datepicker in app.css and its !important everywhere, and every time i add a hover i make the selector longer. any way out? cant touch the library css",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! Right now you and the library are trading blows over specificity. With @layer, layer order is compared before specificity, so a later layer wins however short its selectors are. Declare vendor, app at the top and put your rules in the app layer. The padding like body .app and the !important can all go, which gives you a robust override."
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": "@layer vendor, app;\n\n@layer app {\n  .dp-day {\n    border-radius: 4px;\n  }\n\n  .dp-day.is-selected {\n    background: #c00;\n  }\n\n  .dp-day.is-selected:hover {\n    background: #a00;\n  }\n\n  .dp-day:disabled {\n    color: #767676;\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "everything is back to the library colors. blue and round",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer missed something important. Declaring the vendor layer does not put anything in it. datepicker.css is still loaded by a link tag, so it sits outside every layer, and unlayered styles beat all layers for normal declarations. Remove the link and load it with @import and layer(vendor). An @import has to come before other rules, but an @layer statement may precede it."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '\\#href=\"/vendor/datepicker.css\"#d' public/index.html"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/^@layer vendor, app;$/a\\\n@import url(\"/vendor/datepicker.css\") layer(vendor);\n' public/css/app.css"
+        }
+      ]
+    },
+    {
+      "user": "colors are back! but disabled days are light grey again. i had them at 767676",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "I checked again, and datepicker.css marks :disabled with !important. Between two !important declarations the layer order flips, and the layer declared first wins. So !important in the app layer still loses to vendor. To win with !important, the rule has to live in a layer declared before vendor. Declare a fixes layer first, move the rule there, and delete the :disabled rule from the app layer."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^@layer vendor, app;$/@layer fixes, vendor, app;/' public/css/app.css"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/^  \\.dp-day:disabled {$/,/^  }$/d' public/css/app.css"
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": "@layer fixes {\n  .dp-day:disabled {\n    color: #767676 !important;\n  }\n}\n"
+        }
+      ]
+    }
+  ]
+}

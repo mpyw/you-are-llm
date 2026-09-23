@@ -1,0 +1,46 @@
+{
+  "id": "flex-center-html-ja",
+  "title": "確認ダイアログを固定の margin で中央に置くのをやめる",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "html",
+  "summary": "高さの半分を負の margin で引く中央寄せは、中身が増えた瞬間にずれる。親を flex にして寄せ、最後は grid の place-items で一行にする。",
+  "files": [
+    {
+      "path": "src/dialog.css",
+      "content": ".overlay {\n  position: fixed;\n  inset: 0;\n  background: rgb(0 0 0 / 50%);\n}\n\n.dialog {\n  position: absolute;\n  top: 50%;\n  left: 50%;\n  width: 320px;\n  height: 200px;\n  margin-top: -100px;\n  margin-left: -160px;\n  padding: 24px;\n  background: #fff;\n  border-radius: 8px;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "確認ダイアログの文言長くしたら下のボタンが枠からはみ出た。height 消したら今度は真ん中からずれる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。margin-top: -100px と margin-left: -160px は、高さ 200px と幅 320px の半分を手で書いたものです。中身が増えて大きさが変わると、この数字はもう半分ではありません。中央寄せは子ではなく親の仕事にしましょう！ .overlay を flex にして justify-content と align-items を center にすれば、.dialog がどんな大きさでも中央に来ることを保証します。transform: translate(-50%, -50%) でも寄りますが、半端なピクセルに乗って文字がにじむことがあります。",
+          "reading": "しょうちしました。margin-top: -100px と margin-left: -160px は、たかさ 200px とはば 320px のはんぶんをてでかいたものです。なかみがふえておおきさがかわると、このすうじはもうはんぶんではありません。ちゅうおうよせはこではなくおやのしごとにしましょう！ .overlay を flex にして justify-content と align-items を center にすれば、.dialog がどんなおおきさでもちゅうおうにくることをほしょうします。transform: translate(-50%, -50%) でもよりますが、はんぱなピクセルにのってもじがにじむことがあります。"
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": ".overlay {\n  position: fixed;\n  inset: 0;\n  display: flex;\n  justify-content: center;\n  align-items: center;\n  background: rgb(0 0 0 / 50%);\n}\n\n.dialog {\n  width: 320px;\n  padding: 24px;\n  background: #fff;\n  border-radius: 8px;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "スマホだと320ぴったりで左右くっつく。あと先輩が grid なら1行でいけるって言ってた",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、先輩のおっしゃるとおりです。display: grid に place-items: center を付けると、align-items と justify-items を一度に center にできます。幅は min() で 320px と、親の幅から 32px 引いた値の小さい方を取ります。このままだと padding の 48px が幅に足されてしまうので、box-sizing: border-box で padding を幅の内側に数えます。狭い画面では左右に 16px ずつ余白が残ります。",
+          "reading": "けつろんからいうと、せんぱいのおっしゃるとおりです。display: grid に place-items: center をつけると、align-items と justify-items をいちどに center にできます。はばは min() で 320px と、おやのはばから 32px ひいたあたいのちいさいほうをとります。このままだと padding の 48px がはばにたされてしまうので、box-sizing: border-box で padding をはばのうちがわにかぞえます。せまいがめんではさゆうに 16px ずつよはくがのこります。"
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": ".overlay {\n  position: fixed;\n  inset: 0;\n  display: grid;\n  place-items: center;\n  background: rgb(0 0 0 / 50%);\n}\n\n.dialog {\n  box-sizing: border-box;\n  width: min(320px, 100% - 32px);\n  padding: 24px;\n  background: #fff;\n  border-radius: 8px;\n}\n"
+        }
+      ]
+    }
+  ]
+}

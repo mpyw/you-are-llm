@@ -1,0 +1,57 @@
+{
+  "id": "tailwind-responsive-html-en",
+  "title": "sm: worked the wrong way round",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "html",
+  "summary": "A product card written with sm: as if it meant phones stacks on desktop and sits side by side on a phone. Tailwind breakpoints mean that width and up, so plain classes are for phones and md: is for wider screens.",
+  "files": [
+    {
+      "path": "src/product-card.html",
+      "content": "<article class=\"sm:flex-col flex flex-row gap-4 rounded-lg border p-4\">\n  <img src=\"/img/lamp.jpg\" alt=\"Desk lamp\" class=\"sm:w-full w-48 rounded\">\n  <div>\n    <h2 class=\"sm:text-lg text-2xl font-bold\">Desk lamp</h2>\n    <p class=\"sm:hidden text-gray-600\">Warm light, three brightness levels, USB-C.</p>\n    <p class=\"mt-2 font-semibold\">4,980 yen</p>\n  </div>\n</article>\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "product card. wanted it stacked on phones only so i put sm:flex-col, but phones are still side by side and desktop stacks",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! sm:flex-col comes before flex-row in the class list, so flex-row, which comes later, overrides it. Move the sm: class to the end and phones will stack."
+        },
+        {
+          "kind": "code",
+          "lang": "html",
+          "body": "<article class=\"flex flex-row gap-4 rounded-lg border p-4 sm:flex-col\">\n"
+        }
+      ]
+    },
+    {
+      "user": "reordered it, nothing changed",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. The order inside a class attribute has no effect. What wins is the order in the stylesheet, and Tailwind emits sm: classes after the plain ones. So sm:flex-col was working all along. The real cause is what sm: means. It is not for phones: it applies at 40rem, which is 640px, and wider. Tailwind is mobile first. A plain class applies at every width, phones included, and a prefixed class overrides it from its width up. In other words, write the phone layout with plain classes and add md: for wider screens. md: starts at 48rem, 768px."
+        },
+        {
+          "kind": "code",
+          "lang": "html",
+          "body": "<article class=\"flex flex-col gap-4 rounded-lg border p-4 md:flex-row\">\n  <img src=\"/img/lamp.jpg\" alt=\"Desk lamp\" class=\"w-full rounded md:w-48\">\n  <div>\n    <h2 class=\"text-lg font-bold md:text-2xl\">Desk lamp</h2>\n    <p class=\"hidden text-gray-600 md:block\">Warm light, three brightness levels, USB-C.</p>\n    <p class=\"mt-2 font-semibold\">4,980 yen</p>\n  </div>\n</article>\n"
+        }
+      ]
+    },
+    {
+      "user": "fixed. hmm but on an iPad in portrait side by side is cramped. make the row start at lg. description can still show from md",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. Only the row and the image width move up to lg:, which starts at 64rem, 1024px. The heading and the description keep md:, so a portrait iPad gets the stacked card with its description. Here's the takeaway: each class can switch at its own breakpoint."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's|md:flex-row|lg:flex-row|; s|md:w-48|lg:w-48|' src/product-card.html"
+        }
+      ]
+    }
+  ]
+}

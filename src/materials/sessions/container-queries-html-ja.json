@@ -1,0 +1,76 @@
+{
+  "id": "container-queries-html-ja",
+  "title": "カードの切り替えを @container にする",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "html",
+  "summary": "メディアクエリで横並びにしたカードが、サイドバーに置くと潰れる。置き場所の幅で切り替えるコンテナクエリにする。",
+  "files": [
+    {
+      "path": "index.html",
+      "content": "<div class=\"layout\">\n  <main class=\"content\">\n    <article class=\"card\">\n      <img class=\"card-image\" src=\"/img/tea.jpg\" alt=\"\">\n      <div class=\"card-body\">\n        <h2 class=\"card-title\">Green tea</h2>\n        <p>Picked in May.</p>\n      </div>\n    </article>\n  </main>\n  <aside class=\"sidebar\">\n    <article class=\"card\">\n      <img class=\"card-image\" src=\"/img/cake.jpg\" alt=\"\">\n      <div class=\"card-body\">\n        <h2 class=\"card-title\">Cheesecake</h2>\n        <p>Baked daily.</p>\n      </div>\n    </article>\n  </aside>\n</div>\n"
+    },
+    {
+      "path": "src/styles/layout.css",
+      "content": ".layout {\n  display: grid;\n  grid-template-columns: 1fr 280px;\n  gap: 24px;\n}\n"
+    },
+    {
+      "path": "src/styles/card.css",
+      "content": ".card {\n  display: flex;\n  flex-direction: column;\n  gap: 12px;\n}\n\n.card-image {\n  width: 100%;\n}\n\n.card-title {\n  font-size: 1.25rem;\n}\n\n@media (min-width: 600px) {\n  .card {\n    flex-direction: row;\n  }\n\n  .card-image {\n    width: 40%;\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "このカード、本文に置くと横並びでいい感じなんだけど、サイドバーに置くと横並びのまま潰れる。サイドバーでは縦にしたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、メディアクエリが見ているのは画面の幅で、カードが置かれた場所の幅ではありません。画面が広ければ、280px のサイドバーの中でも横並びになります。コンテナクエリにすれば、カードの幅で切り替えられます。.card に container-type: inline-size を付け、@media を @container に置き換えます。400px は横並びでも潰れない目安です。",
+          "reading": "けつろんからいうと、めでぃあくえりがみているのはがめんのはばで、かーどがおかれたばしょのはばではありません。がめんがひろければ、280px のさいどばーのなかでもよこならびになります。こんてなくえりにすれば、かーどのはばできりかえられます。.card に container-type: inline-size をつけ、@media を @container におきかえます。400px はよこならびでもつぶれないめやすです。"
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": ".card {\n  container-type: inline-size;\n  display: flex;\n  flex-direction: column;\n  gap: 12px;\n}\n\n.card-image {\n  width: 100%;\n}\n\n.card-title {\n  font-size: 1.25rem;\n}\n\n@container (width >= 400px) {\n  .card {\n    flex-direction: row;\n  }\n\n  .card-image {\n    width: 40%;\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "本文のほう、画像だけ小さくなって縦に並んだまま",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "私の誤りでした。@container の条件が見るのは、スタイルを当てる要素自身ではなく、その祖先のコンテナです。.card をコンテナにしたので、中の .card-image の 40% は効きましたが、.card 自身の flex-direction は切り替わりません。.card から container-type を消し、置き場所の .content と .sidebar を layout.css でコンテナにします。slot という名前を付け、@container slot で指定すれば、途中に別のコンテナが挟まっても slot だけを見ます。inline-size を指定した要素は中身から幅が決まらなくなる点に注意することが重要です。ここは grid の列が幅を決めているので問題ありません。",
+          "reading": "わたしのあやまりでした。@container のじょうけんがみるのは、すたいるをあてるようそじしんではなく、そのそせんのこんてなです。.card をこんてなにしたので、なかの .card-image の 40% はききましたが、.card じしんの flex-direction はきりかわりません。.card から container-type をけし、おきばしょの .content と .sidebar を layout.css でこんてなにします。slot というなまえをつけ、@container slot でしていすれば、とちゅうにべつのこんてながはさまっても slot だけをみます。inline-size をしていしたようそはなかみからはばがきまらなくなるてんにちゅういすることがじゅうようです。ここは grid のれつがはばをきめているのでもんだいありません。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e '/^  container-type: inline-size;$/d' -e 's/^@container (/@container slot (/' src/styles/card.css"
+        },
+        {
+          "kind": "command",
+          "body": "cat >> src/styles/layout.css <<'EOF'\n\n.content,\n.sidebar {\n  container: slot / inline-size;\n}\nEOF"
+        }
+      ]
+    },
+    {
+      "user": "おけ。あとタイトルの文字、幅に合わせて大きくしたい。vwでやってみたらサイドバーのもでかくなった。あと狭いときは説明文いらない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。vw は画面の幅なので、メディアクエリと同じことが起きます。コンテナの幅に対する単位は cqi で、1cqi がコンテナのインライン方向の幅の 1% です。rem を足しておくのは、cqi だけだとブラウザの文字サイズ設定に追従しないからです。clamp で上下を押さえれば、極端な幅でも読める大きさを保証します。Note: 祖先にコンテナがないとき、cqi は小さいビューポートの幅を基準にします。説明文は、slot が 300px 未満のときに隠します。",
+          "reading": "しょうちしました。vw はがめんのはばなので、めでぃあくえりとおなじことがおきます。こんてなのはばにたいするたんいは cqi で、1cqi がこんてなのいんらいんほうこうのはばの 1% です。rem をたしておくのは、cqi だけだとぶらうざのもじさいずせっていについじゅうしないからです。clamp でうえしたをおさえれば、きょくたんなはばでもよめるおおきさをほしょうします。Note: そせんにこんてながないとき、cqi はちいさいびゅーぽーとのはばをきじゅんにします。せつめいぶんは、slot が 300px みまんのときにかくします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/font-size: 1.25rem;/font-size: clamp(1rem, 0.75rem + 2cqi, 1.5rem);/' src/styles/card.css"
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": "@container slot (width < 300px) {\n  .card-body p {\n    display: none;\n  }\n}\n"
+        }
+      ]
+    }
+  ]
+}

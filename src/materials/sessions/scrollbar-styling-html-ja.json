@@ -1,0 +1,74 @@
+{
+  "id": "scrollbar-styling-html-ja",
+  "title": "スクロールバーでずれるレイアウトを scrollbar-gutter で止める",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "html",
+  "summary": "モーダルで overflow: hidden にするとページが横にずれる。scrollbar-gutter: stable で幅を確保し、見た目は scrollbar-width と scrollbar-color に寄せる。Chrome 121 からは標準プロパティがあると ::-webkit-scrollbar が無視される。",
+  "files": [
+    {
+      "path": "src/styles/app.css",
+      "content": "body.modal-open {\n  overflow: hidden;\n}\n\n.sidebar {\n  position: sticky;\n  top: 0;\n  height: 100vh;\n  overflow-y: auto;\n}\n\n.sidebar::-webkit-scrollbar {\n  width: 8px;\n}\n\n.sidebar::-webkit-scrollbar-thumb {\n  background: #c4c4c4;\n  border-radius: 4px;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "モーダル開いた瞬間ページ全体が右にガクッてずれるんだけど。あと記事一覧と短い設定ページ行き来するとヘッダーが数 px 動く。Mac だと起きなくて Windows の人だけ言ってる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。Mac で起きないのが手がかりで、どちらもスクロールバーの幅が原因です。Windows の既定のスクロールバーは幅を持ち、出ている間はその分だけページが狭くなります。overflow: hidden でスクロールバーが消えると、その幅がページに戻ってきて中身が右にずれます。ページの長さでスクロールバーが出たり消えたりするのも同じです。macOS の既定は中身に重なるオーバーレイ型で幅を取らないので、再現しません。html に scrollbar-gutter: stable を指定すると、スクロールバーが出ていないときもその幅を確保します。body の overflow: hidden はビューポートに伝わり、stable は hidden のときも溝を残すので、モーダルのずれも止まります。",
+          "reading": "するどいごしてきです。Mac でおきないのがてがかりで、どちらもスクロールバーのはばがげんいんです。Windows のきていのスクロールバーははばをもち、でているあいだはそのぶんだけページがせまくなります。overflow: hidden でスクロールバーがきえると、そのはばがページにもどってきてなかみがみぎにずれます。ページのながさでスクロールバーがでたりきえたりするのもおなじです。macOS のきていはなかみにかさなるオーバーレイがたではばをとらないので、さいげんしません。html に scrollbar-gutter: stable をしていすると、スクロールバーがでていないときもそのはばをかくほします。body の overflow: hidden はビューポートにつたわり、stable は hidden のときもみぞをのこすので、モーダルのずれもとまります。"
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": "html {\n  scrollbar-gutter: stable;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "直った。ついでに Firefox だとサイドバーのスクロールバーだけ太くて浮いてるのずっと気になってた。Chrome みたいに細くして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、Firefox は ::-webkit-scrollbar を読まないので、標準の scrollbar-width と scrollbar-color で指定します。scrollbar-width は幅を数値では受け取らず、auto、thin、none のどれかです。scrollbar-color はつまみ、溝の順に色を取ります。既存の ::-webkit-scrollbar は Chrome と Safari 向けにそのまま効き続けるので、どのブラウザでも細いスクロールバーになります。",
+          "reading": "Now、Firefox は ::-webkit-scrollbar をよまないので、ひょうじゅんの scrollbar-width と scrollbar-color でしていします。scrollbar-width ははばをすうちではうけとらず、auto、thin、none のどれかです。scrollbar-color はつまみ、みぞのじゅんにいろをとります。きぞんの ::-webkit-scrollbar は Chrome と Safari むけにそのままききつづけるので、どのブラウザでもほそいスクロールバーになります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/overflow-y: auto;/a\\\n  scrollbar-width: thin;\\\n  scrollbar-color: #c4c4c4 transparent;\n' src/styles/app.css"
+        }
+      ]
+    },
+    {
+      "user": "Firefox は細くなった。けど今度は Chrome で角丸なくなってるし幅もなんか違う",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの、::-webkit-scrollbar がそのまま効き続けるという説明は正確ではありませんでした。Chrome は 121 から scrollbar-width と scrollbar-color に対応し、要素にどちらかが auto 以外で指定されていると、その要素の ::-webkit-scrollbar を無視します。121 より前の Chrome では ::-webkit-scrollbar だけが効くので、同じ CSS でもバージョンで見た目が変わります。角丸と 8px を残したいなら、標準の 2 行を @supports not selector(::-webkit-scrollbar) で囲み、Firefox にだけ当てます。標準の見た目でよいなら、::-webkit-scrollbar の規則を消すことをお勧めします。",
+          "reading": "もうしわけありません。さきほどの、::-webkit-scrollbar がそのままききつづけるというせつめいはせいかくではありませんでした。Chrome は 121 から scrollbar-width と scrollbar-color にたいおうし、ようそにどちらかが auto いがいでしていされていると、そのようその ::-webkit-scrollbar をむしします。121 よりまえの Chrome では ::-webkit-scrollbar だけがきくので、おなじ CSS でもバージョンでみためがかわります。かどまると 8px をのこしたいなら、ひょうじゅんの 2 ぎょうを @supports not selector(::-webkit-scrollbar) でかこみ、Firefox にだけあてます。ひょうじゅんのみためでよいなら、::-webkit-scrollbar のきそくをけすことをおすすめします。"
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": "@supports not selector(::-webkit-scrollbar) {\n  .sidebar {\n    scrollbar-width: thin;\n    scrollbar-color: #c4c4c4 transparent;\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "デザイナーに聞いたら標準のでいいって。webkit のやつ消しといて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "::-webkit-scrollbar の規則を 2 つとも消します。これで見た目の正本は scrollbar-width と scrollbar-color だけになり、Chrome、Edge、Firefox で同じ指定が効くことを保証します。",
+          "reading": "::-webkit-scrollbar のきそくを 2 つともけします。これでみためのせいほんは scrollbar-width と scrollbar-color だけになり、Chrome、Edge、Firefox でおなじしていがきくことをほしょうします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/::-webkit-scrollbar/,/^}/d' src/styles/app.css"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "id": "container-queries-html-en",
+  "title": "Switch a card layout with @container",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "html",
+  "summary": "A card laid out in a row by a media query gets crushed when placed in the sidebar. Switch it on the width of where it sits, with a container query.",
+  "files": [
+    {
+      "path": "index.html",
+      "content": "<div class=\"layout\">\n  <main class=\"content\">\n    <article class=\"card\">\n      <img class=\"card-image\" src=\"/img/tea.jpg\" alt=\"\">\n      <div class=\"card-body\">\n        <h2 class=\"card-title\">Green tea</h2>\n        <p>Picked in May.</p>\n      </div>\n    </article>\n  </main>\n  <aside class=\"sidebar\">\n    <article class=\"card\">\n      <img class=\"card-image\" src=\"/img/cake.jpg\" alt=\"\">\n      <div class=\"card-body\">\n        <h2 class=\"card-title\">Cheesecake</h2>\n        <p>Baked daily.</p>\n      </div>\n    </article>\n  </aside>\n</div>\n"
+    },
+    {
+      "path": "src/styles/layout.css",
+      "content": ".layout {\n  display: grid;\n  grid-template-columns: 1fr 280px;\n  gap: 24px;\n}\n"
+    },
+    {
+      "path": "src/styles/card.css",
+      "content": ".card {\n  display: flex;\n  flex-direction: column;\n  gap: 12px;\n}\n\n.card-image {\n  width: 100%;\n}\n\n.card-title {\n  font-size: 1.25rem;\n}\n\n@media (min-width: 600px) {\n  .card {\n    flex-direction: row;\n  }\n\n  .card-image {\n    width: 40%;\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "this card looks great side by side in the main column, but in the sidebar it stays side by side and gets squashed. want it stacked in the sidebar",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: a media query looks at the width of the screen, not the width of the place the card sits in. On a wide screen the card goes side by side even inside a 280px sidebar. A container query switches on the width of the card instead. Give .card container-type: inline-size and turn the @media into @container. 400px is about where a row stops being cramped."
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": ".card {\n  container-type: inline-size;\n  display: flex;\n  flex-direction: column;\n  gap: 12px;\n}\n\n.card-image {\n  width: 100%;\n}\n\n.card-title {\n  font-size: 1.25rem;\n}\n\n@container (width >= 400px) {\n  .card {\n    flex-direction: row;\n  }\n\n  .card-image {\n    width: 40%;\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "in the main column the image got smaller but its still stacked",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. An @container condition looks at an ancestor container of the element being styled, never the element itself. Since .card is the container, the 40% on .card-image inside it applied, but the flex-direction on .card itself cannot switch. Remove container-type from .card and make the slots, .content and .sidebar, the containers in layout.css. Naming them slot and querying @container slot means the card only ever asks slot, even if another container ends up in between. Note: inline-size containment stops an element from taking its width from its content. Here the grid columns set the width, so that is fine."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e '/^  container-type: inline-size;$/d' -e 's/^@container (/@container slot (/' src/styles/card.css"
+        },
+        {
+          "kind": "command",
+          "body": "cat >> src/styles/layout.css <<'EOF'\n\n.content,\n.sidebar {\n  container: slot / inline-size;\n}\nEOF"
+        }
+      ]
+    },
+    {
+      "user": "ok. also want the title to scale with the width. tried vw and the sidebar one got huge too. oh and drop the description when its narrow",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "vw is the screen width, so it has the same problem the media query had. The unit for container width is cqi, where 1cqi is 1% of the inline size of the container. The rem part is there because cqi alone ignores the font size the reader set in the browser. Wrapping it in clamp keeps it readable at extreme widths. If there is no container above, cqi falls back to the small viewport width. The description goes away when slot is under 300px."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/font-size: 1.25rem;/font-size: clamp(1rem, 0.75rem + 2cqi, 1.5rem);/' src/styles/card.css"
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": "@container slot (width < 300px) {\n  .card-body p {\n    display: none;\n  }\n}\n"
+        }
+      ]
+    }
+  ]
+}

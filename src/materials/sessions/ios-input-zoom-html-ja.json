@@ -1,0 +1,50 @@
+{
+  "id": "ios-input-zoom-html-ja",
+  "title": "iPhone で入力欄を触るとズームされるのを止める",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "html",
+  "summary": "iOS の Safari は 16px 未満の入力欄で勝手に拡大する。viewport で拡大を禁止せず、font-size で直す。",
+  "files": [
+    {
+      "path": "index.html",
+      "content": "<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <link rel=\"stylesheet\" href=\"style.css\">\n</head>\n<body>\n  <form class=\"search\" role=\"search\">\n    <input type=\"search\" name=\"q\" placeholder=\"Search\">\n    <button type=\"submit\">Go</button>\n  </form>\n</body>\n</html>\n"
+    },
+    {
+      "path": "style.css",
+      "content": "body {\n  font-size: 14px;\n}\n\n.search input {\n  font-size: 14px;\n  padding: 6px 8px;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "iPhone で検索欄タップするとページがグイッと拡大されて、戻すのにいちいちピンチしないといけない。地味にイラつく。viewport に user-scalable=no 足せば止まるよね？それでお願い",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。ただ、user-scalable=no は入れずに直すことをお勧めします。iOS の Safari は、文字サイズが 16px 未満の入力欄にフォーカスすると、読めるように自動で拡大します。原因は viewport ではなく、input の font-size: 14px のほうです。拡大を禁止すると、文字を大きくしないと読めない人までピンチで拡大できなくなる点に注意することが重要です。入力欄を 16px にすれば、ズームは起きません。",
+          "reading": "しょうちしました。ただ、user-scalable=no はいれずになおすことをおすすめします。iOS の Safari は、もじサイズが 16px みまんのにゅうりょくらんにフォーカスすると、よめるようにじどうでかくだいします。げんいんは viewport ではなく、input の font-size: 14px のほうです。かくだいをきんしすると、もじをおおきくしないとよめないひとまでピンチでかくだいできなくなるてんにちゅういすることがじゅうようです。にゅうりょくらんを 16px にすれば、ズームはおきません。"
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": ".search input {\n  font-size: 16px;\n  padding: 6px 8px;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "デザイナーが PC だと 16px はデカいって言ってる。PC は 14 のままにできない？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "できます。ポイントは、ズームが起きるのはタッチで操作する端末だけだということです。pointer: coarse のときだけ 16px に上げれば、マウスで操作する PC は 14px のままになります。",
+          "reading": "できます。ポイントは、ズームがおきるのはタッチでそうさするたんまつだけだということです。pointer: coarse のときだけ 16px にあげれば、マウスでそうさする PC は 14px のままになります。"
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": ".search input {\n  font-size: 14px;\n  padding: 6px 8px;\n}\n\n@media (pointer: coarse) {\n  .search input {\n    font-size: 16px;\n  }\n}\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "id": "bootstrap-grid-html-en",
+  "title": "Pricing cards stay three across on a phone",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "html",
+  "summary": "In Bootstrap 5.3 col-4 is a third at every width, and a row outside a container scrolls sideways. Breakpoints mean that width and up, so the columns become col-md-4, then two across on tablets, with g-4 for the vertical gap.",
+  "files": [
+    {
+      "path": "pricing.html",
+      "content": "<main>\n  <h1 class=\"my-4\">Pricing</h1>\n  <div class=\"row\">\n    <div class=\"col-4\">\n      <div class=\"card\">\n        <div class=\"card-body\">\n          <h2 class=\"card-title h5\">Starter</h2>\n          <p class=\"card-text\">1 project, 1 GB of storage.</p>\n        </div>\n      </div>\n    </div>\n    <div class=\"col-4\">\n      <div class=\"card\">\n        <div class=\"card-body\">\n          <h2 class=\"card-title h5\">Team</h2>\n          <p class=\"card-text\">10 projects, 50 GB of storage.</p>\n        </div>\n      </div>\n    </div>\n    <div class=\"col-4\">\n      <div class=\"card\">\n        <div class=\"card-body\">\n          <h2 class=\"card-title h5\">Business</h2>\n          <p class=\"card-text\">Unlimited projects, 1 TB of storage.</p>\n        </div>\n      </div>\n    </div>\n  </div>\n</main>\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "pricing page on mobile: the 3 cards stay side by side and get squashed so the text is one letter per line. also theres a horizontal scrollbar for some reason",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's what is going on. There are two separate problems. The scrollbar comes from .row, which has negative margins on both sides. The padding of .container is what cancels them out. A row with no container around it sticks out by that much, and the page scrolls sideways. For the columns, adding col-md-12 makes each card full width at md and below. In other words, three across on desktop and one on a phone."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's|<main>|<main class=\"container\">|' -e 's|class=\"col-4\"|class=\"col-4 col-md-12\"|g' pricing.html"
+        }
+      ]
+    },
+    {
+      "user": "its backwards now. phone still 3 columns and desktop is 1",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. Bootstrap is mobile first, and col-md-12 means 12 at md, which is 768px, and up. Up, not down. col-4 has no breakpoint in it, so it is a third at every width, phones included. What you want is the other way round, which is col-md-4 alone. Below md a child of .row is already 100% wide, so col-12 can be left out."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's|class=\"col-4 col-md-12\"|class=\"col-md-4\"|g' pricing.html"
+        }
+      ]
+    },
+    {
+      "user": "nice. but on a tablet in portrait 3 is too tight, make it 2. and on the phone the cards touch each other vertically. oh and on desktop Business is taller than the other two, looks off",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Good point. A tablet in portrait sits between 768px and 991px, which is md. Six at md and four at lg, 992px and up, gives two across and then three. The cards touch because the default gutter of .row is horizontal only, and the vertical one is 0. g-4 sets both to 1.5rem, so the horizontal gap stays what it was and the vertical one appears. The heights differ because each column stretches to the height of the row, but the .card inside stays as tall as its content. h-100 on .card fills the column. That gives one column on a phone, two on a tablet and three on desktop."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's|class=\"row\"|class=\"row g-4\"|' -e 's|class=\"col-md-4\"|class=\"col-md-6 col-lg-4\"|g' -e 's|class=\"card\"|class=\"card h-100\"|' pricing.html"
+        }
+      ]
+    }
+  ]
+}

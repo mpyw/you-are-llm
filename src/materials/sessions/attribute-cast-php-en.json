@@ -2,7 +2,7 @@
   "id": "attribute-cast-php-en",
   "title": "Move hand written json_decode and string statuses into casts()",
   "language": "en",
-  "difficulty": "expert",
+  "difficulty": "hard",
   "codeLanguage": "php",
   "summary": "status becomes an enum cast, options an array cast and the taxed total an Attribute::make accessor, then AsArrayObject once an index write turns out to do nothing.",
   "files": [

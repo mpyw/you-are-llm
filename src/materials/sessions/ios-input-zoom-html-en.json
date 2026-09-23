@@ -1,0 +1,48 @@
+{
+  "id": "ios-input-zoom-html-en",
+  "title": "Stop the page zooming in when an iPhone input is tapped",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "html",
+  "summary": "Safari on iOS zooms into any input under 16px. Fix the font size instead of forbidding zoom in the viewport.",
+  "files": [
+    {
+      "path": "index.html",
+      "content": "<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <link rel=\"stylesheet\" href=\"style.css\">\n</head>\n<body>\n  <form class=\"search\" role=\"search\">\n    <input type=\"search\" name=\"q\" placeholder=\"Search\">\n    <button type=\"submit\">Go</button>\n  </form>\n</body>\n</html>\n"
+    },
+    {
+      "path": "style.css",
+      "content": "body {\n  font-size: 14px;\n}\n\n.search input {\n  font-size: 14px;\n  padding: 6px 8px;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "on iphone tapping the search box zooms the whole page in and i have to pinch back out every time. so annoying. just add user-scalable=no to the viewport, that stops it right?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Got it. I'd recommend not adding user-scalable=no, though. Safari on iOS zooms in when an input with a font size under 16px gets focus, so the text is readable. The cause is the font-size: 14px on the input, not the viewport. Note: blocking zoom also stops people who need larger text from pinching in at all. Set the input to 16px and the zoom never happens."
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": ".search input {\n  font-size: 16px;\n  padding: 6px 8px;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "designer says 16px looks huge on desktop. can desktop stay at 14?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "It can. The key point is that the zoom only happens on touch devices. Raise it to 16px under pointer: coarse and a desktop with a mouse keeps 14px."
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": ".search input {\n  font-size: 14px;\n  padding: 6px 8px;\n}\n\n@media (pointer: coarse) {\n  .search input {\n    font-size: 16px;\n  }\n}\n"
+        }
+      ]
+    }
+  ]
+}

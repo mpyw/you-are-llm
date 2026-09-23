@@ -2,7 +2,7 @@
   "id": "background-service-csharp-en",
   "title": "OutboxRelay takes the host down",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "easy",
   "codeLanguage": "csharp",
   "summary": "An ExecuteAsync that never reaches its first await blocks startup, and an exception it throws stops the host. Switch to PeriodicTimer, catch per tick, and keep shutdown cancellation out of the error log.",
   "files": [

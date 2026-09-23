@@ -1,0 +1,73 @@
+{
+  "id": "bootstrap-modal-html-ja",
+  "title": "Bootstrap 5.3 のモーダルが開かない",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "html",
+  "summary": "v4 からコピーした data-toggle は v5 では黙って無視される。Popper を疑って遠回りしたあと data-bs-* に直し、tabindex と aria-labelledby を足し、行を消したあとのフォーカスの行き先を決める。",
+  "files": [
+    {
+      "path": "index.html",
+      "content": "<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>Files</title>\n  <link href=\"https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css\" rel=\"stylesheet\">\n</head>\n<body class=\"container py-4\">\n  <h1>Files</h1>\n  <button type=\"button\" class=\"btn btn-primary mb-3\" id=\"uploadButton\">Upload</button>\n  <table class=\"table\">\n    <tbody>\n      <tr>\n        <td>invoice-2026-07.pdf</td>\n        <td><button type=\"button\" class=\"btn btn-sm btn-outline-danger\" data-toggle=\"modal\" data-target=\"#deleteModal\">Delete</button></td>\n      </tr>\n      <tr>\n        <td>invoice-2026-08.pdf</td>\n        <td><button type=\"button\" class=\"btn btn-sm btn-outline-danger\" data-toggle=\"modal\" data-target=\"#deleteModal\">Delete</button></td>\n      </tr>\n      <tr>\n        <td>invoice-2026-09.pdf</td>\n        <td><button type=\"button\" class=\"btn btn-sm btn-outline-danger\" data-toggle=\"modal\" data-target=\"#deleteModal\">Delete</button></td>\n      </tr>\n    </tbody>\n  </table>\n\n  <div class=\"modal fade\" id=\"deleteModal\">\n    <div class=\"modal-dialog\">\n      <div class=\"modal-content\">\n        <div class=\"modal-header\">\n          <h5 class=\"modal-title\">Delete this file?</h5>\n          <button type=\"button\" class=\"close\" data-dismiss=\"modal\">&times;</button>\n        </div>\n        <div class=\"modal-body\">This cannot be undone.</div>\n        <div class=\"modal-footer\">\n          <button type=\"button\" class=\"btn btn-secondary\" data-dismiss=\"modal\">Cancel</button>\n          <button type=\"button\" class=\"btn btn-danger\" id=\"confirmDelete\">Delete</button>\n        </div>\n      </div>\n    </div>\n  </div>\n\n  <script src=\"https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.min.js\"></script>\n</body>\n</html>\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "削除ボタン押してもモーダル出ない。コンソールもエラーなし。v4 のときのプロジェクトからコピってきたやつ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、JS の読み込みが足りていません。bootstrap.min.js には Popper が入っておらず、モーダルの位置決めは Popper に依存しています。Popper を同梱した bootstrap.bundle.min.js に差し替えることをお勧めします。",
+          "reading": "けつろんからいうと、JS のよみこみがたりていません。bootstrap.min.js には Popper がはいっておらず、モーダルのいちぎめは Popper にいぞんしています。Popper をどうこんした bootstrap.bundle.min.js にさしかえることをおすすめします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's|bootstrap.min.js|bootstrap.bundle.min.js|' index.html"
+        }
+      ]
+    },
+    {
+      "user": "bundle にしたけど何も変わらん",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、先ほどの説明は正確ではありませんでした。Popper を使うのはドロップダウン、ポップオーバー、ツールチップだけで、モーダルは使いません。bundle は害がないのでそのままで構いません。本当の原因はデータ属性です。v5 で data-toggle、data-target、data-dismiss はすべて data-bs- 付きに変わり、古い名前は黙って無視されます。エラーが出ないのはそのためです。閉じるボタンの .close も v5 で .btn-close に変わりました。こちらは中身を持たずに背景画像でバツ印を描くので、&times; を消して aria-label を付けます。",
+          "reading": "あらためてかくにんしたところ、さきほどのせつめいはせいかくではありませんでした。Popper をつかうのはどろっぷだうん、ぽっぷおーばー、つーるちっぷだけで、もーだるはつかいません。bundle はがいがないのでそのままでかまいません。ほんとうのげんいんはでーたぞくせいです。v5 で data-toggle、data-target、data-dismiss はすべて data-bs- つきにかわり、ふるいなまえはだまってむしされます。えらーがでないのはそのためです。とじるぼたんの .close も v5 で .btn-close にかわりました。こちらはなかみをもたずにはいけいがぞうでばつじるしをえがくので、&times; をけして aria-label をつけます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's|class=\"close\"|class=\"btn-close\" aria-label=\"Close\"|' -e 's|&times;||' -e 's|data-|data-bs-|g' index.html"
+        }
+      ]
+    },
+    {
+      "user": "開いた！けど QA から、開いた直後は Esc 効かなくて Tab 一回押すと効くようになるって。あと VoiceOver が「ダイアログ」としか読まない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい報告です。Bootstrap は開いたときに .modal 自身にフォーカスを移し、Esc はその要素で受け取ります。ところが tabindex のない div はフォーカスを受け取れないので、フォーカスは背景の削除ボタンに残ったままです。Tab を押すとフォーカストラップがモーダルの中へ引き戻すので、そこで初めて Esc が届きます。tabindex=\"-1\" を付ければ、Tab の順番には入らずにフォーカスだけ受け取れます。role=\"dialog\" と aria-modal は Bootstrap が開くときに付けますが、名前までは付けてくれません。aria-labelledby でタイトルを指します。",
+          "reading": "すばらしいほうこくです。Bootstrap はひらいたときに .modal じしんにふぉーかすをうつし、Esc はそのようそでうけとります。ところが tabindex のない div はふぉーかすをうけとれないので、ふぉーかすははいけいのさくじょぼたんにのこったままです。Tab をおすとふぉーかすとらっぷがもーだるのなかへひきもどすので、そこではじめて Esc がとどきます。tabindex=\"-1\" をつければ、Tab のじゅんばんにははいらずにふぉーかすだけうけとれます。role=\"dialog\" と aria-modal は Bootstrap がひらくときにつけますが、なまえまではつけてくれません。aria-labelledby でたいとるをさします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's|id=\"deleteModal\">|id=\"deleteModal\" tabindex=\"-1\" aria-labelledby=\"deleteModalLabel\">|' -e 's|<h5 class=\"modal-title\">|<h5 class=\"modal-title\" id=\"deleteModalLabel\">|' index.html"
+        }
+      ]
+    },
+    {
+      "user": "ありがと。で、Delete 押したらほんとに行消したい。てか消したあとフォーカスどこいくのこれ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。ポイントはフォーカスの行き先です。data-bs-toggle で開いた場合、Bootstrap は閉じたあと開いたボタンにフォーカスを戻します。ただしボタンが画面に残っている場合だけです。行ごと消すとフォーカスは body に落ち、キーボードの人はページの先頭からやり直しになります。開いたボタンは show.bs.modal の relatedTarget に入るので、そこから消す行を探します。hidden.bs.modal では隣の行のボタンに移し、最後の 1 行だったら Upload ボタンに移します。スクリプトは bundle の script タグの直後に置きます。",
+          "reading": "しょうちしました。ぽいんとはふぉーかすのいきさきです。data-bs-toggle でひらいたばあい、Bootstrap はとじたあとひらいたぼたんにふぉーかすをもどします。ただしぼたんががめんにのこっているばあいだけです。ぎょうごとけすとふぉーかすは body におち、きーぼーどのひとはぺーじのせんとうからやりなおしになります。ひらいたぼたんは show.bs.modal の relatedTarget にはいるので、そこからけすぎょうをさがします。hidden.bs.modal ではとなりのぎょうのぼたんにうつし、さいごの 1 ぎょうだったら Upload ぼたんにうつします。すくりぷとは bundle の script たぐのちょくごにおきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "html",
+          "body": "<script>\n  const modalEl = document.getElementById('deleteModal')\n  let opener\n\n  modalEl.addEventListener('show.bs.modal', (event) => {\n    opener = event.relatedTarget\n  })\n\n  document.getElementById('confirmDelete').addEventListener('click', () => {\n    const row = opener.closest('tr')\n    const next = row.nextElementSibling || row.previousElementSibling\n    row.remove()\n    opener = next ? next.querySelector('button') : document.getElementById('uploadButton')\n    bootstrap.Modal.getInstance(modalEl).hide()\n  })\n\n  modalEl.addEventListener('hidden.bs.modal', () => opener.focus())\n</script>\n"
+        }
+      ]
+    }
+  ]
+}

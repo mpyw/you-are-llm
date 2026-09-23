@@ -2,7 +2,7 @@
   "id": "virtual-threads-java-en",
   "title": "Replace a synchronized block that stalls virtual threads",
   "language": "en",
-  "difficulty": "expert",
+  "difficulty": "hard",
   "codeLanguage": "java",
   "summary": "Turning on spring.threads.virtual.enabled pins the carrier threads on an HTTP call inside synchronized, and the per-tenant rewrite walks into the same trap again.",
   "files": [

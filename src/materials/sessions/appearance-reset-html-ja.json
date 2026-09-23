@@ -1,0 +1,69 @@
+{
+  "id": "appearance-reset-html-ja",
+  "title": "フォーム部品の見た目をブラウザ間で揃える",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "html",
+  "summary": "select と検索欄のネイティブの見た目を appearance で消す。消えた矢印を自前で描き、数値入力のスピンボタンは WebKit と Firefox で別々に消す。",
+  "files": [
+    {
+      "path": "form.html",
+      "content": "<form class=\"order\">\n  <label>Size\n    <select name=\"size\">\n      <option>S</option>\n      <option>M</option>\n      <option>L</option>\n    </select>\n  </label>\n  <label>Quantity\n    <input type=\"number\" name=\"qty\" min=\"1\" value=\"1\">\n  </label>\n  <label>Store\n    <input type=\"search\" name=\"store\" placeholder=\"Find a store\">\n  </label>\n</form>\n"
+    },
+    {
+      "path": "forms.css",
+      "content": ".order select,\n.order input {\n  font: inherit;\n  padding: 8px 12px;\n  border: 1px solid #ccc;\n  border-radius: 4px;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "注文フォーム、Chrome と Safari と Firefox で見た目が全部違う。border-radius 4px って書いてんのに Safari の select はテカテカだし、検索欄はなんか丸い。デザインどおりの四角に揃えて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。select と type=\"search\" は、ブラウザが OS のネイティブ部品として描いているので、border-radius などの指定が一部しか効きません。appearance: none でネイティブの見た目を切ると、こちらの CSS がそのまま使われます。古い Safari 向けに -webkit- 付きも並べます。検索欄は WebKit 系だけ、飾りと消去ボタンを疑似要素で別に持っているので、それも消します。背景色も明示しておくと、どのブラウザでも同じ白になります。",
+          "reading": "かしこまりました。select と type=\"search\" は、ブラウザが OS のネイティブぶひんとしてえがいているので、border-radius などのしていがいちぶしかききません。appearance: none でネイティブのみためをきると、こちらの CSS がそのままつかわれます。ふるい Safari むけに -webkit- つきもならべます。けんさくらんは WebKit けいだけ、かざりとしょうきょボタンをぎじようそでべつにもっているので、それもけします。はいけいしょくもめいじしておくと、どのブラウザでもおなじしろになります。"
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": ".order select,\n.order input {\n  font: inherit;\n  padding: 8px 12px;\n  border: 1px solid #ccc;\n  border-radius: 4px;\n  background-color: #fff;\n}\n\n.order select,\n.order input[type=\"search\"] {\n  -webkit-appearance: none;\n  appearance: none;\n}\n\n.order input[type=\"search\"]::-webkit-search-decoration,\n.order input[type=\"search\"]::-webkit-search-cancel-button {\n  -webkit-appearance: none;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "四角にはなった。けど select の ▼ が消えた。これじゃ選べるって誰も気づかん。Chrome でも Firefox でも消えてるし",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "失礼しました、見落としていました。appearance: none はネイティブの描画を丸ごと外すので、ドロップダウンの矢印も一緒に消えます。これは Safari に限らず、どのブラウザでも同じです。矢印は自前で描きます。画像を用意しなくても、斜めのグラデーションを 2 枚並べれば下向きの三角になります。currentColor を使うので、文字色を変えれば矢印も追従します。文字が矢印に重ならないよう、右の余白も広げます。",
+          "reading": "しつれいしました、みおとしていました。appearance: none はネイティブのびょうがをまるごとはずすので、ドロップダウンのやじるしもいっしょにきえます。これは Safari にかぎらず、どのブラウザでもおなじです。やじるしはじまえでえがきます。がぞうをよういしなくても、ななめのグラデーションを 2 まいならべればしたむきのさんかくになります。currentColor をつかうので、もじいろをかえればやじるしもついじゅうします。もじがやじるしにかさならないよう、みぎのよはくもひろげます。"
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": ".order select {\n  padding-right: 32px;\n  background-image:\n    linear-gradient(45deg, transparent 50%, currentColor 50%),\n    linear-gradient(135deg, currentColor 50%, transparent 50%);\n  background-position:\n    calc(100% - 18px) 50%,\n    calc(100% - 13px) 50%;\n  background-size: 5px 5px;\n  background-repeat: no-repeat;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "矢印おけ。次、数量のとこの上下ボタン要らない。Firefox でもね。あとさっきの検索欄のバツはやっぱ残して。入力消すのに地味に便利だった",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "スピンボタンは、ブラウザごとに消し方が違う点に注意することが重要です。Chrome と Safari では疑似要素なので、::-webkit-inner-spin-button と ::-webkit-outer-spin-button に appearance: none を当てます。Firefox はこの疑似要素を持たないので、input 自体を appearance: textfield にします。どちらを消しても、上下の矢印キーで値を変える操作は残ります。言い換えると、見た目だけを消して機能を保証します。バツは消去ボタンの行を消し、前の行のカンマを波括弧に戻します。",
+          "reading": "スピンボタンは、ブラウザごとにけしかたがちがうてんにちゅういすることがじゅうようです。Chrome と Safari ではぎじようそなので、::-webkit-inner-spin-button と ::-webkit-outer-spin-button に appearance: none をあてます。Firefox はこのぎじようそをもたないので、input じたいを appearance: textfield にします。どちらをけしても、じょうげのやじるしキーであたいをかえるそうさはのこります。いいかえると、みためだけをけしてきのうをほしょうします。バツはしょうきょボタンのぎょうをけし、まえのぎょうのカンマをなみかっこにもどします。"
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": ".order input[type=\"number\"]::-webkit-inner-spin-button,\n.order input[type=\"number\"]::-webkit-outer-spin-button {\n  -webkit-appearance: none;\n  margin: 0;\n}\n\n.order input[type=\"number\"] {\n  -moz-appearance: textfield;\n  appearance: textfield;\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e '/::-webkit-search-cancel-button/d' -e 's/-webkit-search-decoration,/-webkit-search-decoration {/' forms.css"
+        }
+      ]
+    }
+  ]
+}

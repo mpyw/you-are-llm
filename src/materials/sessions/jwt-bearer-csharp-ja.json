@@ -2,7 +2,7 @@
   "id": "jwt-bearer-csharp-ja",
   "title": "AddJwtBearer が 401 を返し続ける",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "easy",
   "codeLanguage": "csharp",
   "summary": "Keycloak のトークンが aud の不一致で 401 になり、通ったと思ったら sub が MapInboundClaims で別名に書き換えられて取れない。",
   "files": [

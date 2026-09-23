@@ -1,0 +1,69 @@
+{
+  "id": "aria-live-html-en",
+  "title": "Make the screen reader say \"Saved\" and the result count",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "html",
+  "summary": "Both messages are on screen and neither is read out. aria-live and role=\"status\" make them live regions. A region inserted with its text is not read, and changing only the number reads only the number.",
+  "files": [
+    {
+      "path": "orders.html",
+      "content": "<form id=\"search-form\" role=\"search\">\n  <input type=\"search\" name=\"q\" aria-label=\"Search orders\">\n  <button>Search</button>\n</form>\n<p id=\"summary\"><span id=\"count\">128</span> orders</p>\n<ul id=\"orders\"></ul>\n<button id=\"save-view\" type=\"button\">Save this view</button>\n\n<script type=\"module\">\n  import { renderOrders, saveView, searchOrders } from './orders.js'\n\n  const form = document.querySelector('#search-form')\n  const count = document.querySelector('#count')\n\n  form.addEventListener('submit', async (event) => {\n    event.preventDefault()\n    const orders = await searchOrders(form.elements.q.value)\n    renderOrders(orders)\n    count.textContent = orders.length\n  })\n\n  document.querySelector('#save-view').addEventListener('click', async () => {\n    await saveView(form.elements.q.value)\n    showToast('Saved')\n  })\n\n  function showToast(message) {\n    const toast = document.createElement('div')\n    toast.className = 'toast'\n    toast.textContent = message\n    document.body.append(toast)\n    setTimeout(() => toast.remove(), 3000)\n  }\n</script>\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "got a ticket from a screen reader user: saving says nothing, searching doesnt tell them how many results. tried voiceover and yeah, silent. both show up on screen fine",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! Text appearing on screen is not read out unless focus moves to it. A place whose changes should be read has to be declared a live region. An element with aria-live=\"polite\" is read out when its content changes, after whatever is being read now finishes. The count paragraph gets aria-live=\"polite\", and the toast gets role=\"status\", which means the same thing. With that, both the count and the save message are read out."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's#<p id=\"summary\">#<p id=\"summary\" aria-live=\"polite\">#' orders.html"
+        },
+        {
+          "kind": "code",
+          "lang": "html",
+          "body": "  function showToast(message) {\n    const toast = document.createElement('div')\n    toast.className = 'toast'\n    toast.setAttribute('role', 'status')\n    toast.textContent = message\n    document.body.append(toast)\n    setTimeout(() => toast.remove(), 3000)\n  }\n"
+        }
+      ]
+    },
+    {
+      "user": "count works now. Saved is still silent. guy next to me says role=alert makes it talk",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous fix for the toast was wrong. A live region has to be in the DOM, and watched by the screen reader, before its content changes. Inserting a role=\"status\" element with its text already in it means the content is settled before anyone is watching, and in many screen reader and browser pairs it is never read. In other words, the count worked because the paragraph was on the page from the start. The toast now sits empty in the HTML, and showToast only rewrites its textContent."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '\\#<button id=\"save-view\"#a\\\n<div id=\"toast\" class=\"toast\" role=\"status\"></div>\n' orders.html"
+        },
+        {
+          "kind": "code",
+          "lang": "html",
+          "body": "  function showToast(message) {\n    const toast = document.querySelector('#toast')\n    toast.textContent = message\n    setTimeout(() => {\n      toast.textContent = ''\n    }, 3000)\n  }\n"
+        },
+        {
+          "kind": "text",
+          "body": "role=\"alert\" is an assertive live region. It cuts off whatever is being read and speaks at once. It is true that an inserted alert tends to get read, but interrupting the user on every save is too much. Keep alert for things that need attention right now, such as a save that failed."
+        }
+      ]
+    },
+    {
+      "user": "Saved works. but when the count goes from 128 to 3 it just says \"3\". 3 what, they asked",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "You are right, I missed aria-atomic. By default a live region reads only the nodes that changed. The script rewrites only the number inside the span, so only the number is read. With aria-atomic=\"true\" the whole region is read on every change, so it says \"3 orders\". role=\"status\" implies aria-atomic=\"true\", but not every screen reader honors the implied value, so stating it is more robust."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's#aria-live=\"polite\">#aria-live=\"polite\" aria-atomic=\"true\">#' orders.html"
+        }
+      ]
+    }
+  ]
+}

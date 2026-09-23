@@ -1,0 +1,92 @@
+{
+  "id": "tailwind-dark-mode-html-ja",
+  "title": "Tailwind v4 の dark: をボタンで切り替える",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "html",
+  "summary": "v4 の dark: は既定で OS の設定に従うので、dark クラスを付けても変わらない。@custom-variant で .dark に結び付け、選んだテーマを保存し、読み込み時のちらつきを head のスクリプトで消す。",
+  "files": [
+    {
+      "path": "index.html",
+      "content": "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta charset=\"utf-8\">\n    <title>Dashboard</title>\n    <link rel=\"stylesheet\" href=\"/dist/app.css\">\n  </head>\n  <body class=\"bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100\">\n    <header class=\"flex justify-between border-b p-4 dark:border-gray-700\">\n      <h1 class=\"font-bold\">Dashboard</h1>\n      <button id=\"theme-toggle\" class=\"rounded border px-3 py-1\">Theme</button>\n    </header>\n    <main class=\"p-4\">\n      <p class=\"text-gray-600 dark:text-gray-400\">No reports yet.</p>\n    </main>\n    <script>\n      document.querySelector('#theme-toggle').addEventListener('click', () => {\n        document.body.classList.toggle('dark')\n      })\n    </script>\n  </body>\n</html>\n"
+    },
+    {
+      "path": "src/app.css",
+      "content": "@import \"tailwindcss\";\n"
+    },
+    {
+      "path": "tailwind.config.js",
+      "content": "export default {\n  darkMode: 'class',\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "ダークモードのボタン押しても何も変わらない。OS をダークにすると変わる。tailwind.config.js に darkMode: class も書いてあるんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。Tailwind v4 の dark: は、既定では prefers-color-scheme のメディアクエリで、OS の設定だけを見ています。v3 の darkMode: 'class' は tailwind.config.js の設定ですが、v4 は設定を CSS に書くので、@config で読み込まない限りこのファイルは読まれません。代わりに CSS に @custom-variant を書き、dark: を .dark クラスに結び付けます。.dark が付いた要素そのものと、その子孫の両方に効きます。",
+          "reading": "しょうちしました。Tailwind v4 の dark: は、きていでは prefers-color-scheme のめでぃあくえりで、OS のせっていだけをみています。v3 の darkMode: 'class' は tailwind.config.js のせっていですが、v4 はせっていを CSS にかくので、@config でよみこまないかぎりこのふぁいるはよまれません。かわりに CSS に @custom-variant をかき、dark: を .dark くらすにむすびつけます。.dark がついたようそそのものと、そのしそんのりょうほうにききます。"
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": "@import \"tailwindcss\";\n\n@custom-variant dark (&:where(.dark, .dark *));\n"
+        },
+        {
+          "kind": "command",
+          "body": "rm tailwind.config.js"
+        },
+        {
+          "kind": "text",
+          "body": "クラスは body ではなく html に付けます。後で head からテーマを決めるとき、body はまだ存在しないからです。",
+          "reading": "くらすは body ではなく html につけます。あとで head からてーまをきめるとき、body はまだそんざいしないからです。"
+        },
+        {
+          "kind": "code",
+          "lang": "html",
+          "body": "    <script>\n      document.querySelector('#theme-toggle').addEventListener('click', () => {\n        document.documentElement.classList.toggle('dark')\n      })\n    </script>\n"
+        }
+      ]
+    },
+    {
+      "user": "動いた！けどリロードすると戻る。保存しといて。あと初回は OS に合わせたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。押したときに localStorage に保存し、読み込み時には保存した値を優先し、なければ matchMedia で OS の設定を見ます。classList.toggle は第 2 引数で付け外しを指定できるので、判定の結果をそのまま渡せます。これでテーマの正本は localStorage になります。",
+          "reading": "かしこまりました。おしたときに localStorage にほぞんし、よみこみじにはほぞんしたあたいをゆうせんし、なければ matchMedia で OS のせっていをみます。classList.toggle はだい 2 ひきすうでつけはずしをしていできるので、はんていのけっかをそのままわたせます。これでてーまのせいほんは localStorage になります。"
+        },
+        {
+          "kind": "code",
+          "lang": "html",
+          "body": "    <script>\n      const root = document.documentElement\n      const saved = localStorage.getItem('theme')\n      const prefersDark = matchMedia('(prefers-color-scheme: dark)').matches\n      root.classList.toggle('dark', saved ? saved === 'dark' : prefersDark)\n\n      document.querySelector('#theme-toggle').addEventListener('click', () => {\n        const dark = root.classList.toggle('dark')\n        localStorage.setItem('theme', dark ? 'dark' : 'light')\n      })\n    </script>\n"
+        }
+      ]
+    },
+    {
+      "user": "保存はできてる。でもダークでリロードすると一瞬白く光る",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの初期化は body の末尾に置いたため、ブラウザがそこまで読む前に明るい画面を一度描くことがあります。テーマは描画より前、head の中で決める必要があります。先に末尾の 3 行を消します。同じ const が 2 つのスクリプトにあると、2 つ目が SyntaxError で丸ごと止まり、ボタンも動かなくなることに注意することが重要です。",
+          "reading": "もうしわけありません。さきほどのしょきかは body のまつびにおいたため、ぶらうざがそこまでよむまえにあかるいがめんをいちどえがくことがあります。てーまはびょうがよりまえ、head のなかできめるひつようがあります。さきにまつびの 3 ぎょうをけします。おなじ const が 2 つのすくりぷとにあると、2 つめが SyntaxError でまるごととまり、ぼたんもうごかなくなることにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/const saved/,/^$/d' index.html"
+        },
+        {
+          "kind": "text",
+          "body": "head には defer も type=\"module\" も付けない普通の script を置きます。どちらも実行を後回しにするので、ちらつきが戻ります。以上で、最初の描画からテーマが決まった状態になります。",
+          "reading": "head には defer も type=\"module\" もつけないふつうの script をおきます。どちらもじっこうをあとまわしにするので、ちらつきがもどります。いじょうで、さいしょのびょうがからてーまがきまったじょうたいになります。"
+        },
+        {
+          "kind": "code",
+          "lang": "html",
+          "body": "  <head>\n    <meta charset=\"utf-8\">\n    <title>Dashboard</title>\n    <script>\n      const saved = localStorage.getItem('theme')\n      const prefersDark = matchMedia('(prefers-color-scheme: dark)').matches\n      document.documentElement.classList.toggle('dark', saved ? saved === 'dark' : prefersDark)\n    </script>\n    <link rel=\"stylesheet\" href=\"/dist/app.css\">\n  </head>\n"
+        }
+      ]
+    }
+  ]
+}

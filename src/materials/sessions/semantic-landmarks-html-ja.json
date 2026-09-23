@@ -1,0 +1,46 @@
+{
+  "id": "semantic-landmarks-html-ja",
+  "title": "div だらけのページをランドマーク要素にする",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "html",
+  "summary": "ヘッダーもナビも全部 div で、スクリーンリーダーで移動できない。header、nav、main、footer に置き換える。",
+  "files": [
+    {
+      "path": "public/pricing.html",
+      "content": "<body>\n  <div class=\"header\">\n    <div class=\"nav\">\n      <a href=\"/\">Home</a>\n      <a href=\"/pricing\">Pricing</a>\n    </div>\n  </div>\n  <div class=\"main\">\n    <h1>Pricing</h1>\n  </div>\n  <div class=\"footer\">\n    <div class=\"nav\">\n      <a href=\"/terms\">Terms</a>\n    </div>\n  </div>\n</body>\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "スクリーンリーダー使ってる人から、うちのページ見出しでしか移動できないって問い合わせきた。とりあえず直せる？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。div に class=\"header\" と付けても、支援技術から見ればただの箱です。header、nav、main、footer に置き換えると、それぞれがランドマークになり、読み上げソフトのランドマーク一覧から直接飛べます。main はページに 1 つだけという点に注意することが重要です。class はそのまま残すので、既存の CSS も期待どおりに動作します。なお、article の中に置いた header は、ページ全体のヘッダーにはなりません。",
+          "reading": "しょうちしました。div に class=\"header\" とつけても、しえんぎじゅつからみればただのはこです。header、nav、main、footer におきかえると、それぞれがらんどまーくになり、よみあげそふとのらんどまーくいちらんからちょくせつとべます。main はぺーじに 1 つだけというてんにちゅういすることがじゅうようです。class はそのままのこすので、きそんの CSS もきたいどおりにどうさします。なお、article のなかにおいた header は、ぺーじぜんたいのへっだーにはなりません。"
+        },
+        {
+          "kind": "code",
+          "lang": "html",
+          "body": "<body>\n  <header class=\"header\">\n    <nav class=\"nav\">\n      <a href=\"/\">Home</a>\n      <a href=\"/pricing\">Pricing</a>\n    </nav>\n  </header>\n  <main class=\"main\">\n    <h1>Pricing</h1>\n  </main>\n  <footer class=\"footer\">\n    <nav class=\"nav\">\n      <a href=\"/terms\">Terms</a>\n    </nav>\n  </footer>\n</body>\n"
+        }
+      ]
+    },
+    {
+      "user": "入れてみた。けどナビが2個出てきてどっちがどっちかわからんって言われた",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ご指摘のとおり、同じ種類のランドマークが 2 つあると、どちらも「ナビゲーション」としか読まれません。aria-label で名前を付けて区別します。読み上げでは種類と一緒に読まれるので、label に navigation と入れると二重になります。",
+          "reading": "ごしてきのとおり、おなじしゅるいのらんどまーくが 2 つあると、どちらも「なびげーしょん」としかよまれません。aria-label でなまえをつけてくべつします。よみあげではしゅるいといっしょによまれるので、label に navigation といれるとにじゅうになります。"
+        },
+        {
+          "kind": "code",
+          "lang": "html",
+          "body": "<nav class=\"nav\" aria-label=\"Main\">\n<nav class=\"nav\" aria-label=\"Footer\">\n"
+        }
+      ]
+    }
+  ]
+}

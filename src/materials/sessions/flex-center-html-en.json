@@ -1,0 +1,44 @@
+{
+  "id": "flex-center-html-en",
+  "title": "Stop centering the dialog with fixed negative margins",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "html",
+  "summary": "Negative margins of half the height only center a box of that exact size. Center it from the parent with flex, then shorten it to grid and place-items.",
+  "files": [
+    {
+      "path": "src/dialog.css",
+      "content": ".overlay {\n  position: fixed;\n  inset: 0;\n  background: rgb(0 0 0 / 50%);\n}\n\n.dialog {\n  position: absolute;\n  top: 50%;\n  left: 50%;\n  width: 320px;\n  height: 200px;\n  margin-top: -100px;\n  margin-left: -160px;\n  padding: 24px;\n  background: #fff;\n  border-radius: 8px;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "made the confirm text longer and now the buttons stick out the bottom of the box. removed height and now its not centered anymore",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch. margin-top: -100px and margin-left: -160px are half of 200px and 320px, written in by hand. Once the content changes the size, those numbers are no longer half of anything. Centering is the parent's job, not the child's. Make .overlay a flex container with justify-content and align-items set to center, and .dialog stays in the middle at any size. transform: translate(-50%, -50%) also works, but it can land on half a pixel and blur the text."
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": ".overlay {\n  position: fixed;\n  inset: 0;\n  display: flex;\n  justify-content: center;\n  align-items: center;\n  background: rgb(0 0 0 / 50%);\n}\n\n.dialog {\n  width: 320px;\n  padding: 24px;\n  background: #fff;\n  border-radius: 8px;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "on my phone 320 is exactly the screen width so it touches both edges. also a coworker said grid does this in one line",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: your coworker is right. place-items: center on a grid container sets align-items and justify-items to center in one go. For the width, min() takes whichever is smaller, 320px or the parent width minus 32px. Note: by default the 48px of padding is added on top of that width, so box-sizing: border-box counts it inside instead. On a narrow screen that leaves 16px on each side."
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": ".overlay {\n  position: fixed;\n  inset: 0;\n  display: grid;\n  place-items: center;\n  background: rgb(0 0 0 / 50%);\n}\n\n.dialog {\n  box-sizing: border-box;\n  width: min(320px, 100% - 32px);\n  padding: 24px;\n  background: #fff;\n  border-radius: 8px;\n}\n"
+        }
+      ]
+    }
+  ]
+}

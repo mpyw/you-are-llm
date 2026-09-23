@@ -1,0 +1,64 @@
+{
+  "id": "css-grid-areas-html-ja",
+  "title": "float の 3 カラムを grid-template-areas にする",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "html",
+  "summary": "clearfix と幅の calc で組んだ 3 カラムを CSS Grid にし、狭い画面では 1 カラムに並べ替える。",
+  "files": [
+    {
+      "path": "index.html",
+      "content": "<div class=\"page\">\n  <header class=\"header\">Acme</header>\n  <nav class=\"nav\">...</nav>\n  <main class=\"content\">...</main>\n  <aside class=\"aside\">...</aside>\n  <footer class=\"footer\">...</footer>\n</div>\n"
+    },
+    {
+      "path": "src/styles/layout.css",
+      "content": ".page::after {\n  content: \"\";\n  display: table;\n  clear: both;\n}\n\n.nav {\n  float: left;\n  width: 200px;\n}\n\n.content {\n  float: left;\n  width: calc(100% - 440px);\n  margin: 0 20px;\n}\n\n.aside {\n  float: right;\n  width: 200px;\n}\n\n.footer {\n  clear: both;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "layout.css、float で組んでるんだけど aside が長いとフッターが変なとこに回り込んだりしてつらい。grid にして。見た目は今のまま",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、float と clearfix をやめて grid-template-areas で組み直します。領域に名前を付け、配置を文字列で描くので、レイアウトの正本が .page の 1 か所にまとまります。幅の calc も要らなくなり、残りは真ん中の列が受け持ちます。1fr の最小幅は中身の幅なので、長い URL があると本文が押し広げられます。minmax(0, 1fr) にしておきます。子に残っている float と width は消してください。grid の子では float は無視されますが、width は効いたままです。",
+          "reading": "Now、float と clearfix をやめて grid-template-areas でくみなおします。りょういきになまえをつけ、はいちをもじれつでえがくので、れいあうとのせいほんが .page の 1 かしょにまとまります。はばの calc もいらなくなり、のこりはまんなかのれつがうけもちます。1fr のさいしょうはばはなかみのはばなので、ながい URL があるとほんぶんがおしひろげられます。minmax(0, 1fr) にしておきます。こにのこっている float と width はけしてください。grid のこでは float はむしされますが、width はきいたままです。"
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": ".page {\n  display: grid;\n  grid-template-columns: 200px minmax(0, 1fr) 200px;\n  grid-template-areas:\n    \"header header  header\"\n    \"nav    content aside\"\n    \"footer footer  footer\";\n  gap: 20px;\n}\n\n.header { grid-area: header; }\n.nav { grid-area: nav; }\n.content { grid-area: content; }\n.aside { grid-area: aside; }\n.footer { grid-area: footer; }\n"
+        }
+      ]
+    },
+    {
+      "user": "いい感じ。あとスマホで1カラムにしたい、768以下で。本文をnavより上に",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。メディアクエリの中で grid-template-areas を書き換えるだけで、HTML の順番を変えずに並べ替えられます。関心の分離の観点からも好ましい形です。ただし変わるのは見た目の順番だけで、タブ移動と読み上げは HTML の順のままです。",
+          "reading": "しょうちしました。めでぃあくえりのなかで grid-template-areas をかきかえるだけで、HTML のじゅんばんをかえずにならべかえられます。かんしんのぶんりのかんてんからもこのましいかたちです。ただしかわるのはみためのじゅんばんだけで、たぶいどうとよみあげは HTML のじゅんのままです。"
+        },
+        {
+          "kind": "code",
+          "lang": "css",
+          "body": "@media (width <= 768px) {\n  .page {\n    grid-template-areas:\n      \"header\"\n      \"content\"\n      \"nav\"\n      \"aside\"\n      \"footer\";\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "スマホで見たら本文めっちゃ細い。200pxくらいで止まってて右ががら空き",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどのメディアクエリには grid-template-columns が抜けていました。列の数は grid-template-areas と grid-template-columns の多い方で決まるので、3 列の定義が残ったままです。1 列ぶんの領域は、先頭の 200px の列に入ります。メディアクエリの .page に 1 列の定義を足します。",
+          "reading": "もうしわけありません。さきほどのめでぃあくえりには grid-template-columns がぬけていました。れつのかずは grid-template-areas と grid-template-columns のおおいほうできまるので、3 れつのていぎがのこったままです。1 れつぶんのりょういきは、せんとうの 200px のれつにはいります。めでぃあくえりの .page に 1 れつのていぎをたします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/^  \\.page {$/a\\\n    grid-template-columns: minmax(0, 1fr);\n' src/styles/layout.css"
+        }
+      ]
+    }
+  ]
+}
