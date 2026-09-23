@@ -804,7 +804,7 @@ h2 {
      that is narrower than the gap lets the box run past it, which is harmless
      at the end of a line. */
   inset-inline-start: 0.22em;
-  inset-block-end: 0.22em;
+  inset-block-end: 0.06em;
   inline-size: 0.34em;
   block-size: 0.28em;
   border: 1px solid var(--accent);
