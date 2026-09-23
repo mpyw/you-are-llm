@@ -1,0 +1,39 @@
+{
+  "id": "sqlite-reset-c-en",
+  "title": "Move prepare out of the loop",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "c",
+  "summary": "Reuse one statement with sqlite3_reset and sqlite3_clear_bindings instead of rebuilding it for every row.",
+  "files": [
+    {
+      "path": "src/db/tags.c",
+      "content": "#include <stddef.h>\n#include <sqlite3.h>\n\nstruct tag {\n  const char *name;\n  const char *note;\n};\n\nint add_tags(sqlite3 *db, int post_id, const struct tag *tags, int n) {\n  for (int i = 0; i < n; i++) {\n    sqlite3_stmt *stmt = NULL;\n    int rc = sqlite3_prepare_v2(db, \"INSERT INTO post_tags (post_id, name, note) VALUES (?, ?, ?)\", -1, &stmt, NULL);\n    if (rc != SQLITE_OK) return rc;\n    sqlite3_bind_int(stmt, 1, post_id);\n    sqlite3_bind_text(stmt, 2, tags[i].name, -1, SQLITE_TRANSIENT);\n    if (tags[i].note != NULL) {\n      sqlite3_bind_text(stmt, 3, tags[i].note, -1, SQLITE_TRANSIENT);\n    }\n    rc = sqlite3_step(stmt);\n    sqlite3_finalize(stmt);\n    if (rc != SQLITE_DONE) return rc;\n  }\n  return SQLITE_OK;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "add_tags is slow. profiler says prepare_v2 is like half the time. posts can have hundreds of tags",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Got it. Calling prepare_v2 on every pass parses the same SQL and compiles it to bytecode again each time. Build the statement once outside the loop, and use sqlite3_reset to put it back in its ready state before the next row. Note: reset does not forget bound values. A row with a NULL note never binds parameter 3, so it would silently get the previous row's note. sqlite3_clear_bindings sets every parameter back to NULL. That also clears post_id, so it is bound again inside the loop."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "int add_tags(sqlite3 *db, int post_id, const struct tag *tags, int n) {\n  sqlite3_stmt *stmt = NULL;\n  int rc = sqlite3_prepare_v2(db, \"INSERT INTO post_tags (post_id, name, note) VALUES (?, ?, ?)\", -1, &stmt, NULL);\n  if (rc != SQLITE_OK) return rc;\n  for (int i = 0; i < n; i++) {\n    sqlite3_bind_int(stmt, 1, post_id);\n    sqlite3_bind_text(stmt, 2, tags[i].name, -1, SQLITE_TRANSIENT);\n    if (tags[i].note != NULL) {\n      sqlite3_bind_text(stmt, 3, tags[i].note, -1, SQLITE_TRANSIENT);\n    }\n    rc = sqlite3_step(stmt);\n    if (rc != SQLITE_DONE) break;\n    sqlite3_reset(stmt);\n    sqlite3_clear_bindings(stmt);\n  }\n  sqlite3_finalize(stmt);\n  return rc == SQLITE_DONE ? SQLITE_OK : rc;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "you're ignoring what reset returns, is that fine?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! sqlite3_reset returns the error of the previous sqlite3_step if that step failed. This loop checks the step first and breaks on anything but SQLITE_DONE, so by the time reset runs, the step before it has succeeded. In other words, reset always returns SQLITE_OK here. sqlite3_clear_bindings only ever returns SQLITE_OK too, so dropping both is safe."
+        }
+      ]
+    }
+  ]
+}

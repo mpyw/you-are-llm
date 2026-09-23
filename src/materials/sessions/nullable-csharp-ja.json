@@ -2,7 +2,7 @@
   "id": "nullable-csharp-ja",
   "title": "null 許容参照型の警告を潰す",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "hard",
   "codeLanguage": "csharp",
   "summary": "! で黙らせる代わりに、Product? と NotNullWhen と MemberNotNullWhen で型に語らせる。",
   "files": [

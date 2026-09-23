@@ -1,0 +1,60 @@
+{
+  "id": "csv-serde-rust-ja",
+  "title": "split(',') の CSV 読みを csv と serde にする",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "rust",
+  "summary": "クォート内のカンマで壊れる手書きの CSV 読みを csv::Reader と Deserialize にし、ヘッダ名は rename で合わせる。- の入った列は Option だけでは読めず invalid_option を使う。",
+  "files": [
+    {
+      "path": "src/orders.rs",
+      "content": "use std::fs;\n\npub struct Order {\n    pub id: u32,\n    pub customer: String,\n    pub amount: f64,\n}\n\npub fn load(path: &str) -> Vec<Order> {\n    let text = fs::read_to_string(path).unwrap();\n    text.lines()\n        .skip(1)\n        .map(|line| {\n            let cols: Vec<&str> = line.split(',').collect();\n            Order {\n                id: cols[0].parse().unwrap(),\n                customer: cols[1].to_string(),\n                amount: cols[2].parse().unwrap(),\n            }\n        })\n        .collect()\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "注文の CSV 読んでるとこ、顧客名に \"Acme, Inc.\" みたいなのがあると parse で落ちる。ヘッダは order_id,customer_name,amount",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、原因は split(',') がクォートを知らないことです。\"Acme, Inc.\" は 1 つのフィールドなのにカンマで 2 つに割られ、amount の位置に Inc.\" が来て parse が失敗します。csv クレートの Reader はクォートの中のカンマや改行を正しく扱います。Order に Deserialize を derive すると、列の順番ではなく 1 行目のヘッダ名でフィールドに対応付けられます。ヘッダと名前が違う id と customer には #[serde(rename)] を付けます。unwrap をやめて csv::Error を返すのがベストプラクティスです。",
+          "reading": "Now、げんいんは split(',') がくぉーとをしらないことです。\"Acme, Inc.\" は 1 つのふぃーるどなのにかんまで 2 つにわられ、amount のいちに Inc.\" がきて parse がしっぱいします。csv くれーとの Reader はくぉーとのなかのかんまやかいぎょうをただしくあつかいます。Order に Deserialize を derive すると、れつのじゅんばんではなく 1 ぎょうめのへっだめいでふぃーるどにたいおうづけられます。へっだとなまえがちがう id と customer には #[serde(rename)] をつけます。unwrap をやめて csv::Error をかえすのがべすとぷらくてぃすです。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use serde::Deserialize;\n\n#[derive(Debug, Deserialize)]\npub struct Order {\n    #[serde(rename = \"order_id\")]\n    pub id: u32,\n    #[serde(rename = \"customer_name\")]\n    pub customer: String,\n    pub amount: f64,\n}\n\npub fn load(path: &str) -> Result<Vec<Order>, csv::Error> {\n    let mut reader = csv::Reader::from_path(path)?;\n    reader.deserialize().collect()\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "読めた。あと amount 空の行けっこうある。- って入ってるのもある。どっちも None でいい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。amount を Option<f64> にします。csv の Deserialize は空欄も数値として読めない値も None にするので、空欄の行も - の行もそのまま読めることを保証します。",
+          "reading": "かしこまりました。amount を Option<f64> にします。csv の Deserialize はくうらんもすうちとしてよめないあたいも None にするので、くうらんのぎょうも - のぎょうもそのままよめることをほしょうします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/pub amount: f64,/pub amount: Option<f64>,/' src/orders.rs"
+        }
+      ]
+    },
+    {
+      "user": "空のは通った。CSV deserialize error: record 3 (line: 4, byte: 57): field 2: invalid float literal で落ちる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、先ほどの説明は正確ではありませんでした。Option が None になるのは空欄のときだけで、- は f64 として解析されて失敗します。読めない値も None にするには、csv クレートの csv::invalid_option を deserialize_with に指定します。ただし 12.5円 のような打ち間違いも黙って None になり、エラーとしては出てこない点に注意することが重要です。",
+          "reading": "あらためてかくにんしたところ、さきほどのせつめいはせいかくではありませんでした。Option が None になるのはくうらんのときだけで、- は f64 としてかいせきされてしっぱいします。よめないあたいも None にするには、csv くれーとの csv::invalid_option を deserialize_with にしていします。ただし 12.5えん のようなうちまちがいもだまって None になり、えらーとしてはでてこないてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "#[derive(Debug, Deserialize)]\npub struct Order {\n    #[serde(rename = \"order_id\")]\n    pub id: u32,\n    #[serde(rename = \"customer_name\")]\n    pub customer: String,\n    #[serde(deserialize_with = \"csv::invalid_option\")]\n    pub amount: Option<f64>,\n}\n"
+        }
+      ]
+    }
+  ]
+}

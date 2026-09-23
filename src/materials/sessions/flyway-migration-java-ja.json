@@ -1,0 +1,68 @@
+{
+  "id": "flyway-migration-java-ja",
+  "title": "適用済みの Flyway マイグレーションを書き換えて起動しなくなった",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "java",
+  "summary": "V2 に 1 行足すとチェックサムが合わなくなる。repair は SQL を流し直さない。",
+  "files": [
+    {
+      "path": "src/main/resources/db/migration/V1__create_users.sql",
+      "content": "CREATE TABLE users (\n    id BIGSERIAL PRIMARY KEY,\n    name VARCHAR(100) NOT NULL\n);\n"
+    },
+    {
+      "path": "src/main/resources/db/migration/V2__add_users_email.sql",
+      "content": "ALTER TABLE users ADD COLUMN email VARCHAR(255);\nCREATE UNIQUE INDEX users_email_key ON users (email);\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "V2 に email のユニークインデックス足しただけなのに起動しない。Validate failed: Migrations have failed validation / Migration checksum mismatch for migration version 2 って出てる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。Flyway は適用したマイグレーションのチェックサムを flyway_schema_history に記録していて、起動のたびに手元のファイルと照合します。V2 は適用済みなので、1 行足しただけでも別物として扱われます。適用済みのファイルは書き換えず、V2 を元に戻して V3 を足すのがベストプラクティスです。戻すのが手間なら repair でも構いません。repair は書き換えた V2 を流し直して、履歴を手元に揃えてくれます。",
+          "reading": "しょうちしました。Flyway はてきようしたマイグレーションのチェックサムを flyway_schema_history にきろくしていて、きどうのたびにてもとのファイルとしょうごうします。V2 はてきようずみなので、1 ぎょうたしただけでもべつものとしてあつかわれます。てきようずみのファイルはかきかえず、V2 をもとにもどして V3 をたすのがベストプラクティスです。もどすのがてまなら repair でもかまいません。repair はかきかえた V2 をながしなおして、りれきをてもとにそろえてくれます。"
+        },
+        {
+          "kind": "code",
+          "lang": "sql",
+          "body": "-- V3__add_users_email_unique_index.sql\nCREATE UNIQUE INDEX users_email_key ON users (email);\n"
+        }
+      ]
+    },
+    {
+      "user": "戻すのめんどいから staging で repair した。起動はしたけどインデックスできてないんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの repair の説明は正確ではありませんでした。repair は SQL を一切実行しません。履歴に残ったチェックサムを、今のファイルの値で上書きするだけです。言い換えると、staging の履歴は「V2 でインデックスを作った」と言っているのに、実際のテーブルにはありません。このまま進めると、新しく作る環境にだけ V2 経由でインデックスができて、環境ごとにスキーマがずれます。V2 を元に戻し、インデックスは V3 に移します。",
+          "reading": "もうしわけありません。さきほどの repair のせつめいはせいかくではありませんでした。repair は SQL をいっさいじっこうしません。りれきにのこったチェックサムを、いまのファイルのあたいでうわがきするだけです。いいかえると、staging のりれきは「V2 でインデックスをつくった」といっているのに、じっさいのテーブルにはありません。このまますすめると、あたらしくつくるかんきょうにだけ V2 けいゆでインデックスができて、かんきょうごとにスキーマがずれます。V2 をもとにもどし、インデックスは V3 にうつします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/CREATE UNIQUE INDEX/d' src/main/resources/db/migration/V2__add_users_email.sql"
+        },
+        {
+          "kind": "text",
+          "body": "Note: チェックサムは 1 文字でも違えば一致しません。次の diff が何も出さないことを確認してください。",
+          "reading": "Note: チェックサムは 1 もじでもちがえばいっちしません。つぎの diff がなにもださないことをかくにんしてください。"
+        },
+        {
+          "kind": "command",
+          "body": "git diff origin/main -- src/main/resources/db/migration/V2__add_users_email.sql"
+        }
+      ]
+    },
+    {
+      "user": "diff 空だった。で、本番は？ staging はもう一回 repair？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ポイントは、どの環境の履歴が何を覚えているかです。staging の履歴は書き換えた V2 のチェックサムを覚えているので、元に戻した V2 とは合いません。staging だけもう一度 repair して、元の値に揃えます。本番は repair していないので、元の V2 とそのまま一致します。デプロイすれば V3 だけが流れます。repair を起動のたびに呼ぶような設定は、今回のずれを黙って飲み込むので入れないことをお勧めします。",
+          "reading": "ポイントは、どのかんきょうのりれきがなにをおぼえているかです。staging のりれきはかきかえた V2 のチェックサムをおぼえているので、もとにもどした V2 とはあいません。staging だけもういちど repair して、もとのあたいにそろえます。ほんばんは repair していないので、もとの V2 とそのままいっちします。デプロイすれば V3 だけがながれます。repair をきどうのたびによぶようなせっていは、こんかいのずれをだまってのみこむのでいれないことをおすすめします。"
+        }
+      ]
+    }
+  ]
+}

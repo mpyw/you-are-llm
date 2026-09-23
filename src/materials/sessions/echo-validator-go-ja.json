@@ -1,0 +1,70 @@
+{
+  "id": "echo-validator-go-ja",
+  "title": "Echo の c.Bind で validate タグが効かない",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "go",
+  "summary": "c.Bind は検証しないので、go-playground/validator を e.Validator に登録して c.Validate を呼ぶ。スライスの要素は dive が無いと検査されない。エラーは json の名前でフィールドごとに返す。",
+  "files": [
+    {
+      "path": "internal/handler/order.go",
+      "content": "package handler\n\nimport (\n  \"net/http\"\n\n  \"github.com/labstack/echo/v4\"\n)\n\ntype OrderItem struct {\n  SKU      string `json:\"sku\" validate:\"required\"`\n  Quantity int    `json:\"quantity\" validate:\"gt=0\"`\n}\n\ntype CreateOrderRequest struct {\n  Email string      `json:\"email\" validate:\"required,email\"`\n  Items []OrderItem `json:\"items\" validate:\"required,min=1\"`\n}\n\ntype OrderHandler struct {\n  orders OrderStore\n}\n\nfunc (h *OrderHandler) Create(c echo.Context) error {\n  var req CreateOrderRequest\n  if err := c.Bind(&req); err != nil {\n    return err\n  }\n  o, err := h.orders.Create(c.Request().Context(), req)\n  if err != nil {\n    return err\n  }\n  return c.JSON(http.StatusCreated, o)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "validate タグ書いてるのに email 空でも普通に通る。gin のときは勝手にやってくれてたのに",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "おっしゃるとおり、gin の ShouldBind は binding タグで検証まで行います。一方 Echo の c.Bind はリクエストを struct に詰めるだけで、validate タグを読むものがいません。Echo が用意しているのは e.Validator というインターフェースだけなので、go-playground/validator を包んで internal/handler/validator.go に置き、main で e.Validator = handler.NewValidator() と登録します。エラーを 400 の HTTPError に包んでおかないと、既定のエラーハンドラが 500 にしてしまいます。",
+          "reading": "おっしゃるとおり、gin の ShouldBind は binding タグでけんしょうまでおこないます。いっぽう Echo の c.Bind はリクエストを struct につめるだけで、validate タグをよむものがいません。Echo がよういしているのは e.Validator というインターフェースだけなので、go-playground/validator をつつんで internal/handler/validator.go におき、main で e.Validator = handler.NewValidator() ととうろくします。エラーを 400 の HTTPError につつんでおかないと、きていのエラーハンドラが 500 にしてしまいます。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "package handler\n\nimport (\n  \"net/http\"\n\n  \"github.com/go-playground/validator/v10\"\n  \"github.com/labstack/echo/v4\"\n)\n\ntype CustomValidator struct {\n  validator *validator.Validate\n}\n\nfunc NewValidator() *CustomValidator {\n  return &CustomValidator{validator: validator.New(validator.WithRequiredStructEnabled())}\n}\n\nfunc (cv *CustomValidator) Validate(i any) error {\n  if err := cv.validator.Struct(i); err != nil {\n    return echo.NewHTTPError(http.StatusBadRequest, err.Error())\n  }\n  return nil\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "Here's ハンドラ側です。Bind のすぐ後に c.Validate を呼びます。これで Items の中の Quantity も gt=0 で検査されます。",
+          "reading": "Here's ハンドラがわです。Bind のすぐあとに c.Validate をよびます。これで Items のなかの Quantity も gt=0 でけんさされます。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (h *OrderHandler) Create(c echo.Context) error {\n  var req CreateOrderRequest\n  if err := c.Bind(&req); err != nil {\n    return err\n  }\n  if err := c.Validate(&req); err != nil {\n    return err\n  }\n  o, err := h.orders.Create(c.Request().Context(), req)\n  if err != nil {\n    return err\n  }\n  return c.JSON(http.StatusCreated, o)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "email は弾くようになった。でも items に quantity 0 入れたやつが通る",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの説明は正確ではありませんでした。validator は struct 型のフィールドには自動で潜りますが、スライスやマップの要素には潜りません。スライスのタグに dive を足すと、それより右のタグが要素に掛かり、要素が struct ならそのフィールドのタグで検査されます。dive より左の required,min=1 はスライス自体の検査のままです。",
+          "reading": "もうしわけありません。さきほどのせつめいはせいかくではありませんでした。validator は struct がたのフィールドにはじどうでもぐりますが、スライスやマップのようそにはもぐりません。スライスのタグに dive をたすと、それよりみぎのタグがようそにかかり、ようそが struct ならそのフィールドのタグでけんさされます。dive よりひだりの required,min=1 はスライスじたいのけんさのままです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/validate:\"required,min=1\"/validate:\"required,min=1,dive\"/' internal/handler/order.go"
+        }
+      ]
+    },
+    {
+      "user": "あとエラーが Key: 'CreateOrderRequest.Items[0].Quantity' Error:Field validation for... って文字列のまま message に入ってる。フロントがパースできないって。json の名前でフィールドごとにして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。RegisterTagNameFunc で json タグの名前をフィールド名として使わせ、ValidationErrors を 1 件ずつ取り出して、パスと失敗したタグの map にします。Namespace の先頭は struct の型名なので切り落とします。言い換えると、json タグがリクエストとエラーの両方の唯一の情報源になります。",
+          "reading": "しょうちしました。RegisterTagNameFunc で json タグのなまえをフィールドめいとしてつかわせ、ValidationErrors を 1 けんずつとりだして、パスとしっぱいしたタグの map にします。Namespace のせんとうは struct のかためいなのできりおとします。いいかえると、json タグがリクエストとエラーのりょうほうのゆいいつのじょうほうげんになります。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "package handler\n\nimport (\n  \"errors\"\n  \"net/http\"\n  \"reflect\"\n  \"strings\"\n\n  \"github.com/go-playground/validator/v10\"\n  \"github.com/labstack/echo/v4\"\n)\n\ntype CustomValidator struct {\n  validator *validator.Validate\n}\n\nfunc NewValidator() *CustomValidator {\n  v := validator.New(validator.WithRequiredStructEnabled())\n  v.RegisterTagNameFunc(func(f reflect.StructField) string {\n    name, _, _ := strings.Cut(f.Tag.Get(\"json\"), \",\")\n    if name == \"-\" {\n      return \"\"\n    }\n    return name\n  })\n  return &CustomValidator{validator: v}\n}\n\nfunc (cv *CustomValidator) Validate(i any) error {\n  err := cv.validator.Struct(i)\n  var verrs validator.ValidationErrors\n  if !errors.As(err, &verrs) {\n    return err\n  }\n  fields := make(map[string]string, len(verrs))\n  for _, fe := range verrs {\n    _, path, _ := strings.Cut(fe.Namespace(), \".\")\n    fields[path] = fe.Tag()\n  }\n  return echo.NewHTTPError(http.StatusBadRequest, map[string]any{\"fields\": fields})\n}\n"
+        }
+      ]
+    }
+  ]
+}

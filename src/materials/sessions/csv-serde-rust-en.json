@@ -1,0 +1,57 @@
+{
+  "id": "csv-serde-rust-en",
+  "title": "Read CSV with csv and serde instead of split(',')",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "rust",
+  "summary": "A hand-split CSV reader that breaks on a quoted comma becomes csv::Reader with Deserialize and rename, and a column holding - needs invalid_option, not just Option.",
+  "files": [
+    {
+      "path": "src/orders.rs",
+      "content": "use std::fs;\n\npub struct Order {\n    pub id: u32,\n    pub customer: String,\n    pub amount: f64,\n}\n\npub fn load(path: &str) -> Vec<Order> {\n    let text = fs::read_to_string(path).unwrap();\n    text.lines()\n        .skip(1)\n        .map(|line| {\n            let cols: Vec<&str> = line.split(',').collect();\n            Order {\n                id: cols[0].parse().unwrap(),\n                customer: cols[1].to_string(),\n                amount: cols[2].parse().unwrap(),\n            }\n        })\n        .collect()\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "order CSV loader panics in parse when a customer is like \"Acme, Inc.\". header is order_id,customer_name,amount",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: split(',') knows nothing about quotes. \"Acme, Inc.\" is one field, but the comma cuts it in two, so Inc.\" lands where amount should be and parse fails. The Reader from the csv crate handles commas and newlines inside quotes. With Deserialize derived on Order, fields are matched by the header names on the first line rather than by column order. id and customer differ from their headers, so they get #[serde(rename)]. The unwraps are gone too, and load returns csv::Error as a best practice."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use serde::Deserialize;\n\n#[derive(Debug, Deserialize)]\npub struct Order {\n    #[serde(rename = \"order_id\")]\n    pub id: u32,\n    #[serde(rename = \"customer_name\")]\n    pub customer: String,\n    pub amount: f64,\n}\n\npub fn load(path: &str) -> Result<Vec<Order>, csv::Error> {\n    let mut reader = csv::Reader::from_path(path)?;\n    reader.deserialize().collect()\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "works. oh some rows have an empty amount. and some have - in it. None for both is fine",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Perfect, amount becomes Option<f64>. The csv deserializer turns both an empty field and a value that is not a number into None, so rows with a blank and rows with - will both load as they are."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/pub amount: f64,/pub amount: Option<f64>,/' src/orders.rs"
+        }
+      ]
+    },
+    {
+      "user": "empty ones pass now. still dies with CSV deserialize error: record 3 (line: 4, byte: 57): field 2: invalid float literal",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. Option only becomes None for an empty field. A - is still parsed as an f64, and that fails. To turn unreadable values into None as well, point deserialize_with at csv::invalid_option from the csv crate. Caveat: a typo like 12.5 USD also becomes None silently, so it will never show up as an error."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "#[derive(Debug, Deserialize)]\npub struct Order {\n    #[serde(rename = \"order_id\")]\n    pub id: u32,\n    #[serde(rename = \"customer_name\")]\n    pub customer: String,\n    #[serde(deserialize_with = \"csv::invalid_option\")]\n    pub amount: Option<f64>,\n}\n"
+        }
+      ]
+    }
+  ]
+}

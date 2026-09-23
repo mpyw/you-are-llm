@@ -1,0 +1,46 @@
+{
+  "id": "problem-details-csharp-ja",
+  "title": "エラー応答を ProblemDetails に揃える",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "csharp",
+  "summary": "本番で例外がスタックトレース付きの 500 で返っていたので、AddProblemDetails と UseExceptionHandler、UseStatusCodePages で RFC 9457 の形に揃える。",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using Shop.Orders;\n\nvar builder = WebApplication.CreateBuilder(args);\n\nbuilder.Services.AddSingleton<OrderStore>();\n\nvar app = builder.Build();\n\napp.UseDeveloperExceptionPage();\n\napp.MapGet(\"/orders/{id:int}\", (int id, OrderStore store) =>\n    store.Find(id) is { } order ? Results.Ok(order) : Results.NotFound());\n\napp.MapPost(\"/orders/{id:int}/cancel\", (int id, OrderStore store) =>\n{\n    store.Cancel(id);\n    return Results.NoContent();\n});\n\napp.Run();\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "本番で発送済みの注文キャンセルしたら 500 でスタックトレースが丸ごと返ってきた、やばい。あと 404 は body 空っぽでフロントがエラー出せないって言われてる。形式揃えたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。原因は UseDeveloperExceptionPage を環境に関係なく呼んでいることです。.NET 6 以降の WebApplication は Development 環境でだけこのページを自動で足すので、自分で呼ぶ必要はありません。代わりに AddProblemDetails で IProblemDetailsService を登録すると、引数なしの UseExceptionHandler が例外を RFC 9457 の形式に変え、UseStatusCodePages が本文のない 404 などを同じ形に揃えます。Content-Type は application/problem+json で、スタックトレースはログにだけ出ます。言い換えると、フロントが受け取るエラーは常に同じ形であることを保証します。",
+          "reading": "かしこまりました。げんいんは UseDeveloperExceptionPage をかんきょうにかんけいなくよんでいることです。.NET 6 いこうの WebApplication は Development かんきょうでだけこのぺーじをじどうでたすので、じぶんでよぶひつようはありません。かわりに AddProblemDetails で IProblemDetailsService をとうろくすると、ひきすうなしの UseExceptionHandler がれいがいを RFC 9457 のけいしきにかえ、UseStatusCodePages がほんぶんのない 404 などをおなじかたちにそろえます。Content-Type は application/problem+json で、すたっくとれーすはろぐにだけでます。いいかえると、ふろんとがうけとるえらーはつねにおなじかたちであることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "builder.Services.AddSingleton<OrderStore>();\nbuilder.Services.AddProblemDetails();\n\nvar app = builder.Build();\n\napp.UseExceptionHandler();\napp.UseStatusCodePages();\n"
+        }
+      ]
+    },
+    {
+      "user": "ありがと。発送済みキャンセルは 500 じゃなくて 409 にしたいかも。Cancel は発送済みだと OrderAlreadyShippedException 投げてる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、.NET 9 から ExceptionHandlerOptions に StatusCodeSelector が加わり、例外の型からステータスコードを選べるようになりました。type と title も 409 用の値になり、例外のメッセージは本文に出ません。.NET 8 で同じことをするなら IExceptionHandler を実装します。",
+          "reading": "Now、.NET 9 から ExceptionHandlerOptions に StatusCodeSelector がくわわり、れいがいのかたからすてーたすこーどをえらべるようになりました。type と title も 409 ようのあたいになり、れいがいのめっせーじはほんぶんにでません。.NET 8 でおなじことをするなら IExceptionHandler をじっそうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "app.UseExceptionHandler(new ExceptionHandlerOptions\n{\n    StatusCodeSelector = exception => exception is OrderAlreadyShippedException\n        ? StatusCodes.Status409Conflict\n        : StatusCodes.Status500InternalServerError,\n});\napp.UseStatusCodePages();\n"
+        }
+      ]
+    }
+  ]
+}

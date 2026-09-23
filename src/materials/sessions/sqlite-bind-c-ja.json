@@ -2,7 +2,7 @@
   "id": "sqlite-bind-c-ja",
   "title": "SQL の文字列連結をバインドに替える",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "easy",
   "codeLanguage": "c",
   "summary": "snprintf で組み立てた SQL を sqlite3_prepare_v2 と sqlite3_bind_text に置き換える。",
   "files": [

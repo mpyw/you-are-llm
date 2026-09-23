@@ -1,0 +1,70 @@
+{
+  "id": "resilience4j-circuit-java-en",
+  "title": "@CircuitBreaker is on but the fallback never runs",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "java",
+  "summary": "long against Long hides the fallback, and once found, a name mismatch keeps the circuit closed.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/price/PriceClient.java",
+      "content": "package com.example.price;\n\nimport io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;\nimport org.springframework.stereotype.Component;\nimport org.springframework.web.client.RestClient;\n\n@Component\npublic class PriceClient {\n    private final RestClient restClient;\n\n    public PriceClient(RestClient.Builder builder) {\n        this.restClient = builder.baseUrl(\"https://prices.example.com\").build();\n    }\n\n    @CircuitBreaker(name = \"priceApi\", fallbackMethod = \"fallback\")\n    public Price fetch(long productId) {\n        return restClient.get()\n                .uri(\"/v1/prices/{id}\", productId)\n                .retrieve()\n                .body(Price.class);\n    }\n\n    private Price fallback(Long productId, Exception e) {\n        return Price.unknown(productId);\n    }\n}\n"
+    },
+    {
+      "path": "src/main/resources/application.yml",
+      "content": "resilience4j:\n  circuitbreaker:\n    instances:\n      price-api:\n        sliding-window-size: 10\n        failure-rate-threshold: 50\n        wait-duration-in-open-state: 30s\n        permitted-number-of-calls-in-half-open-state: 3\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "want a \"price unknown\" fallback when the price api is down. added @CircuitBreaker but the 500 comes straight through. fallback is never called",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's go through it. Resilience4j looks for a fallback with the same parameter types as the original method, in the same order, plus one exception at the end. The types are compared exactly, so long in the original and Long in the fallback do not match. When nothing matches it logs No fallback method match found at WARN and runs as if there were no fallback, which is why you get the 500. Make it long. After that the fallback answers when the API is down, and the circuit opens once half of the last 10 calls fail, as configured in the yml."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "private Price fallback(long productId, Exception e) {\n    return Price.unknown(productId);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "fallback shows up now. but with the api stopped every request still waits for the full timeout. actuator/circuitbreakers says priceApi CLOSED with failedCalls 40",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "I checked again, and \"as configured in the yml\" was wrong. The annotation says priceApi and the yml key is price-api. instances is a plain Map, so those are two different names. A name with no entry gets the default config: a sliding window of 100 calls, and 100 calls before any failure rate is computed at all. Forty failures is not enough to compute one, so the circuit stays CLOSED. Rename the key to match the annotation."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^      price-api:$/      priceApi:/' src/main/resources/application.yml"
+        },
+        {
+          "kind": "text",
+          "body": "Now the state transitions. CLOSED counts the last 10 calls and moves to OPEN once 50 % of them fail. For 30 seconds in OPEN the API is not called at all: the call fails fast with CallNotPermittedException and goes to the fallback, so nobody waits for a timeout. The first call after those 30 seconds moves it to HALF_OPEN, which lets 3 trial calls through. If their failure rate is below the threshold it goes back to CLOSED, and otherwise it opens again."
+        }
+      ]
+    },
+    {
+      "user": "it opens now. oh also an unknown product id gives 404 and that becomes price unknown too. I want the 404 to reach the caller as NotFound and not count as a failure",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: those are two separate settings. An exception in ignore-exceptions counts as neither success nor failure. The fallback, though, runs for every exception whatever the circuit counted. So the fallback rethrows NotFound, and an exception thrown from a fallback reaches the caller unchanged."
+        },
+        {
+          "kind": "code",
+          "lang": "yaml",
+          "body": "resilience4j:\n  circuitbreaker:\n    instances:\n      priceApi:\n        sliding-window-size: 10\n        failure-rate-threshold: 50\n        wait-duration-in-open-state: 30s\n        permitted-number-of-calls-in-half-open-state: 3\n        ignore-exceptions:\n          - org.springframework.web.client.HttpClientErrorException$NotFound\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import org.springframework.web.client.HttpClientErrorException;\n\nprivate Price fallback(long productId, Exception e) {\n    if (e instanceof HttpClientErrorException.NotFound notFound) {\n        throw notFound;\n    }\n    return Price.unknown(productId);\n}\n"
+        }
+      ]
+    }
+  ]
+}

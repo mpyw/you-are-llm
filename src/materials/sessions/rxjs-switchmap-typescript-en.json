@@ -1,0 +1,56 @@
+{
+  "id": "rxjs-switchmap-typescript-en",
+  "title": "Old search results overwrite new ones",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "typescript",
+  "summary": "valueChanges goes to HTTP through mergeMap, and a late old response wins. switchMap fixes it, until a catchError on the outside stops the search after one error.",
+  "files": [
+    {
+      "path": "src/app/search.component.ts",
+      "content": "import { Component, inject, signal } from '@angular/core'\nimport { HttpClient } from '@angular/common/http'\nimport { FormControl, ReactiveFormsModule } from '@angular/forms'\nimport { mergeMap } from 'rxjs'\n\ntype Hit = { id: string; title: string }\n\n@Component({\n  selector: 'app-search',\n  standalone: true,\n  imports: [ReactiveFormsModule],\n  template: `\n    <input [formControl]=\"query\" type=\"search\" />\n    <ul>\n      @for (hit of hits(); track hit.id) {\n        <li>{{ hit.title }}</li>\n      }\n    </ul>\n  `,\n})\nexport class SearchComponent {\n  private http = inject(HttpClient)\n  query = new FormControl('', { nonNullable: true })\n  hits = signal<Hit[]>([])\n\n  constructor() {\n    this.query.valueChanges\n      .pipe(mergeMap((q) => this.search(q)))\n      .subscribe((hits) => this.hits.set(hits))\n  }\n\n  private search(q: string) {\n    return this.http.get<Hit[]>('/api/search', { params: { q } })\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "search: if I type fast the results for the previous keyword sometimes show up last. also the backend guy yelled at me for sending a request per character",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch. mergeMap subscribes to a new inner Observable for every value and runs them all in parallel, stopping none. A slow old response comes back late and overwrites the newer results. switchMap unsubscribes from the previous one as soon as the next value arrives, and HttpClient aborts a request once it is unsubscribed. In front of it, debounceTime(300) waits for typing to stop and distinctUntilChanged() drops a repeat of the same string. Note: the order matters. With distinctUntilChanged first, adding a character and deleting it again sends the same search twice."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { Component, inject, signal } from '@angular/core'\nimport { HttpClient } from '@angular/common/http'\nimport { FormControl, ReactiveFormsModule } from '@angular/forms'\nimport { debounceTime, distinctUntilChanged, switchMap } from 'rxjs'\n\ntype Hit = { id: string; title: string }\n\n@Component({\n  selector: 'app-search',\n  standalone: true,\n  imports: [ReactiveFormsModule],\n  template: `\n    <input [formControl]=\"query\" type=\"search\" />\n    <ul>\n      @for (hit of hits(); track hit.id) {\n        <li>{{ hit.title }}</li>\n      }\n    </ul>\n  `,\n})\nexport class SearchComponent {\n  private http = inject(HttpClient)\n  query = new FormControl('', { nonNullable: true })\n  hits = signal<Hit[]>([])\n\n  constructor() {\n    this.query.valueChanges\n      .pipe(\n        debounceTime(300),\n        distinctUntilChanged(),\n        switchMap((q) => this.search(q)),\n      )\n      .subscribe((hits) => this.hits.set(hits))\n  }\n\n  private search(q: string) {\n    return this.http.get<Hit[]>('/api/search', { params: { q } })\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "nice. oh the API returns 500 sometimes, and then the console goes red and the old list just stays there. make it empty on error",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. catchError replaces the error with an empty array. It is one line at the end of the pipe, so nothing else in the flow changes. Errors now behave as expected too."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/{ debounceTime, distinctUntilChanged, switchMap }/{ catchError, debounceTime, distinctUntilChanged, of, switchMap }/' -e '/switchMap((q) => this.search(q)),/a\\\n        catchError(() => of([])),\n' src/app/search.component.ts"
+        }
+      ]
+    },
+    {
+      "user": "after one 500 nothing I type gets searched anymore. dead until reload",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer put catchError in the wrong place. Once an error travels down the outer pipe, the subscription to valueChanges is already over. catchError switches to of([]), emits one empty array and completes, so no later input goes anywhere. In other words, it did not swallow the error, it closed the whole stream. catchError moves inside switchMap, onto the pipe of a single HTTP call. Only that one call ends on failure, and the outer subscription stays alive."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e '/catchError(() => of(\\[\\])),/d' -e 's/switchMap((q) => this.search(q))/switchMap((q) => this.search(q).pipe(catchError(() => of([]))))/' src/app/search.component.ts"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "id": "spring-events-java-ja",
+  "title": "ロールバックしても飛ぶ確認メールを AFTER_COMMIT に移す",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "java",
+  "summary": "@EventListener がトランザクションの途中でメールを送っていたので @TransactionalEventListener に替え、送信記録の書き込みで伝播の罠を踏む。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/order/OrderService.java",
+      "content": "package com.example.order;\n\nimport org.springframework.context.ApplicationEventPublisher;\nimport org.springframework.stereotype.Service;\nimport org.springframework.transaction.annotation.Transactional;\n\n@Service\npublic class OrderService {\n    private final OrderRepository orders;\n    private final StockService stock;\n    private final ApplicationEventPublisher events;\n\n    public OrderService(OrderRepository orders, StockService stock, ApplicationEventPublisher events) {\n        this.orders = orders;\n        this.stock = stock;\n        this.events = events;\n    }\n\n    @Transactional\n    public Order place(PlaceOrder command) {\n        Order order = orders.save(Order.from(command));\n        events.publishEvent(new OrderPlaced(order.getId(), command.email()));\n        stock.reserve(command.items());\n        return order;\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/order/OrderMailListener.java",
+      "content": "package com.example.order;\n\nimport org.springframework.context.event.EventListener;\nimport org.springframework.stereotype.Component;\n\n@Component\npublic class OrderMailListener {\n    private final OrderMailer mailer;\n\n    public OrderMailListener(OrderMailer mailer) {\n        this.mailer = mailer;\n    }\n\n    @EventListener\n    public void on(OrderPlaced event) {\n        mailer.sendConfirmation(event.email(), event.orderId());\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "在庫切れで注文ロールバックしたのに確認メール届いたって問い合わせ来てる。なんで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "@EventListener は、publishEvent を呼んだその場で同期的に実行されます。place の中で publishEvent した時点でメールが送られ、そのあと stock.reserve が例外を投げて注文がロールバックしても、送ったメールは取り消せません。@TransactionalEventListener に替えると、イベントはトランザクションが終わるまで保留されます。phase を AFTER_COMMIT にすると、コミットできたときだけ呼ばれ、ロールバックでは呼ばれません。ポイントは、注文が確定したあとにしかメールを送らないことです。これで、ロールバックした注文にメールが届かないことを保証します。逆に、メールの送信が失敗しても注文はもうコミット済みなので巻き戻りません。",
+          "reading": "@EventListener は、publishEvent をよんだそのばでどうきてきにじっこうされます。place のなかで publishEvent したじてんでメールがおくられ、そのあと stock.reserve がれいがいをなげてちゅうもんがロールバックしても、おくったメールはとりけせません。@TransactionalEventListener にかえると、イベントはトランザクションがおわるまでほりゅうされます。phase を AFTER_COMMIT にすると、コミットできたときだけよばれ、ロールバックではよばれません。ポイントは、ちゅうもんがかくていしたあとにしかメールをおくらないことです。これで、ロールバックしたちゅうもんにメールがとどかないことをほしょうします。ぎゃくに、メールのそうしんがしっぱいしてもちゅうもんはもうコミットずみなのでまきもどりません。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.order;\n\nimport org.springframework.stereotype.Component;\nimport org.springframework.transaction.event.TransactionPhase;\nimport org.springframework.transaction.event.TransactionalEventListener;\n\n@Component\npublic class OrderMailListener {\n    private final OrderMailer mailer;\n\n    public OrderMailListener(OrderMailer mailer) {\n        this.mailer = mailer;\n    }\n\n    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)\n    public void on(OrderPlaced event) {\n        mailer.sendConfirmation(event.email(), event.orderId());\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "直った。ついでに送ったやつ mail_log に残しといて。監査で要るんだって",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。MailLogRepository を受け取って、送信のあとに 1 行保存します。注文と同じトランザクションに乗せたいので、@Transactional に Propagation.REQUIRED を明示しておきます。これで注文と送信記録がまとめて書かれます。",
+          "reading": "かしこまりました。MailLogRepository をうけとって、そうしんのあとに 1 ぎょうほぞんします。ちゅうもんとおなじトランザクションにのせたいので、@Transactional に Propagation.REQUIRED をめいじしておきます。これでちゅうもんとそうしんきろくがまとめてかかれます。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.order;\n\nimport org.springframework.stereotype.Component;\nimport org.springframework.transaction.annotation.Propagation;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.transaction.event.TransactionPhase;\nimport org.springframework.transaction.event.TransactionalEventListener;\n\n@Component\npublic class OrderMailListener {\n    private final OrderMailer mailer;\n    private final MailLogRepository logs;\n\n    public OrderMailListener(OrderMailer mailer, MailLogRepository logs) {\n        this.mailer = mailer;\n        this.logs = logs;\n    }\n\n    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)\n    @Transactional(propagation = Propagation.REQUIRED)\n    public void on(OrderPlaced event) {\n        mailer.sendConfirmation(event.email(), event.orderId());\n        logs.save(new MailLog(event.orderId(), event.email()));\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "起動しなくなったんだけど\nIllegalStateException: @TransactionalEventListener method must not be annotated with @Transactional unless when declared as REQUIRES_NEW or NOT_SUPPORTED",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません、先ほどの説明は誤りでした。AFTER_COMMIT で呼ばれる時点で、注文のトランザクションはもうコミットし終わっています。ただ接続はまだスレッドに結び付いたままなので、REQUIRED だとその終わったトランザクションに参加し、save はエラーなく通るのに、そのあとコミットが来ないので mail_log には何も残りません。言い換えると、黙って消える書き込みです。Spring 6.1 からはこの組み合わせを起動時に弾くようになったので、出ているのはその検査です。新しいトランザクションを開く REQUIRES_NEW にします。",
+          "reading": "もうしわけありません、さきほどのせつめいはあやまりでした。AFTER_COMMIT でよばれるじてんで、ちゅうもんのトランザクションはもうコミットしおわっています。ただせつぞくはまだスレッドにむすびついたままなので、REQUIRED だとそのおわったトランザクションにさんかし、save はエラーなくとおるのに、そのあとコミットがこないので mail_log にはなにものこりません。いいかえると、だまってきえるかきこみです。Spring 6.1 からはこのくみあわせをきどうじにはじくようになったので、でているのはそのけんさです。あたらしいトランザクションをひらく REQUIRES_NEW にします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/Propagation.REQUIRED)/Propagation.REQUIRES_NEW)/' src/main/java/com/example/order/OrderMailListener.java"
+        }
+      ]
+    }
+  ]
+}

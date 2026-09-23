@@ -1,0 +1,75 @@
+{
+  "id": "tbb-parallel-for-cpp-ja",
+  "title": "parallel_for の中の push_back でたまに落ちる",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "cpp",
+  "summary": "oneTBB の parallel_for から std::vector に push_back するとデータ競合で落ちる。concurrent_vector は順番を保たないので、順番が要るなら parallel_reduce、合計なら combinable にする。",
+  "files": [
+    {
+      "path": "src/scan/scan.cpp",
+      "content": "#include <cstddef>\n#include <string>\n#include <vector>\n\n#include <tbb/blocked_range.h>\n#include <tbb/parallel_for.h>\n\nstruct Record {\n  std::string path;\n  std::size_t bytes;\n};\n\nstd::vector<Record> find_large(const std::vector<Record>& records, std::size_t threshold) {\n  std::vector<Record> hits;\n  tbb::parallel_for(tbb::blocked_range<std::size_t>(0, records.size()),\n      [&](const tbb::blocked_range<std::size_t>& r) {\n        for (std::size_t i = r.begin(); i != r.end(); ++i) {\n          if (records[i].bytes >= threshold) hits.push_back(records[i]);\n        }\n      });\n  return hits;\n}\n\nstd::size_t total_bytes(const std::vector<Record>& records) {\n  std::size_t sum = 0;\n  for (const auto& rec : records) sum += rec.bytes;\n  return sum;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "find_large がたまに segfault する。件数少ないと出ない。parallel_for 入れてからっぽい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。tbb::parallel_for は範囲をいくつかに分け、それぞれを別のスレッドで同時に実行します。std::vector の push_back はスレッド安全ではなく、容量が足りなくなると領域を確保し直すので、その間に別のスレッドが古い領域へ書き込んで落ちます。件数が少ないと確保し直しがほとんど起きないため、出にくかったのです。tbb::concurrent_vector なら push_back を同時に呼べて、要素も records の順に並びます。",
+          "reading": "するどいごしてきです。tbb::parallel_for ははんいをいくつかにわけ、それぞれをべつのすれっどでどうじにじっこうします。std::vector の push_back はすれっどあんぜんではなく、ようりょうがたりなくなるとりょういきをかくほしなおすので、そのあいだにべつのすれっどがふるいりょういきへかきこんでおちます。けんすうがすくないとかくほしなおしがほとんどおきないため、でにくかったのです。tbb::concurrent_vector なら push_back をどうじによべて、ようそも records のじゅんにならびます。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include <tbb/concurrent_vector.h>\n\nstd::vector<Record> find_large(const std::vector<Record>& records, std::size_t threshold) {\n  tbb::concurrent_vector<Record> hits;\n  tbb::parallel_for(tbb::blocked_range<std::size_t>(0, records.size()),\n      [&](const tbb::blocked_range<std::size_t>& r) {\n        for (std::size_t i = r.begin(); i != r.end(); ++i) {\n          if (records[i].bytes >= threshold) hits.push_back(records[i]);\n        }\n      });\n  return std::vector<Record>(hits.begin(), hits.end());\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "落ちなくなった。けどテストで結果の並びが毎回違ってコケる。前は records の順だった",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、正確ではありませんでした。concurrent_vector が保つのは push_back が届いた順で、どのスレッドが先に届くかは実行のたびに変わります。records の順が要るなら tbb::parallel_reduce を使い、範囲ごとに結果を作って左の後ろに右をつなげます。TBB は結合を必ず左と右の順で呼ぶので、つなげる操作が交換可能でなくても、並びは決定論的になります。",
+          "reading": "あらためてかくにんしたところ、せいかくではありませんでした。concurrent_vector がたもつのは push_back がとどいたじゅんで、どのすれっどがさきにとどくかはじっこうのたびにかわります。records のじゅんがいるなら tbb::parallel_reduce をつかい、はんいごとにけっかをつくってひだりのうしろにみぎをつなげます。TBB はけつごうをかならずひだりとみぎのじゅんでよぶので、つなげるそうさがこうかんかのうでなくても、ならびはけっていろんてきになります。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include <tbb/parallel_reduce.h>\n\nstd::vector<Record> find_large(const std::vector<Record>& records, std::size_t threshold) {\n  return tbb::parallel_reduce(\n      tbb::blocked_range<std::size_t>(0, records.size()), std::vector<Record>{},\n      [&](const tbb::blocked_range<std::size_t>& r, std::vector<Record> acc) {\n        for (std::size_t i = r.begin(); i != r.end(); ++i) {\n          if (records[i].bytes >= threshold) acc.push_back(records[i]);\n        }\n        return acc;\n      },\n      [](std::vector<Record> left, const std::vector<Record>& right) {\n        left.insert(left.end(), right.begin(), right.end());\n        return left;\n      });\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "テスト通った。records が数百万件あって 1 件はめちゃ軽いから、細かく分けすぎてない？ 1024 件ずつくらいにしといて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。blocked_range の 3 つ目の引数が grainsize で、これより小さい範囲には分けなくなります。",
+          "reading": "しょうちしました。blocked_range の 3 つめのひきすうが grainsize で、これよりちいさいはんいにはわけなくなります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/blocked_range<std::size_t>(0, records\\.size())/blocked_range<std::size_t>(0, records.size(), 1024)/' src/scan/scan.cpp"
+        }
+      ]
+    },
+    {
+      "user": "ついでに total_bytes も並列にしたい。sum += だとまた同じことになるよね。atomic にすればいい？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "std::atomic でも正しくはなりますが、全スレッドが 1 つのキャッシュラインを奪い合うので、1 件が軽いこのループでは逐次より遅くなりがちです。tbb::combinable でスレッドごとに小計を持ち、最後に combine で足すことをお勧めします。local() は呼んだスレッド専用の値を返すので、ループの中にアトミックな操作は要りません。",
+          "reading": "std::atomic でもただしくはなりますが、ぜんすれっどが 1 つのきゃっしゅらいんをうばいあうので、1 けんがかるいこのるーぷではちくじよりおそくなりがちです。tbb::combinable ですれっどごとにしょうけいをもち、さいごに combine でたすことをおすすめします。local() はよんだすれっどせんようのあたいをかえすので、るーぷのなかにあとみっくなそうさはいりません。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include <functional>\n\n#include <tbb/combinable.h>\n\nstd::size_t total_bytes(const std::vector<Record>& records) {\n  tbb::combinable<std::size_t> partial([] { return std::size_t{0}; });\n  tbb::parallel_for(tbb::blocked_range<std::size_t>(0, records.size(), 1024),\n      [&](const tbb::blocked_range<std::size_t>& r) {\n        std::size_t& local = partial.local();\n        for (std::size_t i = r.begin(); i != r.end(); ++i) local += records[i].bytes;\n      });\n  return partial.combine(std::plus<>{});\n}\n"
+        }
+      ]
+    }
+  ]
+}

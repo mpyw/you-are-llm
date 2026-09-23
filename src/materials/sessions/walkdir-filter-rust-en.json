@@ -1,0 +1,44 @@
+{
+  "id": "walkdir-filter-rust-en",
+  "title": "Replace a hand-rolled read_dir recursion with walkdir filter_entry",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "rust",
+  "summary": "A recursion that walks into target and hidden directories becomes WalkDir pruned with filter_entry, and a root of \".\" that pruned itself is let through by depth.",
+  "files": [
+    {
+      "path": "src/scan.rs",
+      "content": "use std::fs;\nuse std::io;\nuse std::path::{Path, PathBuf};\n\npub fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) -> io::Result<()> {\n    for entry in fs::read_dir(dir)? {\n        let path = entry?.path();\n        if path.is_dir() {\n            rust_files(&path, out)?;\n        } else if path.extension().is_some_and(|ext| ext == \"rs\") {\n            out.push(path);\n        }\n    }\n    Ok(())\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "the .rs collector goes all the way into target, and .git too. slow. someone said use walkdir",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! Here's the key point: filter and filter_entry are not the same. filter only drops items from the iterator, so walkdir still descends into target after you reject it. filter_entry skips a directory that returns false, contents and all, without reading it. Hidden directories and target are pruned with filter_entry, and the .rs check stays in filter. Note: filter_map(Result::ok) quietly throws away entries that could not be read."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::path::{Path, PathBuf};\n\nuse walkdir::{DirEntry, WalkDir};\n\nfn is_skipped(entry: &DirEntry) -> bool {\n    let name = entry.file_name().to_string_lossy();\n    name.starts_with('.') || name == \"target\"\n}\n\npub fn rust_files(root: &Path) -> Vec<PathBuf> {\n    WalkDir::new(root)\n        .into_iter()\n        .filter_entry(|entry| !is_skipped(entry))\n        .filter_map(Result::ok)\n        .filter(|entry| entry.file_type().is_file())\n        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == \"rs\"))\n        .map(DirEntry::into_path)\n        .collect()\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "rust_files(Path::new(\".\")) returns nothing",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous is_skipped also judged the root. WalkDir yields the root itself as an entry at depth 0. \".\" has no file name, so file_name falls back to the whole path, which is \".\", and starts_with('.') pruned the entire walk on the first entry. Entries at depth 0 now always pass."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "fn is_skipped(entry: &DirEntry) -> bool {\n    let name = entry.file_name().to_string_lossy();\n    entry.depth() > 0 && (name.starts_with('.') || name == \"target\")\n}\n"
+        }
+      ]
+    }
+  ]
+}

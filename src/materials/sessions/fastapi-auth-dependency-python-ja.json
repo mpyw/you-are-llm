@@ -1,0 +1,84 @@
+{
+  "id": "fastapi-auth-dependency-python-ja",
+  "title": "OAuth2PasswordBearer で現在のユーザーを依存関係にする",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "python",
+  "summary": "エンドポイントごとの手書きのトークン確認を get_current_user に寄せ、401 に WWW-Authenticate を付け、漏れていた dependency_overrides を fixture で片付け、無効なユーザーを 403 にする。",
+  "files": [
+    {
+      "path": "app/main.py",
+      "content": "from fastapi import FastAPI, Header, HTTPException\n\nfrom app.auth import USERS, decode_token\n\napp = FastAPI()\n\n\n@app.get(\"/me\")\ndef read_me(authorization: str = Header()):\n    user_id = decode_token(authorization.removeprefix(\"Bearer \"))\n    if user_id is None or user_id not in USERS:\n        raise HTTPException(status_code=401, detail=\"invalid token\")\n    return USERS[user_id]\n\n\n@app.get(\"/orders\")\ndef list_orders(authorization: str = Header()):\n    user_id = decode_token(authorization.removeprefix(\"Bearer \"))\n    if user_id is None or user_id not in USERS:\n        raise HTTPException(status_code=401, detail=\"invalid token\")\n    return {\"user_id\": user_id, \"orders\": []}\n"
+    },
+    {
+      "path": "app/auth.py",
+      "content": "import jwt\nfrom pydantic import BaseModel\n\nSECRET_KEY = \"change-me\"\n\n\nclass User(BaseModel):\n    id: int\n    name: str\n    is_active: bool = True\n\n\nUSERS = {1: User(id=1, name=\"mpyw\"), 2: User(id=2, name=\"ghost\", is_active=False)}\n\n\ndef decode_token(token: str) -> int | None:\n    try:\n        payload = jwt.decode(token, SECRET_KEY, algorithms=[\"HS256\"])\n    except jwt.InvalidTokenError:\n        return None\n    return int(payload[\"sub\"])\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "エンドポイント増えるたびにこのトークン確認コピペしてる。あとヘッダ無しで叩くと 401 じゃなくて 422 が返ってくるのも気持ち悪い",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "順を追って説明します。Header() に既定値がないので、Authorization が無いと FastAPI は必須パラメータの欠落として 422 を返します。OAuth2PasswordBearer を依存関係にすると、Bearer トークンを取り出す処理はそちらに任せられ、ヘッダが無ければ 401 を返します。トークンを確かめてユーザーを返す get_current_user を auth.py に置き、Annotated で CurrentUser という型にまとめます。401 には WWW-Authenticate: Bearer を付けます。401 を返すときに HTTP の仕様が求めているヘッダです。tokenUrl は Swagger UI がトークンを取りに行く先です。",
+          "reading": "じゅんをおってせつめいします。Header() にきていちがないので、Authorization がないと FastAPI はひっすぱらめーたのけつらくとして 422 をかえします。OAuth2PasswordBearer をいぞんかんけいにすると、Bearer とーくんをとりだすしょりはそちらにまかせられ、へっだがなければ 401 をかえします。とーくんをたしかめてゆーざーをかえす get_current_user を auth.py におき、Annotated で CurrentUser というかたにまとめます。401 には WWW-Authenticate: Bearer をつけます。401 をかえすときに HTTP のしようがもとめているへっだです。tokenUrl は Swagger UI がとーくんをとりにいくさきです。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from typing import Annotated\n\nfrom fastapi import Depends, HTTPException, status\nfrom fastapi.security import OAuth2PasswordBearer\n\noauth2_scheme = OAuth2PasswordBearer(tokenUrl=\"token\")\n\n\ndef get_current_user(token: Annotated[str, Depends(oauth2_scheme)]) -> User:\n    user_id = decode_token(token)\n    if user_id is None or user_id not in USERS:\n        raise HTTPException(\n            status_code=status.HTTP_401_UNAUTHORIZED,\n            detail=\"invalid token\",\n            headers={\"WWW-Authenticate\": \"Bearer\"},\n        )\n    return USERS[user_id]\n\n\nCurrentUser = Annotated[User, Depends(get_current_user)]\n"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from fastapi import FastAPI\n\nfrom app.auth import CurrentUser\n\napp = FastAPI()\n\n\n@app.get(\"/me\")\ndef read_me(user: CurrentUser):\n    return user\n\n\n@app.get(\"/orders\")\ndef list_orders(user: CurrentUser):\n    return {\"user_id\": user.id, \"orders\": []}\n"
+        }
+      ]
+    },
+    {
+      "user": "いい感じ。テスト書きたいんだけど、毎回 JWT 作るのだるい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! app.dependency_overrides を活用します。get_current_user をキーにして別の関数を入れると、その依存関係の代わりにそちらが呼ばれます。偽のユーザーを返すラムダを入れれば、JWT を作らずにログイン済みの状態でテストできます。",
+          "reading": "Great question! app.dependency_overrides をかつようします。get_current_user をきーにしてべつのかんすうをいれると、そのいぞんかんけいのかわりにそちらがよばれます。にせのゆーざーをかえすらむだをいれれば、JWT をつくらずにろぐいんずみのじょうたいでてすとできます。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from fastapi.testclient import TestClient\n\nfrom app.auth import User, get_current_user\nfrom app.main import app\n\napp.dependency_overrides[get_current_user] = lambda: User(id=1, name=\"mpyw\")\n\nclient = TestClient(app)\n\n\ndef test_read_me():\n    response = client.get(\"/me\")\n    assert response.status_code == 200\n    assert response.json()[\"name\"] == \"mpyw\"\n"
+        }
+      ]
+    },
+    {
+      "user": "トークン無しで 401 になるテスト足したら 200 が返ってきて落ちた。しかも tests/test_orders.py まで全部ログイン済み扱いになってる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどのテストは、モジュールの読み込み時に dependency_overrides を書き換えていました。これは app に 1 つだけある辞書なので、一度入れた差し替えは pytest のプロセスが終わるまで残り、他のテストファイルにも漏れます。言い換えると、差し替えはテストごとに入れて、終わったら消す必要があります。fixture の yield の後ろで clear し、ログイン済みにしたいテストだけがその fixture を受け取るようにします。",
+          "reading": "もうしわけありません。さきほどのてすとは、もじゅーるのよみこみじに dependency_overrides をかきかえていました。これは app に 1 つだけあるじしょなので、いちどいれたさしかえは pytest のぷろせすがおわるまでのこり、ほかのてすとふぁいるにももれます。いいかえると、さしかえはてすとごとにいれて、おわったらけすひつようがあります。fixture の yield のうしろで clear し、ろぐいんずみにしたいてすとだけがその fixture をうけとるようにします。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "import pytest\nfrom fastapi.testclient import TestClient\n\nfrom app.auth import User, get_current_user\nfrom app.main import app\n\nclient = TestClient(app)\n\n\n@pytest.fixture\ndef logged_in():\n    app.dependency_overrides[get_current_user] = lambda: User(id=1, name=\"mpyw\")\n    yield\n    app.dependency_overrides.clear()\n\n\ndef test_read_me(logged_in):\n    response = client.get(\"/me\")\n    assert response.status_code == 200\n    assert response.json()[\"name\"] == \"mpyw\"\n\n\ndef test_read_me_without_token():\n    response = client.get(\"/me\")\n    assert response.status_code == 401\n    assert response.headers[\"WWW-Authenticate\"] == \"Bearer\"\n"
+        }
+      ]
+    },
+    {
+      "user": "あと退会したユーザー、is_active が False のやつ。トークンがまだ生きてると普通に入れちゃうから 403 にして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。get_current_user の return の直前に判定を足します。行頭の空白をグループで捕まえて、\\1 で同じ深さに揃えてから 2 行を差し込みます。Note: テストで get_current_user を差し替えると、この判定ごと飛ばされるという点に注意することが重要です。",
+          "reading": "しょうちしました。get_current_user の return のちょくぜんにはんていをたします。ぎょうとうのくうはくをぐるーぷでつかまえて、\\1 でおなじふかさにそろえてから 2 ぎょうをさしこみます。Note: てすとで get_current_user をさしかえると、このはんていごととばされるというてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^\\( *\\)return USERS\\[user_id\\]$/\\1if not USERS[user_id].is_active:\\n\\1    raise HTTPException(status_code=403, detail=\"inactive user\")\\n&/' app/auth.py"
+        }
+      ]
+    }
+  ]
+}

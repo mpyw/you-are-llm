@@ -1,0 +1,60 @@
+{
+  "id": "pydantic-model-validator-python-ja",
+  "title": "model_validator で開始日と終了日を突き合わせる",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "python",
+  "summary": "field_validator から info.data を覗いて KeyError で 500 を出したのを、mode=\"after\" のモデルバリデータに移し、日帰りを許す。",
+  "files": [
+    {
+      "path": "app/schemas.py",
+      "content": "from datetime import date\n\nfrom pydantic import BaseModel\n\n\nclass BookingIn(BaseModel):\n    room_id: int\n    start: date\n    end: date\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "予約 API、end が start より前でも通っちゃう。弾いて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。field_validator に ValidationInfo を受け取らせると、info.data に検証済みのフィールドが入っています。フィールドは定義した順に検証されるので、start が end より上にあるという点に注意することが重要です。",
+          "reading": "しょうちしました。field_validator に ValidationInfo をうけとらせると、info.data にけんしょうずみのふぃーるどがはいっています。ふぃーるどはていぎしたじゅんにけんしょうされるので、start が end よりうえにあるというてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from datetime import date\n\nfrom pydantic import BaseModel, ValidationInfo, field_validator\n\n\nclass BookingIn(BaseModel):\n    room_id: int\n    start: date\n    end: date\n\n    @field_validator(\"end\")\n    @classmethod\n    def check_end(cls, value: date, info: ValidationInfo) -> date:\n        if value <= info.data[\"start\"]:\n            raise ValueError(\"end must be after start\")\n        return value\n"
+        }
+      ]
+    },
+    {
+      "user": "start に \"tomorrow\" とか送ると 422 じゃなくて 500 になる。ログは KeyError: 'start'",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの実装は、start の検証が失敗したときのことを考えていませんでした。失敗したフィールドは info.data に入らないので、info.data[\"start\"] が KeyError になります。Pydantic が 422 に変えてくれるのは ValueError や AssertionError で、KeyError はそのまま 500 に抜けます。2 つのフィールドにまたがる検証は、model_validator の mode=\"after\" に移すのがベストプラクティスです。全部のフィールドが検証を通ってからしか呼ばれないので、self.start と self.end は必ず date です。",
+          "reading": "もうしわけありません。さきほどのじっそうは、start のけんしょうがしっぱいしたときのことをかんがえていませんでした。しっぱいしたふぃーるどは info.data にはいらないので、info.data[\"start\"] が KeyError になります。Pydantic が 422 にかえてくれるのは ValueError や AssertionError で、KeyError はそのまま 500 にぬけます。2 つのふぃーるどにまたがるけんしょうは、model_validator の mode=\"after\" にうつすのがべすとぷらくてぃすです。ぜんぶのふぃーるどがけんしょうをとおってからしかよばれないので、self.start と self.end はかならず date です。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from datetime import date\nfrom typing import Self\n\nfrom pydantic import BaseModel, model_validator\n\n\nclass BookingIn(BaseModel):\n    room_id: int\n    start: date\n    end: date\n\n    @model_validator(mode=\"after\")\n    def check_dates(self) -> Self:\n        if self.end <= self.start:\n            raise ValueError(\"end must be after start\")\n        return self\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、日帰りプランあるの忘れてた。start と end が同じ日は OK にして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great、比較を <= から < に変えて、メッセージもそれに合わせます。言い換えると、同じ日は通し、end が start より前のときだけ弾きます。",
+          "reading": "Great、ひかくを <= から < にかえて、めっせーじもそれにあわせます。いいかえると、おなじひはとおし、end が start よりまえのときだけはじきます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/self.end <= self.start/self.end < self.start/' -e 's/end must be after start/end must not be before start/' app/schemas.py"
+        }
+      ]
+    }
+  ]
+}

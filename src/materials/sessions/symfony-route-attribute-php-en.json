@@ -1,0 +1,52 @@
+{
+  "id": "symfony-route-attribute-php-en",
+  "title": "Move YAML routes onto #[Route]",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "Move the routes left in routes.yaml onto #[Route] attributes, then stop /products/{id} from swallowing export by limiting id to digits with requirements.",
+  "files": [
+    {
+      "path": "config/routes.yaml",
+      "content": "controllers:\n    resource:\n        path: ../src/Controller/\n        namespace: App\\Controller\n    type: attribute\n\nproduct_index:\n    path: /products\n    controller: App\\Controller\\ProductController::index\n    methods: [GET]\n\nproduct_export:\n    path: /products/export\n    controller: App\\Controller\\ProductController::export\n    methods: [GET]\n\nproduct_show:\n    path: /products/{id}\n    controller: App\\Controller\\ProductController::show\n    methods: [GET]\n"
+    },
+    {
+      "path": "src/Controller/ProductController.php",
+      "content": "<?php\n\nnamespace App\\Controller;\n\nuse App\\Repository\\ProductRepository;\nuse Symfony\\Bundle\\FrameworkBundle\\Controller\\AbstractController;\nuse Symfony\\Component\\HttpFoundation\\JsonResponse;\nuse Symfony\\Component\\HttpFoundation\\Response;\n\nclass ProductController extends AbstractController\n{\n    public function index(ProductRepository $products): JsonResponse\n    {\n        return $this->json($products->findAll());\n    }\n\n    public function show(int $id, ProductRepository $products): JsonResponse\n    {\n        $product = $products->find($id) ?? throw $this->createNotFoundException();\n\n        return $this->json($product);\n    }\n\n    public function export(ProductRepository $products): Response\n    {\n        $lines = ['sku,name,price'];\n        foreach ($products->findAll() as $product) {\n            $lines[] = sprintf('%s,%s,%d', $product->getSku(), $product->getName(), $product->getPrice());\n        }\n\n        return new Response(implode(\"\\n\", $lines).\"\\n\", headers: ['Content-Type' => 'text/csv']);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "config/routes.yaml still has hand written routes for ProductController. every other controller uses #[Route], want these to match",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the plan: the controllers entry at the top already loads src/Controller as attributes, so once each method has a #[Route], the three YAML entries can go. The route names stay the same as the YAML keys, so every path() and redirectToRoute() call keeps working."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Symfony\\Component\\Routing\\Attribute\\Route;\n\nclass ProductController extends AbstractController\n{\n    #[Route('/products', name: 'product_index', methods: ['GET'])]\n    public function index(ProductRepository $products): JsonResponse\n    {\n        // ...\n    }\n\n    #[Route('/products/{id}', name: 'product_show', methods: ['GET'])]\n    public function show(int $id, ProductRepository $products): JsonResponse\n    {\n        // ...\n    }\n\n    #[Route('/products/export', name: 'product_export', methods: ['GET'])]\n    public function export(ProductRepository $products): Response\n    {\n        // ...\n    }\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "php bin/console debug:router --show-controllers"
+        }
+      ]
+    },
+    {
+      "user": "/products/export is a 500 now. Argument #1 ($id) must be of type int, string given. and dont fix it by reordering the methods, someone will just break it again",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, that one is on me. Attribute routes are registered in the order the methods appear in the class, so /products/{id} on show is tried before export and the string export lands in $id. The YAML listed export first, which is why this never showed up before. With requirements limiting id to digits, /products/export no longer matches show and falls through to the next route."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "#[Route('/products/{id}', name: 'product_show', requirements: ['id' => '\\d+'], methods: ['GET'])]\npublic function show(int $id, ProductRepository $products): JsonResponse\n"
+        }
+      ]
+    }
+  ]
+}

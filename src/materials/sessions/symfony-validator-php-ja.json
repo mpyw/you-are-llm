@@ -1,0 +1,78 @@
+{
+  "id": "symfony-validator-php-ja",
+  "title": "JSON の手書き検証を MapRequestPayload に移す",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "php",
+  "summary": "json_decode と if の検証を制約属性付きの DTO と #[MapRequestPayload] に置き換え、入れ子の明細に Assert\\Valid を付け忘れる。",
+  "files": [
+    {
+      "path": "src/Controller/OrderController.php",
+      "content": "<?php\n\nnamespace App\\Controller;\n\nuse App\\Service\\OrderPlacer;\nuse Symfony\\Bundle\\FrameworkBundle\\Controller\\AbstractController;\nuse Symfony\\Component\\HttpFoundation\\JsonResponse;\nuse Symfony\\Component\\HttpFoundation\\Request;\nuse Symfony\\Component\\Routing\\Attribute\\Route;\n\nclass OrderController extends AbstractController\n{\n    #[Route('/api/orders', name: 'api_order_create', methods: ['POST'])]\n    public function create(Request $request, OrderPlacer $placer): JsonResponse\n    {\n        $data = json_decode($request->getContent(), true);\n\n        if (!is_array($data)) {\n            return $this->json(['error' => 'Invalid JSON.'], 400);\n        }\n\n        if (!isset($data['email']) || !filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {\n            return $this->json(['error' => 'email is invalid.'], 400);\n        }\n\n        if (!isset($data['sku']) || !is_string($data['sku']) || $data['sku'] === '') {\n            return $this->json(['error' => 'sku is required.'], 400);\n        }\n\n        if (!isset($data['quantity']) || !is_int($data['quantity']) || $data['quantity'] < 1) {\n            return $this->json(['error' => 'quantity must be a positive integer.'], 400);\n        }\n\n        $order = $placer->place($data['email'], $data['sku'], $data['quantity']);\n\n        return $this->json(['id' => $order->getId()], 201);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "POST /api/orders で json_decode して if 並べて検証してる。Validator に寄せたい。6.3 から MapRequestPayload ってのがあるらしい？ あとエラーのステータス変わるならフロントに言っとくので教えて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい質問です。受け取る形を DTO にして制約属性を付け、引数に #[MapRequestPayload] を付けると、デシリアライズと検証はコントローラに入る前に終わります。ステータスは変わります。制約違反は 422 で、本文の violations に propertyPath ごとのメッセージが入ります。JSON として壊れているときは 400 です。本文が JSON になるのはリクエストに Accept: application/json が付いているときだけで、付いていないと HTML のエラーページが返るという点に注意することが重要です。validationFailedStatusCode 引数で 400 に戻すこともできますが、422 のまま使うことをお勧めします。",
+          "reading": "すばらしいしつもんです。うけとるかたちを DTO にしてせいやくぞくせいをつけ、ひきすうに #[MapRequestPayload] をつけると、デシリアライズとけんしょうはコントローラにはいるまえにおわります。ステータスはかわります。せいやくいはんは 422 で、ほんぶんの violations に propertyPath ごとのメッセージがはいります。JSON としてこわれているときは 400 です。ほんぶんが JSON になるのはリクエストに Accept: application/json がついているときだけで、ついていないと HTML のエラーページがかえるというてんにちゅういすることがじゅうようです。validationFailedStatusCode ひきすうで 400 にもどすこともできますが、422 のままつかうことをおすすめします。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "<?php\n\nnamespace App\\Dto;\n\nuse Symfony\\Component\\Validator\\Constraints as Assert;\n\nfinal class PlaceOrderRequest\n{\n    public function __construct(\n        #[Assert\\NotBlank]\n        #[Assert\\Email]\n        public readonly string $email,\n\n        #[Assert\\NotBlank]\n        #[Assert\\Length(max: 64)]\n        public readonly string $sku,\n\n        #[Assert\\Positive]\n        public readonly int $quantity,\n    ) {\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use App\\Dto\\PlaceOrderRequest;\nuse Symfony\\Component\\HttpKernel\\Attribute\\MapRequestPayload;\n\n#[Route('/api/orders', name: 'api_order_create', methods: ['POST'])]\npublic function create(#[MapRequestPayload] PlaceOrderRequest $payload, OrderPlacer $placer): JsonResponse\n{\n    $order = $placer->place($payload->email, $payload->sku, $payload->quantity);\n\n    return $this->json(['id' => $order->getId()], 201);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、忘れてた。1 注文で複数商品いけるようにするんだった。lines: [{sku, quantity}] の配列で受けたい。email はそのまま",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、明細を OrderLineInput に切り出し、PlaceOrderRequest は lines を持つ形にします。Serializer が配列の中身を OrderLineInput に変換するには @param list<OrderLineInput> の PHPDoc を読む必要があり、そのために phpdocumentor/reflection-docblock を入れます。入っていないと lines は連想配列のまま渡ります。コントローラは $placer->place($payload->email, $payload->lines) に変えます。これで明細の各行も制約どおりに検証されます。",
+          "reading": "Now、めいさいを OrderLineInput にきりだし、PlaceOrderRequest は lines をもつかたちにします。Serializer がはいれつのなかみを OrderLineInput にへんかんするには @param list<OrderLineInput> の PHPDoc をよむひつようがあり、そのために phpdocumentor/reflection-docblock をいれます。はいっていないと lines はれんそうはいれつのままわたります。コントローラは $placer->place($payload->email, $payload->lines) にかえます。これでめいさいのかくぎょうもせいやくどおりにけんしょうされます。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "<?php\n\nnamespace App\\Dto;\n\nuse Symfony\\Component\\Validator\\Constraints as Assert;\n\nfinal class PlaceOrderRequest\n{\n    /**\n     * @param list<OrderLineInput> $lines\n     */\n    public function __construct(\n        #[Assert\\NotBlank]\n        #[Assert\\Email]\n        public readonly string $email,\n\n        #[Assert\\Count(min: 1, max: 50)]\n        public readonly array $lines,\n    ) {\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "<?php\n\nnamespace App\\Dto;\n\nuse Symfony\\Component\\Validator\\Constraints as Assert;\n\nfinal class OrderLineInput\n{\n    public function __construct(\n        #[Assert\\NotBlank]\n        #[Assert\\Length(max: 64)]\n        public readonly string $sku,\n\n        #[Assert\\Positive]\n        public readonly int $quantity,\n    ) {\n    }\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "composer require phpdocumentor/reflection-docblock"
+        }
+      ]
+    },
+    {
+      "user": "quantity: 0 の行が 201 で通ってる。email 空にしたらちゃんと 422 になるのに",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません、先ほどの説明は正確ではありませんでした。Validator は入れ子のオブジェクトの中まで自動では降りていかないので、OrderLineInput の Positive は一度も評価されていません。言い換えると、Count は lines の件数だけを見ていて、中身は見ていませんでした。lines に Assert\\Valid を足すと、各要素の制約も実行されます。",
+          "reading": "もうしわけありません、さきほどのせつめいはせいかくではありませんでした。Validator はいれこのオブジェクトのなかまでじどうではおりていかないので、OrderLineInput の Positive はいちどもひょうかされていません。いいかえると、Count は lines のけんすうだけをみていて、なかみはみていませんでした。lines に Assert\\Valid をたすと、かくようそのせいやくもじっこうされます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/#\\[Assert\\\\Count(min: 1, max: 50)\\]/#[Assert\\\\Count(min: 1, max: 50), Assert\\\\Valid]/' src/Dto/PlaceOrderRequest.php"
+        },
+        {
+          "kind": "command",
+          "body": "curl -i -X POST http://localhost:8000/api/orders -H 'Content-Type: application/json' -H 'Accept: application/json' -d '{\"email\":\"a@example.com\",\"lines\":[{\"sku\":\"A-1\",\"quantity\":0}]}'"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "id": "jackson-unknown-props-java-en",
+  "title": "The shipping API added a field and every rate lookup broke",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "java",
+  "summary": "An ObjectMapper made with new fails on an unknown field. The one Boot builds does not.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/shipping/ShippingRateClient.java",
+      "content": "package com.example.shipping;\n\nimport com.fasterxml.jackson.core.JsonProcessingException;\nimport com.fasterxml.jackson.databind.ObjectMapper;\nimport org.springframework.stereotype.Component;\nimport org.springframework.web.client.RestClient;\n\n@Component\npublic class ShippingRateClient {\n    private final RestClient restClient;\n    private final ObjectMapper objectMapper = new ObjectMapper();\n\n    public ShippingRateClient(RestClient.Builder builder) {\n        this.restClient = builder.baseUrl(\"https://rates.example.com\").build();\n    }\n\n    public ShippingRate fetch(String zipCode) throws JsonProcessingException {\n        String body = restClient.get()\n                .uri(\"/v1/rates?zip={zip}\", zipCode)\n                .retrieve()\n                .body(String.class);\n        return objectMapper.readValue(body, ShippingRate.class);\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/shipping/ShippingRate.java",
+      "content": "package com.example.shipping;\n\npublic record ShippingRate(String carrier, int amount, int days) {\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "all shipping rate calls 500 since this morning. log says UnrecognizedPropertyException: Unrecognized field \"currency\" (class com.example.shipping.ShippingRate), not marked as ignorable. we didnt deploy anything",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: the rates API started sending currency. A plain ObjectMapper made with new ObjectMapper() has FAIL_ON_UNKNOWN_PROPERTIES on by default, so one field the record does not declare is enough to throw. Put @JsonIgnoreProperties(ignoreUnknown = true) on the record and unknown fields are skipped. The client now survives the other side adding fields."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.shipping;\n\nimport com.fasterxml.jackson.annotation.JsonIgnoreProperties;\n\n@JsonIgnoreProperties(ignoreUnknown = true)\npublic record ShippingRate(String carrier, int amount, int days) {\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ok that fixed it. but our other clients use RestClient body(Foo.class) and they didnt break when fields got added. do I have to annotate every dto??",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch. The ObjectMapper that Spring Boot auto-configures turns FAIL_ON_UNKNOWN_PROPERTIES off from the start, and the RestClient.Builder you inject uses that same mapper, so body(Foo.class) keeps working. This class broke because it built its own mapper with new and skipped Boot entirely. Take Boot's ObjectMapper through the constructor and spring.jackson.* becomes the single source of truth. The annotation behaves the same with any mapper, so it can stay."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "private final RestClient restClient;\nprivate final ObjectMapper objectMapper;\n\npublic ShippingRateClient(RestClient.Builder builder, ObjectMapper objectMapper) {\n    this.restClient = builder.baseUrl(\"https://rates.example.com\").build();\n    this.objectMapper = objectMapper;\n}\n"
+        }
+      ]
+    }
+  ]
+}

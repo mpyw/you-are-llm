@@ -1,0 +1,64 @@
+{
+  "id": "livewire-validation-php-en",
+  "title": "Validate a Livewire 3 form while typing",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "Move the rules into #[Validate] attributes, then find the errors still wait for submit because wire:model is deferred by default in Livewire 3.",
+  "files": [
+    {
+      "path": "app/Livewire/NewsletterSignup.php",
+      "content": "<?php\n\nnamespace App\\Livewire;\n\nuse App\\Models\\Subscriber;\nuse Livewire\\Component;\n\nclass NewsletterSignup extends Component\n{\n    public string $name = '';\n\n    public string $email = '';\n\n    public function save()\n    {\n        $validated = $this->validate([\n            'name' => 'required|min:2',\n            'email' => 'required|email|unique:subscribers,email',\n        ]);\n\n        Subscriber::create($validated);\n\n        $this->reset();\n\n        session()->flash('status', 'Subscribed.');\n    }\n\n    public function render()\n    {\n        return view('livewire.newsletter-signup');\n    }\n}\n"
+    },
+    {
+      "path": "resources/views/livewire/newsletter-signup.blade.php",
+      "content": "<form wire:submit=\"save\">\n    <input type=\"text\" wire:model=\"name\">\n    @error('name') <span class=\"error\">{{ $message }}</span> @enderror\n\n    <input type=\"email\" wire:model=\"email\">\n    @error('email') <span class=\"error\">{{ $message }}</span> @enderror\n\n    <button type=\"submit\">Subscribe</button>\n</form>\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "after upgrading to livewire 3 the newsletter form only shows errors after hitting submit. pretty sure v2 showed them while typing. also the network tab doesnt show a request per keystroke anymore",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great observation! In Livewire 3, putting a rule on a property with the #[Validate] attribute makes Livewire validate that property every time it is updated. Inside save, a bare $this->validate() reuses the same rules, so they no longer live in two places. With this, errors show up as you type."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Livewire\\Attributes\\Validate;\n\nclass NewsletterSignup extends Component\n{\n    #[Validate('required|min:2')]\n    public string $name = '';\n\n    #[Validate('required|email|unique:subscribers,email')]\n    public string $email = '';\n\n    public function save()\n    {\n        $validated = $this->validate();\n\n        Subscriber::create($validated);\n\n        $this->reset();\n\n        session()->flash('status', 'Subscribed.');\n    }\n"
+        }
+      ]
+    },
+    {
+      "user": "no change. still nothing until submit",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous explanation was incorrect. In Livewire 3, wire:model is deferred by default: the typed value only travels with the next action, which here is the submit. The property on the server is not updated until then, so the #[Validate] rules never get a chance to run. The view needs wire:model.live."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/wire:model=\"/wire:model.live=\"/' resources/views/livewire/newsletter-signup.blade.php"
+        },
+        {
+          "kind": "text",
+          "body": "Note: wire:model.live waits until typing pauses for 150 milliseconds before it sends, so it is not one request per key."
+        }
+      ]
+    },
+    {
+      "user": "works now. but it yells in red the moment i start typing an email, annoying. and unique hits the db every time right? email can wait until im done",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Makes sense. Only the email field moves to wire:model.blur, which sends once when focus leaves the field, so the unique query also runs once. The name field stays on wire:model.live."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/type=\"email\"/s/wire:model.live=/wire:model.blur=/' resources/views/livewire/newsletter-signup.blade.php"
+        }
+      ]
+    }
+  ]
+}

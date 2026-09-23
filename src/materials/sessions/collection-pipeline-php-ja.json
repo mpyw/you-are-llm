@@ -1,0 +1,46 @@
+{
+  "id": "collection-pipeline-php-ja",
+  "title": "foreach の集計を Collection に書き換える",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "php",
+  "summary": "二重の foreach と一時配列で組んだカテゴリ別の売上を、flatMap、filter、groupBy、map、sum の一本の流れにする。",
+  "files": [
+    {
+      "path": "app/Services/SalesReport.php",
+      "content": "<?php\n\nnamespace App\\Services;\n\nuse App\\Models\\Order;\n\nclass SalesReport\n{\n    public function byCategory(): array\n    {\n        $orders = Order::with('items')->where('status', 'paid')->get();\n\n        $totals = [];\n        foreach ($orders as $order) {\n            foreach ($order->items as $item) {\n                if ($item->quantity <= 0) {\n                    continue;\n                }\n                if (! isset($totals[$item->category])) {\n                    $totals[$item->category] = 0;\n                }\n                $totals[$item->category] += $item->price * $item->quantity;\n            }\n        }\n\n        arsort($totals);\n\n        return $totals;\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "SalesReport の byCategory、foreach と一時配列でごちゃごちゃしてて読めない。Collection で書き直せる？結果は同じで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。二重の foreach は flatMap で明細の一本の列に平らにし、数量 0 以下の除外を filter、カテゴリごとの合計を groupBy と map と sum で書きます。arsort は sortDesc に置き換えます。groupBy のキーがカテゴリ名のまま残るので、戻り値の形は前と同じです。isset で 0 を入れておくボイラープレートもなくなります。",
+          "reading": "しょうちしました。にじゅうの foreach は flatMap でめいさいのいっぽんのれつにたいらにし、すうりょう 0 いかのじょがいを filter、カテゴリごとのごうけいを groupBy と map と sum でかきます。arsort は sortDesc におきかえます。groupBy のキーがカテゴリめいのままのこるので、もどりちのかたちはまえとおなじです。isset で 0 をいれておくボイラープレートもなくなります。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function byCategory(): array\n{\n    return Order::with('items')\n        ->where('status', 'paid')\n        ->get()\n        ->flatMap(fn (Order $order) => $order->items)\n        ->filter(fn ($item) => $item->quantity > 0)\n        ->groupBy('category')\n        ->map(fn ($items) => $items->sum(fn ($item) => $item->price * $item->quantity))\n        ->sortDesc()\n        ->all();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "おー。あ、数量の合計も一緒にほしいんだった。並びは売上順のままで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: map の中で売上と数量を配列にして返します。値が配列になるので、並び替えは sortByDesc('total') で基準を明示するという点に注意することが重要です。",
+          "reading": "Note: map のなかでうりあげとすうりょうをはいれつにしてかえします。あたいがはいれつになるので、ならびかえは sortByDesc('total') できじゅんをめいじするというてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "        ->groupBy('category')\n        ->map(fn ($items) => [\n            'total' => $items->sum(fn ($item) => $item->price * $item->quantity),\n            'quantity' => $items->sum('quantity'),\n        ])\n        ->sortByDesc('total')\n        ->all();\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "id": "collection-pipeline-php-en",
+  "title": "Turn a foreach tally into a Collection pipeline",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "php",
+  "summary": "Replace a nested foreach and a scratch array that sum sales by category with flatMap, filter, groupBy, map and sum.",
+  "files": [
+    {
+      "path": "app/Services/SalesReport.php",
+      "content": "<?php\n\nnamespace App\\Services;\n\nuse App\\Models\\Order;\n\nclass SalesReport\n{\n    public function byCategory(): array\n    {\n        $orders = Order::with('items')->where('status', 'paid')->get();\n\n        $totals = [];\n        foreach ($orders as $order) {\n            foreach ($order->items as $item) {\n                if ($item->quantity <= 0) {\n                    continue;\n                }\n                if (! isset($totals[$item->category])) {\n                    $totals[$item->category] = 0;\n                }\n                $totals[$item->category] += $item->price * $item->quantity;\n            }\n        }\n\n        arsort($totals);\n\n        return $totals;\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "byCategory in SalesReport is a mess of foreach and temp arrays, cant read it. can you redo it with collections? same output",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! flatMap flattens the nested loops into one list of line items, filter drops anything with a quantity of zero or less, and groupBy, map and sum build the total per category. sortDesc replaces arsort. groupBy keeps the category names as keys, so the return value has the same shape as before, and the isset boilerplate that seeded each total with 0 is gone."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function byCategory(): array\n{\n    return Order::with('items')\n        ->where('status', 'paid')\n        ->get()\n        ->flatMap(fn (Order $order) => $order->items)\n        ->filter(fn ($item) => $item->quantity > 0)\n        ->groupBy('category')\n        ->map(fn ($items) => $items->sum(fn ($item) => $item->price * $item->quantity))\n        ->sortDesc()\n        ->all();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "nice. oh i also need the quantity total per category. keep it sorted by sales",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: map now returns an array holding both the sales and the quantity. Since the values are arrays, the sort names its key explicitly with sortByDesc('total')."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "        ->groupBy('category')\n        ->map(fn ($items) => [\n            'total' => $items->sum(fn ($item) => $item->price * $item->quantity),\n            'quantity' => $items->sum('quantity'),\n        ])\n        ->sortByDesc('total')\n        ->all();\n"
+        }
+      ]
+    }
+  ]
+}

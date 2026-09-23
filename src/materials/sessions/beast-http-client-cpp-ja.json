@@ -1,0 +1,75 @@
+{
+  "id": "beast-http-client-cpp-ja",
+  "title": "パイプラインにしたら 2 個目の http::read で固まる",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "cpp",
+  "summary": "Beast の同期クライアント。flat_buffer は接続につき一つにして使い回し、Connection: close は need_eof() と end_of_stream で受け、shutdown の not_connected は無視する。本文 8MB の上限は response_parser の body_limit で上げる。",
+  "files": [
+    {
+      "path": "src/client/fetch.cpp",
+      "content": "#include <string>\n#include <vector>\n\n#include <boost/asio/connect.hpp>\n#include <boost/asio/ip/tcp.hpp>\n#include <boost/beast/core.hpp>\n#include <boost/beast/http.hpp>\n\nnamespace beast = boost::beast;\nnamespace http = beast::http;\nnamespace net = boost::asio;\nusing tcp = net::ip::tcp;\n\nstd::vector<std::string> fetch_all(const std::string& host, const std::string& port,\n                                   const std::vector<std::string>& targets) {\n  net::io_context ioc;\n  tcp::resolver resolver(ioc);\n  beast::tcp_stream stream(ioc);\n  stream.connect(resolver.resolve(host, port));\n\n  for (const auto& target : targets) {\n    http::request<http::empty_body> req{http::verb::get, target, 11};\n    req.set(http::field::host, host);\n    http::write(stream, req);\n  }\n\n  std::vector<std::string> bodies;\n  for (std::size_t i = 0; i < targets.size(); ++i) {\n    beast::flat_buffer buffer;\n    http::response<http::string_body> res;\n    http::read(stream, buffer, res);\n    bodies.push_back(res.body());\n  }\n\n  stream.socket().shutdown(tcp::socket::shutdown_both);\n  return bodies;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "API 叩くの遅いから、リクエストを先に全部 write してから順に read するようにした。ローカルだと動くのに、本番だと 2 個目の http::read でたまに固まって返ってこない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's 原因です。http::read は、レスポンス一つ分だけを読むのではなく、ソケットから読めた分をまとめて flat_buffer に入れます。先に全部送っていると次のレスポンスもすでに届いていることがあり、1 回目の read がその先頭まで buffer に取り込みます。ループの中で毎回 buffer を作り直していたので、その残りが捨てられ、2 回目の read は二度と来ないデータを待って固まっていました。ローカルで起きなかったのは、レスポンスが一つずつ届いていたからです。言い換えると、buffer はリクエストではなく接続と同じ寿命にする必要があります。ループの外で一つだけ作ります。",
+          "reading": "Here's げんいんです。http::read は、れすぽんすひとつぶんだけをよむのではなく、そけっとからよめたぶんをまとめて flat_buffer にいれます。さきにぜんぶおくっているとつぎのれすぽんすもすでにとどいていることがあり、1 かいめの read がそのせんとうまで buffer にとりこみます。るーぷのなかでまいかい buffer をつくりなおしていたので、そののこりがすてられ、2 かいめの read はにどとこないでーたをまってかたまっていました。ろーかるでおきなかったのは、れすぽんすがひとつずつとどいていたからです。いいかえると、buffer はりくえすとではなくせつぞくとおなじじゅみょうにするひつようがあります。るーぷのそとでひとつだけつくります。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "  beast::flat_buffer buffer;\n  std::vector<std::string> bodies;\n  for (std::size_t i = 0; i < targets.size(); ++i) {\n    http::response<http::string_body> res;\n    http::read(stream, buffer, res);\n    bodies.push_back(res.body());\n  }\n"
+        }
+      ]
+    },
+    {
+      "user": "固まらなくなった。けどサーバが途中で Connection: close 返してくると例外で全部パーになる。取れた分だけでいいから返して",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。http::read を error_code を受け取る版に変えて、接続の終わりを例外にせずに扱います。Connection: close 付きのレスポンスは need_eof() が true になるので、それを受け取ったら次は読まずに抜けます。ヘッダなしで先に切られた場合は read が http::error::end_of_stream を返すので、そこでも抜けます。それ以外のエラーは今までどおり例外にします。最後の shutdown も error_code 版にして、防御的にエラーを確かめます。",
+          "reading": "かしこまりました。http::read を error_code をうけとるばんにかえて、せつぞくのおわりをれいがいにせずにあつかいます。Connection: close つきのれすぽんすは need_eof() が true になるので、それをうけとったらつぎはよまずにぬけます。へっだなしでさきにきられたばあいは read が http::error::end_of_stream をかえすので、そこでもぬけます。それいがいのえらーはいままでどおりれいがいにします。さいごの shutdown も error_code ばんにして、ぼうぎょてきにえらーをたしかめます。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "  beast::flat_buffer buffer;\n  std::vector<std::string> bodies;\n  for (std::size_t i = 0; i < targets.size(); ++i) {\n    http::response<http::string_body> res;\n    beast::error_code ec;\n    http::read(stream, buffer, res, ec);\n    if (ec == http::error::end_of_stream) break;\n    if (ec) throw beast::system_error{ec};\n    bodies.push_back(res.body());\n    if (res.need_eof()) break;\n  }\n\n  beast::error_code ec;\n  stream.socket().shutdown(tcp::socket::shutdown_both, ec);\n  if (ec) throw beast::system_error{ec};\n  return bodies;\n"
+        }
+      ]
+    },
+    {
+      "user": "Socket is not connected って出て落ちた。shutdown のとこ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの shutdown のエラー確認は正しくありませんでした。相手がもう接続を閉じていると、shutdown は not_connected を返すことがあります。今回はサーバが Connection: close の後で閉じたので、ちょうどその場合に当たりました。閉じるという目的はすでに果たされているので、not_connected だけは無視します。Beast の公式サンプルも同じ扱いです。",
+          "reading": "もうしわけありません。さきほどの shutdown のえらーかくにんはただしくありませんでした。あいてがもうせつぞくをとじていると、shutdown は not_connected をかえすことがあります。こんかいはさーばが Connection: close のあとでとじたので、ちょうどそのばあいにあたりました。とじるというもくてきはすでにはたされているので、not_connected だけはむしします。Beast のこうしきさんぷるもおなじあつかいです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^  if (ec) throw beast::system_error{ec};$/  if (ec \\&\\& ec != beast::errc::not_connected) throw beast::system_error{ec};/' src/client/fetch.cpp"
+        }
+      ]
+    },
+    {
+      "user": "ok。あと /export が 20MB くらいあって body limit exceeded って言われる。これ Beast 側の制限？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、Beast 側の制限です。http::read に response を直接渡すと、中で作られるパーサの既定値が使われ、レスポンスの本文は 8MB までになります。上限を変えるには response_parser を自分で作り、body_limit で指定してから read に渡します。読み終わったら release() で response を取り出します。ここでは 64MB にします。",
+          "reading": "けつろんからいうと、Beast がわのせいげんです。http::read に response をちょくせつわたすと、なかでつくられるぱーさのきていちがつかわれ、れすぽんすのほんぶんは 8MB までになります。じょうげんをかえるには response_parser をじぶんでつくり、body_limit でしていしてから read にわたします。よみおわったら release() で response をとりだします。ここでは 64MB にします。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "  for (std::size_t i = 0; i < targets.size(); ++i) {\n    http::response_parser<http::string_body> parser;\n    parser.body_limit(64 * 1024 * 1024);\n    beast::error_code ec;\n    http::read(stream, buffer, parser, ec);\n    if (ec == http::error::end_of_stream) break;\n    if (ec) throw beast::system_error{ec};\n    auto res = parser.release();\n    bodies.push_back(std::move(res.body()));\n    if (res.need_eof()) break;\n  }\n"
+        }
+      ]
+    }
+  ]
+}

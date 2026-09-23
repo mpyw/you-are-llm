@@ -1,0 +1,44 @@
+{
+  "id": "problem-details-csharp-en",
+  "title": "Return errors as ProblemDetails",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "csharp",
+  "summary": "An exception in production came back as a 500 with the full stack trace. AddProblemDetails, UseExceptionHandler and UseStatusCodePages turn every error into the RFC 9457 shape.",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using Shop.Orders;\n\nvar builder = WebApplication.CreateBuilder(args);\n\nbuilder.Services.AddSingleton<OrderStore>();\n\nvar app = builder.Build();\n\napp.UseDeveloperExceptionPage();\n\napp.MapGet(\"/orders/{id:int}\", (int id, OrderStore store) =>\n    store.Find(id) is { } order ? Results.Ok(order) : Results.NotFound());\n\napp.MapPost(\"/orders/{id:int}/cancel\", (int id, OrderStore store) =>\n{\n    store.Cancel(id);\n    return Results.NoContent();\n});\n\napp.Run();\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "cancelled a shipped order in prod and got a 500 with the whole stack trace in the body. not great. also 404s have an empty body so the frontend cant show anything. want one error format",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Got it. The stack trace comes from calling UseDeveloperExceptionPage in every environment. Since .NET 6, WebApplication adds that page by itself in Development only, so you never need to call it. Register IProblemDetailsService with AddProblemDetails instead. The parameterless UseExceptionHandler then writes exceptions in the RFC 9457 shape, and UseStatusCodePages does the same for bodiless responses such as your 404. The content type is application/problem+json, and the stack trace goes to the log only. TL;DR: the frontend gets one error shape, a single source of truth for every failure."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "builder.Services.AddSingleton<OrderStore>();\nbuilder.Services.AddProblemDetails();\n\nvar app = builder.Build();\n\napp.UseExceptionHandler();\napp.UseStatusCodePages();\n"
+        }
+      ]
+    },
+    {
+      "user": "thanks. actually the shipped cancel should be 409 not 500 i think. Cancel throws OrderAlreadyShippedException",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": ".NET 9 added StatusCodeSelector to ExceptionHandlerOptions, which picks the status code from the exception type. The type and title follow the 409, and the exception message stays out of the body. On .NET 8 you would implement IExceptionHandler for this."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "app.UseExceptionHandler(new ExceptionHandlerOptions\n{\n    StatusCodeSelector = exception => exception is OrderAlreadyShippedException\n        ? StatusCodes.Status409Conflict\n        : StatusCodes.Status500InternalServerError,\n});\napp.UseStatusCodePages();\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "id": "walkdir-filter-rust-ja",
+  "title": "自前の read_dir 再帰を walkdir の filter_entry にする",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "rust",
+  "summary": "target や隠しディレクトリまで潜る再帰を WalkDir に置き換え、filter と filter_entry の違いで刈り込む。起点の \".\" まで弾いていたのを depth で直す。",
+  "files": [
+    {
+      "path": "src/scan.rs",
+      "content": "use std::fs;\nuse std::io;\nuse std::path::{Path, PathBuf};\n\npub fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) -> io::Result<()> {\n    for entry in fs::read_dir(dir)? {\n        let path = entry?.path();\n        if path.is_dir() {\n            rust_files(&path, out)?;\n        } else if path.extension().is_some_and(|ext| ext == \"rs\") {\n            out.push(path);\n        }\n    }\n    Ok(())\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": ".rs 集めるやつ、target の中まで潜ってて遅い。.git も。walkdir 使えって言われたんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。ポイントは filter と filter_entry の違いです。filter はイテレータから要素を落とすだけなので、target を弾いても walkdir はその中へ潜り続けます。filter_entry は false を返したディレクトリを、中身ごと読まずに飛ばします。隠しディレクトリと target は filter_entry で刈り込み、.rs だけを残す判定は filter で行います。読めなかったエントリを filter_map(Result::ok) で捨てている点に注意することが重要です。",
+          "reading": "しょうちしました。ぽいんとは filter と filter_entry のちがいです。filter はいてれーたからようそをおとすだけなので、target をはじいても walkdir はそのなかへもぐりつづけます。filter_entry は false をかえしたでぃれくとりを、なかみごとよまずにとばします。かくしでぃれくとりと target は filter_entry でかりこみ、.rs だけをのこすはんていは filter でおこないます。よめなかったえんとりを filter_map(Result::ok) ですてているてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::path::{Path, PathBuf};\n\nuse walkdir::{DirEntry, WalkDir};\n\nfn is_skipped(entry: &DirEntry) -> bool {\n    let name = entry.file_name().to_string_lossy();\n    name.starts_with('.') || name == \"target\"\n}\n\npub fn rust_files(root: &Path) -> Vec<PathBuf> {\n    WalkDir::new(root)\n        .into_iter()\n        .filter_entry(|entry| !is_skipped(entry))\n        .filter_map(Result::ok)\n        .filter(|entry| entry.file_type().is_file())\n        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == \"rs\"))\n        .map(DirEntry::into_path)\n        .collect()\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "rust_files(Path::new(\".\")) にしたら空っぽなんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの is_skipped は起点のディレクトリまで判定していました。WalkDir は起点そのものも depth 0 のエントリとして返します。\".\" には名前が無いので file_name はパス全体の \".\" になり、starts_with('.') に当たって最初の一件で全体が刈り込まれていました。depth が 0 のエントリは常に通します。",
+          "reading": "もうしわけありません。さきほどの is_skipped はきてんのでぃれくとりまではんていしていました。WalkDir はきてんそのものも depth 0 のえんとりとしてかえします。\".\" にはなまえがないので file_name はぱすぜんたいの \".\" になり、starts_with('.') にあたってさいしょのいっけんでぜんたいがかりこまれていました。depth が 0 のえんとりはつねにとおします。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "fn is_skipped(entry: &DirEntry) -> bool {\n    let name = entry.file_name().to_string_lossy();\n    entry.depth() > 0 && (name.starts_with('.') || name == \"target\")\n}\n"
+        }
+      ]
+    }
+  ]
+}

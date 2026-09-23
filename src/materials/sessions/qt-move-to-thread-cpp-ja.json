@@ -2,7 +2,7 @@
   "id": "qt-move-to-thread-cpp-ja",
   "title": "QThread 継承のインポートを moveToThread に",
   "language": "ja",
-  "difficulty": "expert",
+  "difficulty": "hard",
   "codeLanguage": "cpp",
   "summary": "run() を上書きした QThread をワーカーオブジェクトに分けて moveToThread する。親を持つオブジェクトは移せない。",
   "files": [

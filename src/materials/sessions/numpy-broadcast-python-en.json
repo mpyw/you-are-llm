@@ -1,0 +1,57 @@
+{
+  "id": "numpy-broadcast-python-en",
+  "title": "Replace a NumPy double loop with broadcasting",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "python",
+  "summary": "Build the distance matrix at once with a[:, None, :] - b[None, :, :], read the shapes error from the right, then split the swollen intermediate array into chunks.",
+  "files": [
+    {
+      "path": "geo/nearest.py",
+      "content": "import numpy as np\n\n\ndef pairwise_distances(a, b):\n    n, m = len(a), len(b)\n    out = np.empty((n, m))\n    for i in range(n):\n        for j in range(m):\n            out[i, j] = np.sqrt(np.sum((a[i] - b[j]) ** 2))\n    return out\n\n\ndef nearest(a, b):\n    return pairwise_distances(a, b).argmin(axis=1)\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "finding the nearest store (2000 of them) for each of 5000 customers takes almost a minute. tried broadcasting with a - b and got ValueError: operands could not be broadcast together with shapes (5000,2) (2000,2)",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! Read the shapes in that error from the right. The last axes are 2 and 2, which match. The next ones are 5000 and 2000, and neither is 1, so NumPy gives up. Broadcasting only stretches an axis of length 1. Make a[:, None, :] into (5000, 1, 2) and b[None, :, :] into (1, 2000, 2), and the difference comes out as (5000, 2000, 2), every pair at once. The Python loop is gone, so this should take well under a second."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "import numpy as np\n\n\ndef pairwise_distances(a, b):\n    diff = a[:, None, :] - b[None, :, :]\n    return np.sqrt((diff ** 2).sum(axis=-1))\n\n\ndef nearest(a, b):\n    return pairwise_distances(a, b).argmin(axis=1)\n"
+        }
+      ]
+    },
+    {
+      "user": "instant locally. but the prod batch (500k customers) got OOM killed",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, I overlooked the memory. Broadcasting removes the loop by actually building the intermediate array for every pair. At (500000, 2000, 2) in float64 that is 16 GB, and squaring it allocates the same again. In other words, we traded memory for speed. Cutting a into blocks of 1000 rows keeps each step around 32 MB, and a loop of 500 iterations costs almost nothing."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "import numpy as np\n\n\ndef pairwise_distances(a, b):\n    diff = a[:, None, :] - b[None, :, :]\n    return np.sqrt((diff ** 2).sum(axis=-1))\n\n\ndef nearest(a, b, chunk=1000):\n    out = np.empty(len(a), dtype=np.intp)\n    for start in range(0, len(a), chunk):\n        stop = start + chunk\n        out[start:stop] = pairwise_distances(a[start:stop], b).argmin(axis=1)\n    return out\n"
+        }
+      ]
+    },
+    {
+      "user": "works. wait, we never use the distance values right? if its only argmin do we even need sqrt. rename it too",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "You're absolutely right. The square root only ever grows with its input, so argmin picks the same index on squared distances. I'll drop np.sqrt and rename the function to pairwise_sq_distances so the name says what it returns. The only caller is inside nearest, so one g flag covers both."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/return np.sqrt((diff \\*\\* 2).sum(axis=-1))/return (diff ** 2).sum(axis=-1)/' -e 's/pairwise_distances/pairwise_sq_distances/g' geo/nearest.py"
+        }
+      ]
+    }
+  ]
+}

@@ -2,7 +2,7 @@
   "id": "qt-list-model-cpp-en",
   "title": "Added tasks never show up in the ListView",
   "language": "en",
-  "difficulty": "expert",
+  "difficulty": "hard",
   "codeLanguage": "cpp",
   "summary": "A QAbstractListModel append gets wrapped in beginInsertRows and endInsertRows, and done goes into roleNames. last is inclusive, so subtract one.",
   "files": [

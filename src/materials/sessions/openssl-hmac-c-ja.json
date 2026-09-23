@@ -1,0 +1,59 @@
+{
+  "id": "openssl-hmac-c-ja",
+  "title": "Webhook の HMAC 検証を EVP_MAC にする",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "c",
+  "summary": "非推奨の HMAC_Init_ex を EVP_MAC_fetch と OSSL_PARAM に移し、strcmp をやめて CRYPTO_memcmp で定数時間比較する。",
+  "files": [
+    {
+      "path": "src/webhook/verify.c",
+      "content": "#include <stdio.h>\n#include <string.h>\n#include <openssl/hmac.h>\n\nint verify_signature(const char *secret, const char *body, size_t body_len,\n                     const char *sig_hex) {\n  unsigned char mac[EVP_MAX_MD_SIZE];\n  unsigned int mac_len = 0;\n  char hex[EVP_MAX_MD_SIZE * 2 + 1];\n  HMAC_CTX *ctx = HMAC_CTX_new();\n  HMAC_Init_ex(ctx, secret, strlen(secret), EVP_sha256(), NULL);\n  HMAC_Update(ctx, (const unsigned char *)body, body_len);\n  HMAC_Final(ctx, mac, &mac_len);\n  HMAC_CTX_free(ctx);\n  for (unsigned int i = 0; i < mac_len; i++) {\n    sprintf(hex + i * 2, \"%02x\", mac[i]);\n  }\n  return strcmp(hex, sig_hex) == 0;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "OpenSSL 3 で HMAC_ 系が全部 deprecated の警告出てる。あとセキュリティレビューで署名を strcmp で比べるのはダメって言われたので一緒に直して",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。strcmp は最初に違う文字を見つけた時点で返るので、応答時間から先頭の何文字が合っているかを推測され、1 文字ずつ署名を当てられる恐れがあります。CRYPTO_memcmp は中身に関係なく指定した長さを最後まで比べるので、タイミング攻撃の観点から安全です。HMAC 本体は EVP_MAC に移します。EVP_MAC_fetch(NULL, \"HMAC\", NULL) でアルゴリズムを取り出し、使うダイジェストは OSSL_PARAM の配列で EVP_MAC_init に渡します。EVP_MAC_final の最後の引数は出力バッファの大きさです。fetch したものは EVP_MAC_free で解放します。",
+          "reading": "しょうちしました。strcmp はさいしょにちがうもじをみつけたじてんでかえるので、おうとうじかんからせんとうのなんもじがあっているかをすいそくされ、1 もじずつしょめいをあてられるおそれがあります。CRYPTO_memcmp はなかみにかんけいなくしていしたながさをさいごまでくらべるので、たいみんぐこうげきのかんてんからあんぜんです。HMAC ほんたいは EVP_MAC にうつします。EVP_MAC_fetch(NULL, \"HMAC\", NULL) であるごりずむをとりだし、つかうだいじぇすとは OSSL_PARAM のはいれつで EVP_MAC_init にわたします。EVP_MAC_final のさいごのひきすうはしゅつりょくばっふぁのおおきさです。fetch したものは EVP_MAC_free でかいほうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#include <stdio.h>\n#include <string.h>\n#include <openssl/core_names.h>\n#include <openssl/crypto.h>\n#include <openssl/evp.h>\n\nint verify_signature(const char *secret, const char *body, size_t body_len,\n                     const char *sig_hex) {\n  unsigned char mac[EVP_MAX_MD_SIZE];\n  size_t mac_len = 0;\n  char hex[EVP_MAX_MD_SIZE * 2 + 1];\n  int ok = 0;\n  EVP_MAC *hmac = EVP_MAC_fetch(NULL, \"HMAC\", NULL);\n  EVP_MAC_CTX *ctx = hmac != NULL ? EVP_MAC_CTX_new(hmac) : NULL;\n  OSSL_PARAM params[] = {\n    OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, \"SHA256\", 0),\n    OSSL_PARAM_construct_end(),\n  };\n  if (ctx == NULL) goto done;\n  if (EVP_MAC_init(ctx, (const unsigned char *)secret, strlen(secret), params) != 1) goto done;\n  if (EVP_MAC_update(ctx, (const unsigned char *)body, body_len) != 1) goto done;\n  if (EVP_MAC_final(ctx, mac, &mac_len, sizeof mac) != 1) goto done;\n  for (size_t i = 0; i < mac_len; i++) {\n    snprintf(hex + i * 2, 3, \"%02x\", mac[i]);\n  }\n  size_t n = strlen(sig_hex);\n  ok = CRYPTO_memcmp(hex, sig_hex, n) == 0;\ndone:\n  EVP_MAC_CTX_free(ctx);\n  EVP_MAC_free(hmac);\n  return ok;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "テストで X-Signature ヘッダが空のリクエストが検証通っちゃったんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "重要な訂正があります。比べる長さを受け取った署名の strlen から取っていたので、空文字列なら 0 バイトを比べて一致と判定していました。先頭の数文字だけの署名も同じ理由で通ります。逆に長すぎる署名では、hex の書き込んだ範囲の外まで読みます。長さは秘密ではないので、まず mac_len * 2 と等しいかを普通に比べます。&& の短絡評価が、長さが違えば中身を読まないことを保証します。",
+          "reading": "じゅうようなていせいがあります。くらべるながさをうけとったしょめいの strlen からとっていたので、からもじれつなら 0 ばいとをくらべていっちとはんていしていました。せんとうのすうもじだけのしょめいもおなじりゆうでとおります。ぎゃくにながすぎるしょめいでは、hex のかきこんだはんいのそとまでよみます。ながさはひみつではないので、まず mac_len * 2 とひとしいかをふつうにくらべます。&& のたんらくひょうかが、ながさがちがえばなかみをよまないことをほしょうします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/ok = CRYPTO_memcmp(hex, sig_hex, n) == 0;/ok = n == mac_len * 2 \\&\\& CRYPTO_memcmp(hex, sig_hex, n) == 0;/' src/webhook/verify.c"
+        }
+      ]
+    },
+    {
+      "user": "送り元によっては SHA-512 のとこもあるらしい。ダイジェスト名を引数で渡せるようにしといて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、ダイジェスト名を引数の digest で受け取り、そのまま OSSL_PARAM に渡します。バッファは最初から EVP_MAX_MD_SIZE で取っているので、SHA512 の 64 バイトでも収まります。OSSL_PARAM_construct_utf8_string は const の付かない char * を受け取るため、キャストが要ります。言い換えると、設定用のパラメータとして読まれるだけなので、キャストしても書き換えられることはありません。",
+          "reading": "Now、だいじぇすとめいをひきすうの digest でうけとり、そのまま OSSL_PARAM にわたします。ばっふぁはさいしょから EVP_MAX_MD_SIZE でとっているので、SHA512 の 64 ばいとでもおさまります。OSSL_PARAM_construct_utf8_string は const のつかない char * をうけとるため、きゃすとがいります。いいかえると、せっていようのぱらめーたとしてよまれるだけなので、きゃすとしてもかきかえられることはありません。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/const char \\*sig_hex)/const char *sig_hex, const char *digest)/; s/\"SHA256\", 0)/(char *)digest, 0)/' src/webhook/verify.c"
+        }
+      ]
+    }
+  ]
+}

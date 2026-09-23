@@ -1,0 +1,50 @@
+{
+  "id": "testify-suite-go-ja",
+  "title": "3 つのテストに同じ前準備がコピペされている",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "go",
+  "summary": "testify の suite.Suite に前準備を寄せ、SetupTest と TearDownTest で毎回やり直す。DB の接続だけは SetupSuite で 1 回にする。",
+  "files": [
+    {
+      "path": "internal/order/service_test.go",
+      "content": "package order\n\nimport (\n  \"testing\"\n\n  \"github.com/stretchr/testify/require\"\n)\n\nfunc TestCreate(t *testing.T) {\n  db := openTestDB(t)\n  defer db.Close()\n  svc := NewService(NewRepo(db), fixedClock{})\n\n  id, err := svc.Create(\"alice\", 3)\n  require.NoError(t, err)\n  require.NotZero(t, id)\n}\n\nfunc TestCancel(t *testing.T) {\n  db := openTestDB(t)\n  defer db.Close()\n  svc := NewService(NewRepo(db), fixedClock{})\n\n  id, err := svc.Create(\"alice\", 3)\n  require.NoError(t, err)\n  require.NoError(t, svc.Cancel(id))\n}\n\nfunc TestCreateRejectsZero(t *testing.T) {\n  db := openTestDB(t)\n  defer db.Close()\n  svc := NewService(NewRepo(db), fixedClock{})\n\n  _, err := svc.Create(\"alice\", 0)\n  require.Error(t, err)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "order のテスト、前準備 3 回ともコピペ。testify 入ってるしなんかまとめる仕組みあったよね",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。testify の suite パッケージを活用します。suite.Suite を埋め込んだ構造体に db と svc を持たせ、SetupTest で作り、TearDownTest で閉じます。この 2 つは Test で始まるメソッドの前後に毎回呼ばれます。go test から見えるのは TestServiceSuite だけで、suite.Run がその中でメソッドを 1 つずつサブテストとして走らせます。アサーションは s.Require() や s.NoError のようにメソッドで書けるので、t を引き回す必要がなくなります。1 本だけ走らせたいときは -testify.m で絞れます。",
+          "reading": "しょうちしました。testify の suite ぱっけーじをかつようします。suite.Suite をうめこんだこうぞうたいに db と svc をもたせ、SetupTest でつくり、TearDownTest でとじます。この 2 つは Test ではじまるめそっどのぜんごにまいかいよばれます。go test からみえるのは TestServiceSuite だけで、suite.Run がそのなかでめそっどを 1 つずつさぶてすととしてはしらせます。あさーしょんは s.Require() や s.NoError のようにめそっどでかけるので、t をひきまわすひつようがなくなります。1 ぽんだけはしらせたいときは -testify.m でしぼれます。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "package order\n\nimport (\n  \"database/sql\"\n  \"testing\"\n\n  \"github.com/stretchr/testify/suite\"\n)\n\ntype ServiceSuite struct {\n  suite.Suite\n  db  *sql.DB\n  svc *Service\n}\n\nfunc (s *ServiceSuite) SetupTest() {\n  s.db = openTestDB(s.T())\n  s.svc = NewService(NewRepo(s.db), fixedClock{})\n}\n\nfunc (s *ServiceSuite) TearDownTest() {\n  s.db.Close()\n}\n\nfunc (s *ServiceSuite) TestCreate() {\n  id, err := s.svc.Create(\"alice\", 3)\n  s.Require().NoError(err)\n  s.NotZero(id)\n}\n\nfunc (s *ServiceSuite) TestCancel() {\n  id, err := s.svc.Create(\"alice\", 3)\n  s.Require().NoError(err)\n  s.NoError(s.svc.Cancel(id))\n}\n\nfunc (s *ServiceSuite) TestCreateRejectsZero() {\n  _, err := s.svc.Create(\"alice\", 0)\n  s.Error(err)\n}\n\nfunc TestServiceSuite(t *testing.T) {\n  suite.Run(t, new(ServiceSuite))\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "go test ./internal/order -run TestServiceSuite -testify.m TestCancel"
+        }
+      ]
+    },
+    {
+      "user": "あーでも openTestDB 1 回 2 秒くらいかかるんだよね。毎回開くのやめたい。中身は毎回空にしたいけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ポイントは、接続とデータで寿命を分けることです。接続はスイート全体で 1 回だけ開けばよいので、SetupSuite と TearDownSuite に移します。データはテストごとに消したいので、SetupTest で TRUNCATE してから svc を作り直します。TearDownTest はもう要らないので消してください。これでどの順に走っても同じ状態から始まることを保証します。",
+          "reading": "ぽいんとは、せつぞくとでーたでじゅみょうをわけることです。せつぞくはすいーとぜんたいで 1 かいだけひらけばよいので、SetupSuite と TearDownSuite にうつします。でーたはてすとごとにけしたいので、SetupTest で TRUNCATE してから svc をつくりなおします。TearDownTest はもういらないのでけしてください。これでどのじゅんにはしってもおなじじょうたいからはじまることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (s *ServiceSuite) SetupSuite() {\n  s.db = openTestDB(s.T())\n}\n\nfunc (s *ServiceSuite) TearDownSuite() {\n  s.db.Close()\n}\n\nfunc (s *ServiceSuite) SetupTest() {\n  _, err := s.db.Exec(\"TRUNCATE orders RESTART IDENTITY\")\n  s.Require().NoError(err)\n  s.svc = NewService(NewRepo(s.db), fixedClock{})\n}\n"
+        }
+      ]
+    }
+  ]
+}

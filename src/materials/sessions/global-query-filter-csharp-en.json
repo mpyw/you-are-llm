@@ -1,0 +1,79 @@
+{
+  "id": "global-query-filter-csharp-en",
+  "title": "Move the tenant condition into HasQueryFilter",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "csharp",
+  "summary": "A forgotten Where put another tenant's orders in a report, so the condition moves into an EF Core global query filter. Covers the cached model, the required navigation warning, and the named filters of EF Core 10.",
+  "files": [
+    {
+      "path": "src/Data/ShopDbContext.cs",
+      "content": "using Microsoft.EntityFrameworkCore;\n\nnamespace Shop.Data;\n\npublic sealed class ShopDbContext(DbContextOptions<ShopDbContext> options) : DbContext(options)\n{\n    public DbSet<Order> Orders => Set<Order>();\n    public DbSet<OrderLine> OrderLines => Set<OrderLine>();\n\n    protected override void OnModelCreating(ModelBuilder modelBuilder)\n    {\n        modelBuilder.Entity<OrderLine>()\n            .HasOne(l => l.Order)\n            .WithMany(o => o.Lines)\n            .HasForeignKey(l => l.OrderId)\n            .IsRequired();\n    }\n}\n"
+    },
+    {
+      "path": "src/Reports/MonthlyReport.cs",
+      "content": "using Microsoft.EntityFrameworkCore;\nusing Shop.Data;\n\nnamespace Shop.Reports;\n\npublic sealed class MonthlyReport(ShopDbContext db)\n{\n    public Task<List<Order>> LoadAsync(DateOnly month, CancellationToken ct) =>\n        db.Orders\n            .Include(o => o.Lines)\n            .Where(o => o.PlacedOn.Year == month.Year && o.PlacedOn.Month == month.Month)\n            .OrderBy(o => o.PlacedOn)\n            .ToListAsync(ct);\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "customer says the monthly report csv has other tenants' orders in it. MonthlyReport forgot the TenantId Where. every other query has the Where written by hand and i will forget again, guaranteed. want it applied everywhere. tenant comes from ITenantContext (scoped, picked by subdomain)",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's use an EF Core global query filter. The condition you give HasQueryFilter is added as a WHERE to every LINQ query on that type, and it also applies to collections loaded through Include. Forgetting it stops being possible, which makes the tenant boundary robust by construction."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public sealed class ShopDbContext(\n    DbContextOptions<ShopDbContext> options,\n    ITenantContext tenant) : DbContext(options)\n{\n    public DbSet<Order> Orders => Set<Order>();\n    public DbSet<OrderLine> OrderLines => Set<OrderLine>();\n\n    protected override void OnModelCreating(ModelBuilder modelBuilder)\n    {\n        var tenantId = tenant.TenantId;\n\n        modelBuilder.Entity<Order>()\n            .HasQueryFilter(o => o.TenantId == tenantId);\n\n        modelBuilder.Entity<OrderLine>()\n            .HasOne(l => l.Order)\n            .WithMany(o => o.Lines)\n            .HasForeignKey(l => l.OrderId)\n            .IsRequired();\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "tried it on staging. logged in as tenant B and got tenant A's orders. this is worse??",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, that was a serious mistake. OnModelCreating runs once per context type, and the resulting model is cached and shared by every instance. The local tenantId was captured from the first context ever built and baked into the filter. EF Core only swaps in a fresh value per query when the filter reads a field or property of the DbContext itself. So the value moves into a field in the constructor, and the filter reads the field."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public sealed class ShopDbContext(\n    DbContextOptions<ShopDbContext> options,\n    ITenantContext tenant) : DbContext(options)\n{\n    private readonly Guid _tenantId = tenant.TenantId;\n\n    public DbSet<Order> Orders => Set<Order>();\n    public DbSet<OrderLine> OrderLines => Set<OrderLine>();\n\n    protected override void OnModelCreating(ModelBuilder modelBuilder)\n    {\n        modelBuilder.Entity<Order>()\n            .HasQueryFilter(o => o.TenantId == _tenantId);\n\n        modelBuilder.Entity<OrderLine>()\n            .HasOne(l => l.Order)\n            .WithMany(o => o.Lines)\n            .HasForeignKey(l => l.OrderId)\n            .IsRequired();\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "fixed! but the first query logs this warning: Entity 'Order' has a global query filter defined and is the required end of a relationship with the entity 'OrderLine'. This may lead to unexpected results when the required entity is filtered out. Either configure the navigation as optional, or define matching query filters for both entities in the navigation. OrderLine does have a TenantId column",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "That warning points at a real hole. Query OrderLines directly with Include(l => l.Order) and the required navigation becomes an INNER JOIN, so lines whose order was filtered out silently vanish. Skip the Include and OrderLine has no condition at all, so another tenant's lines come straight back. Give OrderLine the same tenant condition so both ends match."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/modelBuilder.Entity<OrderLine>()$/&\\\n            .HasQueryFilter(l => l.TenantId == _tenantId)/' src/Data/ShopDbContext.cs"
+        }
+      ]
+    },
+    {
+      "user": "also want soft delete (IsDeleted) on orders as a filter. and the ops dashboard that counts across all tenants should drop only the tenant condition, deleted ones stay excluded. IgnoreQueryFilters?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "IgnoreQueryFilters() with no arguments drops every filter in that query, so deleted orders would come back. Note: up to EF Core 9, a second HasQueryFilter call on the same type replaced the first one, and the tenant condition would disappear without a word."
+        },
+        {
+          "kind": "text",
+          "body": "EF Core 10, which shipped with .NET 10, lets you name filters. Pass the names to IgnoreQueryFilters and only those filters are dropped."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "modelBuilder.Entity<Order>()\n    .HasQueryFilter(\"Tenant\", o => o.TenantId == _tenantId)\n    .HasQueryFilter(\"SoftDelete\", o => !o.IsDeleted);\n\nmodelBuilder.Entity<OrderLine>()\n    .HasQueryFilter(\"Tenant\", l => l.TenantId == _tenantId)\n    .HasOne(l => l.Order)\n    .WithMany(o => o.Lines)\n    .HasForeignKey(l => l.OrderId)\n    .IsRequired();\n\nvar all = await db.Orders\n    .IgnoreQueryFilters([\"Tenant\"])\n    .GroupBy(o => o.TenantId)\n    .Select(g => new { TenantId = g.Key, Count = g.Count() })\n    .ToListAsync(ct);\n"
+        }
+      ]
+    }
+  ]
+}

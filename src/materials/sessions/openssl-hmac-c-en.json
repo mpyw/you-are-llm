@@ -1,0 +1,56 @@
+{
+  "id": "openssl-hmac-c-en",
+  "title": "Move webhook HMAC checks to EVP_MAC",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "c",
+  "summary": "Move the deprecated HMAC_Init_ex to EVP_MAC_fetch with OSSL_PARAM, and replace strcmp with a constant time CRYPTO_memcmp.",
+  "files": [
+    {
+      "path": "src/webhook/verify.c",
+      "content": "#include <stdio.h>\n#include <string.h>\n#include <openssl/hmac.h>\n\nint verify_signature(const char *secret, const char *body, size_t body_len,\n                     const char *sig_hex) {\n  unsigned char mac[EVP_MAX_MD_SIZE];\n  unsigned int mac_len = 0;\n  char hex[EVP_MAX_MD_SIZE * 2 + 1];\n  HMAC_CTX *ctx = HMAC_CTX_new();\n  HMAC_Init_ex(ctx, secret, strlen(secret), EVP_sha256(), NULL);\n  HMAC_Update(ctx, (const unsigned char *)body, body_len);\n  HMAC_Final(ctx, mac, &mac_len);\n  HMAC_CTX_free(ctx);\n  for (unsigned int i = 0; i < mac_len; i++) {\n    sprintf(hex + i * 2, \"%02x\", mac[i]);\n  }\n  return strcmp(hex, sig_hex) == 0;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "OpenSSL 3 gives deprecated warnings on every HMAC_ call. also security review said comparing the signature with strcmp is a no go, fix both",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Absolutely! strcmp returns at the first character that differs, so response times reveal how many leading characters matched, and an attacker can guess the signature one character at a time. CRYPTO_memcmp always compares the full length it is given, so timing tells an attacker nothing. The HMAC itself moves to EVP_MAC. EVP_MAC_fetch(NULL, \"HMAC\", NULL) gets the algorithm, and the digest to use goes to EVP_MAC_init in an OSSL_PARAM array. The last argument of EVP_MAC_final is the size of the output buffer. Anything fetched is released with EVP_MAC_free."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#include <stdio.h>\n#include <string.h>\n#include <openssl/core_names.h>\n#include <openssl/crypto.h>\n#include <openssl/evp.h>\n\nint verify_signature(const char *secret, const char *body, size_t body_len,\n                     const char *sig_hex) {\n  unsigned char mac[EVP_MAX_MD_SIZE];\n  size_t mac_len = 0;\n  char hex[EVP_MAX_MD_SIZE * 2 + 1];\n  int ok = 0;\n  EVP_MAC *hmac = EVP_MAC_fetch(NULL, \"HMAC\", NULL);\n  EVP_MAC_CTX *ctx = hmac != NULL ? EVP_MAC_CTX_new(hmac) : NULL;\n  OSSL_PARAM params[] = {\n    OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, \"SHA256\", 0),\n    OSSL_PARAM_construct_end(),\n  };\n  if (ctx == NULL) goto done;\n  if (EVP_MAC_init(ctx, (const unsigned char *)secret, strlen(secret), params) != 1) goto done;\n  if (EVP_MAC_update(ctx, (const unsigned char *)body, body_len) != 1) goto done;\n  if (EVP_MAC_final(ctx, mac, &mac_len, sizeof mac) != 1) goto done;\n  for (size_t i = 0; i < mac_len; i++) {\n    snprintf(hex + i * 2, 3, \"%02x\", mac[i]);\n  }\n  size_t n = strlen(sig_hex);\n  ok = CRYPTO_memcmp(hex, sig_hex, n) == 0;\ndone:\n  EVP_MAC_CTX_free(ctx);\n  EVP_MAC_free(hmac);\n  return ok;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "a test just sent an empty X-Signature header and it passed verification",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Important correction: the compare length came from strlen of the received signature. An empty string compared zero bytes and counted as a match. A signature holding just the first few characters passes for the same reason. A signature that is too long reads past the part of hex that was written. The length is not a secret, so it is checked against mac_len * 2 first with an ordinary comparison. The && short circuit guarantees the contents are never read when the length is wrong."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/ok = CRYPTO_memcmp(hex, sig_hex, n) == 0;/ok = n == mac_len * 2 \\&\\& CRYPTO_memcmp(hex, sig_hex, n) == 0;/' src/webhook/verify.c"
+        }
+      ]
+    },
+    {
+      "user": "apparently some senders use SHA-512. let the caller pass the digest name",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's take the digest name as a digest argument and hand it straight to OSSL_PARAM. The buffers were sized with EVP_MAX_MD_SIZE from the start, so the 64 bytes of SHA512 already fit. OSSL_PARAM_construct_utf8_string takes a char * without const, so a cast is needed. It is only read as a setting, so the cast never lets anything write to it."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/const char \\*sig_hex)/const char *sig_hex, const char *digest)/; s/\"SHA256\", 0)/(char *)digest, 0)/' src/webhook/verify.c"
+        }
+      ]
+    }
+  ]
+}

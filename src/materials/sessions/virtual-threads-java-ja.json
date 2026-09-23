@@ -1,0 +1,84 @@
+{
+  "id": "virtual-threads-java-ja",
+  "title": "仮想スレッドで詰まる synchronized を ReentrantLock に替える",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "java",
+  "summary": "spring.threads.virtual.enabled を入れたら synchronized の中の HTTP 呼び出しでキャリアスレッドが pinning され、テナント対応で同じ罠をもう一度踏む。",
+  "files": [
+    {
+      "path": "src/main/resources/application.yml",
+      "content": "spring:\n  threads:\n    virtual:\n      enabled: true\npartner:\n  base-url: https://partner.example.com\n"
+    },
+    {
+      "path": "src/main/java/com/example/partner/PartnerTokenClient.java",
+      "content": "package com.example.partner;\n\nimport java.time.Instant;\n\nimport org.springframework.stereotype.Component;\nimport org.springframework.web.client.RestClient;\n\n@Component\npublic class PartnerTokenClient {\n    private final RestClient http;\n    private String token;\n    private Instant expiresAt = Instant.EPOCH;\n\n    public PartnerTokenClient(RestClient partnerRestClient) {\n        this.http = partnerRestClient;\n    }\n\n    public synchronized String token() {\n        if (Instant.now().isBefore(expiresAt)) {\n            return token;\n        }\n        TokenResponse response = http.post()\n            .uri(\"/oauth/token\")\n            .retrieve()\n            .body(TokenResponse.class);\n        token = response.accessToken();\n        expiresAt = Instant.now().plusSeconds(response.expiresIn());\n        return token;\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "Boot 3.3 で spring.threads.virtual.enabled=true にしたら負荷試験でアプリ全体が固まる。ヘルスチェックも返ってこない。PartnerTokenClient の token() あたりで止まってるっぽい。JDK は 21",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、原因は synchronized の中の HTTP 呼び出しです。JDK 21 では、仮想スレッドが synchronized の中でブロックすると、載っているキャリアスレッドごと止まります。これが pinning です。モニタの入り口で順番を待っているだけのスレッドも同じように止まります。キャリアは既定で CPU のコア数ぶんしかないので、トークンの取得が少し遅れただけで全部のキャリアが塞がり、token と関係のないリクエストやヘルスチェックまで動けなくなります。ReentrantLock なら、待っている仮想スレッドはキャリアから降りるので、ほかの仮想スレッドが動き続けます。確かめるには JFR の jdk.VirtualThreadPinned イベントを見てください。",
+          "reading": "けつろんからいうと、げんいんは synchronized のなかの HTTP よびだしです。JDK 21 では、かそうスレッドが synchronized のなかでブロックすると、のっているキャリアスレッドごととまります。これが pinning です。モニタのいりぐちでじゅんばんをまっているだけのスレッドもおなじようにとまります。キャリアはきていで CPU のコアすうぶんしかないので、トークンのしゅとくがすこしおくれただけでぜんぶのキャリアがふさがり、token とかんけいのないリクエストやヘルスチェックまでうごけなくなります。ReentrantLock なら、まっているかそうスレッドはキャリアからおりるので、ほかのかそうスレッドがうごきつづけます。たしかめるには JFR の jdk.VirtualThreadPinned イベントをみてください。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import java.util.concurrent.locks.ReentrantLock;\n\n    private final ReentrantLock lock = new ReentrantLock();\n\n    public String token() {\n        lock.lock();\n        try {\n            if (Instant.now().isBefore(expiresAt)) {\n                return token;\n            }\n            TokenResponse response = http.post()\n                .uri(\"/oauth/token\")\n                .retrieve()\n                .body(TokenResponse.class);\n            token = response.accessToken();\n            expiresAt = Instant.now().plusSeconds(response.expiresIn());\n            return token;\n        } finally {\n            lock.unlock();\n        }\n    }\n"
+        },
+        {
+          "kind": "text",
+          "body": "Note: これは JDK 21 から 23 までの話です。JDK 24 の JEP 491 で、synchronized の中でブロックしても仮想スレッドがキャリアを手放せるようになり、この pinning は起きなくなりました。21 なら -Djdk.tracePinnedThreads=full でも止まった場所が出ますが、24 ではこの設定は取り除かれています。21 の LTS に留まる間は ReentrantLock が必要です。",
+          "reading": "Note: これは JDK 21 から 23 までのはなしです。JDK 24 の JEP 491 で、synchronized のなかでブロックしてもかそうスレッドがキャリアをてばなせるようになり、この pinning はおきなくなりました。21 なら -Djdk.tracePinnedThreads=full でもとまったばしょがでますが、24 ではこのせっていはとりのぞかれています。21 の LTS にとどまるあいだは ReentrantLock がひつようです。"
+        }
+      ]
+    },
+    {
+      "user": "動いた。で来月からトークンがテナントごとになる。token(tenantId) にして。テナント数百あるから全部 1 本のロックで待たされるのはナシで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ConcurrentHashMap.compute を活用します。compute はキーごとに原子的に値を更新するので、自前のロックというボイラープレートが要らなくなります。期限内のトークンはそのまま返し、切れていれば compute の中で取り直します。",
+          "reading": "ConcurrentHashMap.compute をかつようします。compute はキーごとにげんしてきにあたいをこうしんするので、じまえのロックというボイラープレートがいらなくなります。きげんないのトークンはそのままかえし、きれていれば compute のなかでとりなおします。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.partner;\n\nimport java.time.Instant;\nimport java.util.concurrent.ConcurrentHashMap;\n\nimport org.springframework.stereotype.Component;\nimport org.springframework.web.client.RestClient;\n\n@Component\npublic class PartnerTokenClient {\n    private final RestClient http;\n    private final ConcurrentHashMap<String, Token> tokens = new ConcurrentHashMap<>();\n\n    public PartnerTokenClient(RestClient partnerRestClient) {\n        this.http = partnerRestClient;\n    }\n\n    public String token(String tenantId) {\n        return tokens.compute(tenantId, (id, current) ->\n            current != null && current.isValid(Instant.now()) ? current : fetch(id)).value();\n    }\n\n    private Token fetch(String tenantId) {\n        TokenResponse response = http.post()\n            .uri(\"/tenants/{id}/oauth/token\", tenantId)\n            .retrieve()\n            .body(TokenResponse.class);\n        return new Token(response.accessToken(), Instant.now().plusSeconds(response.expiresIn()));\n    }\n\n    private record Token(String value, Instant expiresAt) {\n        boolean isValid(Instant now) {\n            return now.isBefore(expiresAt);\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "また固まった。JFR に VirtualThreadPinned 出てて、スタックに ConcurrentHashMap.compute がいる。synchronized もう消したよね？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "重要な訂正があります。ConcurrentHashMap.compute は、渡した関数をバケットの synchronized の中で実行します。コードから synchronized は消えましたが、fetch の HTTP 呼び出しはモニタの中に残っていて、JDK 21 では前と同じように pinning します。言い換えると、ロックを消したのではなく見えなくしただけでした。同じバケットに入った別のテナントもそのロックで待たされ、こちらは JDK 24 に上げても残ります。compute に渡すのは I/O のない短い処理だけにして、テナントごとの ReentrantLock を computeIfAbsent で作ります。ロックを取ったあとにもう一度確かめるのは、待っている間に前のスレッドが取り直していることがあるからです。",
+          "reading": "じゅうようなていせいがあります。ConcurrentHashMap.compute は、わたしたかんすうをバケットの synchronized のなかでじっこうします。コードから synchronized はきえましたが、fetch の HTTP よびだしはモニタのなかにのこっていて、JDK 21 ではまえとおなじように pinning します。いいかえると、ロックをけしたのではなくみえなくしただけでした。おなじバケットにはいったべつのテナントもそのロックでまたされ、こちらは JDK 24 にあげてものこります。compute にわたすのは I/O のないみじかいしょりだけにして、テナントごとの ReentrantLock を computeIfAbsent でつくります。ロックをとったあとにもういちどたしかめるのは、まっているあいだにまえのスレッドがとりなおしていることがあるからです。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import java.util.concurrent.locks.ReentrantLock;\n\n    private final ConcurrentHashMap<String, Token> tokens = new ConcurrentHashMap<>();\n    private final ConcurrentHashMap<String, ReentrantLock> locks = new ConcurrentHashMap<>();\n\n    public String token(String tenantId) {\n        Token cached = tokens.get(tenantId);\n        if (cached != null && cached.isValid(Instant.now())) {\n            return cached.value();\n        }\n        ReentrantLock lock = locks.computeIfAbsent(tenantId, id -> new ReentrantLock());\n        lock.lock();\n        try {\n            Token current = tokens.get(tenantId);\n            if (current != null && current.isValid(Instant.now())) {\n                return current.value();\n            }\n            Token fresh = fetch(tenantId);\n            tokens.put(tenantId, fresh);\n            return fresh.value();\n        } finally {\n            lock.unlock();\n        }\n    }\n"
+        }
+      ]
+    },
+    {
+      "user": "あと期限ギリギリのトークンだと向こうで 401 返ってくることあるらしい。30 秒前には取り直すようにして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "isValid に 30 秒の余裕を持たせます。",
+          "reading": "isValid に 30 びょうのよゆうをもたせます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/return now.isBefore(expiresAt);/return now.plusSeconds(30).isBefore(expiresAt);/' src/main/java/com/example/partner/PartnerTokenClient.java"
+        }
+      ]
+    }
+  ]
+}

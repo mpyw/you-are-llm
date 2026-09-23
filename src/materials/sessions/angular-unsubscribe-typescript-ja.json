@@ -1,0 +1,60 @@
+{
+  "id": "angular-unsubscribe-typescript-ja",
+  "title": "画面を往復するたびにポーリングが増える",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "typescript",
+  "summary": "ngOnInit で interval を subscribe したまま破棄され、戻るたびに購読が増える。takeUntilDestroyed を ngOnInit で引数なしで呼んで NG0203 を踏み、DestroyRef を渡して直す。最後は async パイプに寄せる。",
+  "files": [
+    {
+      "path": "src/app/dashboard.component.ts",
+      "content": "import { Component, OnInit, inject, signal } from '@angular/core'\nimport { HttpClient } from '@angular/common/http'\nimport { interval, switchMap } from 'rxjs'\n\ntype Stats = { active: number; queued: number }\n\n@Component({\n  selector: 'app-dashboard',\n  standalone: true,\n  template: `\n    <p>Active: {{ stats()?.active }}</p>\n    <p>Queued: {{ stats()?.queued }}</p>\n  `,\n})\nexport class DashboardComponent implements OnInit {\n  private http = inject(HttpClient)\n  stats = signal<Stats | null>(null)\n\n  ngOnInit() {\n    interval(5000)\n      .pipe(switchMap(() => this.http.get<Stats>('/api/stats')))\n      .subscribe((stats) => this.stats.set(stats))\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "ダッシュボード、他の画面行って戻ってくるたびに /api/stats が増えてく。3 往復したら 5 秒ごとに 4 回飛んでる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、購読の解除漏れです。コンポーネントは画面を離れた時点で破棄されますが、interval は誰かが unsubscribe するまで止まりません。破棄されたコンポーネントの購読が生き残り、戻るたびに新しい購読が 1 本ずつ積み上がります。Angular 16 以降の takeUntilDestroyed を活用し、コンポーネントの破棄と同時に購読を完了させます。takeUntilDestroyed は pipe の最後に置きます。後ろに switchMap などが残ると、その内側の購読は止まりません。",
+          "reading": "けつろんからいうと、こうどくのかいじょもれです。こんぽーねんとはがめんをはなれたじてんではきされますが、interval はだれかが unsubscribe するまでとまりません。はきされたこんぽーねんとのこうどくがいきのこり、もどるたびにあたらしいこうどくが 1 ぽんずつつみあがります。Angular 16 いこうの takeUntilDestroyed をかつようし、こんぽーねんとのはきとどうじにこうどくをかんりょうさせます。takeUntilDestroyed は pipe のさいごにおきます。うしろに switchMap などがのこると、そのうちがわのこうどくはとまりません。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { Component, OnInit, inject, signal } from '@angular/core'\nimport { takeUntilDestroyed } from '@angular/core/rxjs-interop'\nimport { HttpClient } from '@angular/common/http'\nimport { interval, switchMap } from 'rxjs'\n\ntype Stats = { active: number; queued: number }\n\n@Component({\n  selector: 'app-dashboard',\n  standalone: true,\n  template: `\n    <p>Active: {{ stats()?.active }}</p>\n    <p>Queued: {{ stats()?.queued }}</p>\n  `,\n})\nexport class DashboardComponent implements OnInit {\n  private http = inject(HttpClient)\n  stats = signal<Stats | null>(null)\n\n  ngOnInit() {\n    interval(5000)\n      .pipe(\n        switchMap(() => this.http.get<Stats>('/api/stats')),\n        takeUntilDestroyed(),\n      )\n      .subscribe((stats) => this.stats.set(stats))\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "開いた瞬間落ちた\nERROR RuntimeError: NG0203: takeUntilDestroyed() can only be used within an injection context such as a constructor, a factory function, a field initializer, or a function used with `runInInjectionContext`.",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "重要な訂正があります。引数なしの takeUntilDestroyed() は、内部で inject(DestroyRef) を呼んで破棄のタイミングを取りに行きます。inject が使えるのはコンストラクタやフィールド初期化子のような注入コンテキストの中だけで、ngOnInit はその外です。先ほどのコードはまさにそこで呼んでいました。DestroyRef をフィールドで inject しておき、takeUntilDestroyed(this.destroyRef) と明示的に渡します。購読ごとコンストラクタへ移しても直りますが、@Input の値は ngOnInit まで入らないので、こちらのほうが堅牢です。",
+          "reading": "じゅうようなていせいがあります。ひきすうなしの takeUntilDestroyed() は、ないぶで inject(DestroyRef) をよんではきのたいみんぐをとりにいきます。inject がつかえるのはこんすとらくたやふぃーるどしょきかしのようなちゅうにゅうこんてきすとのなかだけで、ngOnInit はそのそとです。さきほどのこーどはまさにそこでよんでいました。DestroyRef をふぃーるどで inject しておき、takeUntilDestroyed(this.destroyRef) とめいじてきにわたします。こうどくごとこんすとらくたへうつしてもなおりますが、@Input のあたいは ngOnInit まではいらないので、こちらのほうがけんろうです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/Component, OnInit, inject, signal/Component, DestroyRef, OnInit, inject, signal/' -e 's/takeUntilDestroyed(),/takeUntilDestroyed(this.destroyRef),/' -e '/private http = inject(HttpClient)/a\\\n  private destroyRef = inject(DestroyRef)\n' src/app/dashboard.component.ts"
+        }
+      ]
+    },
+    {
+      "user": "直った。けどそもそも subscribe して set するの要る？async パイプでよくない？あと開いてから 5 秒何も出ないのも地味に気になってた",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "おっしゃるとおりです。async パイプはテンプレートが購読し、コンポーネントの破棄と同時に解除します。購読を手で持たないので、DestroyRef も takeUntilDestroyed も要らなくなります。最初の 5 秒が空なのは interval が最初の値を 5 秒後に出すからで、timer(0, 5000) にするとすぐに 1 回目を出します。スタンドアロンコンポーネントでは AsyncPipe を imports に足さないとテンプレートのコンパイルで落ちる点に注意することが重要です。",
+          "reading": "おっしゃるとおりです。async ぱいぷはてんぷれーとがこうどくし、こんぽーねんとのはきとどうじにかいじょします。こうどくをてでもたないので、DestroyRef も takeUntilDestroyed もいらなくなります。さいしょの 5 びょうがからなのは interval がさいしょのあたいを 5 びょうごにだすからで、timer(0, 5000) にするとすぐに 1 かいめをだします。すたんどあろんこんぽーねんとでは AsyncPipe を imports にたさないとてんぷれーとのこんぱいるでおちるてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { AsyncPipe } from '@angular/common'\nimport { HttpClient } from '@angular/common/http'\nimport { Component, inject } from '@angular/core'\nimport { switchMap, timer } from 'rxjs'\n\ntype Stats = { active: number; queued: number }\n\n@Component({\n  selector: 'app-dashboard',\n  standalone: true,\n  imports: [AsyncPipe],\n  template: `\n    @if (stats$ | async; as stats) {\n      <p>Active: {{ stats.active }}</p>\n      <p>Queued: {{ stats.queued }}</p>\n    }\n  `,\n})\nexport class DashboardComponent {\n  private http = inject(HttpClient)\n  stats$ = timer(0, 5000).pipe(switchMap(() => this.http.get<Stats>('/api/stats')))\n}\n"
+        }
+      ]
+    }
+  ]
+}

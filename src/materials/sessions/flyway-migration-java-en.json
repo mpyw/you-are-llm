@@ -1,0 +1,64 @@
+{
+  "id": "flyway-migration-java-en",
+  "title": "Editing an applied Flyway migration stopped the app from starting",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "java",
+  "summary": "One added line in V2 breaks the checksum, and repair does not run the SQL again.",
+  "files": [
+    {
+      "path": "src/main/resources/db/migration/V1__create_users.sql",
+      "content": "CREATE TABLE users (\n    id BIGSERIAL PRIMARY KEY,\n    name VARCHAR(100) NOT NULL\n);\n"
+    },
+    {
+      "path": "src/main/resources/db/migration/V2__add_users_email.sql",
+      "content": "ALTER TABLE users ADD COLUMN email VARCHAR(255);\nCREATE UNIQUE INDEX users_email_key ON users (email);\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "added a unique index on email to V2 and now the app wont start. Validate failed: Migrations have failed validation / Migration checksum mismatch for migration version 2",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's what happened. Flyway stores a checksum for every migration it applies in flyway_schema_history and compares it with the file on every startup. V2 was already applied, so one extra line makes it a different migration. The best practice is to leave applied files alone: put V2 back and add a V3. If reverting is a hassle, repair works too. It runs the edited V2 again and brings the history in line with your files."
+        },
+        {
+          "kind": "code",
+          "lang": "sql",
+          "body": "-- V3__add_users_email_unique_index.sql\nCREATE UNIQUE INDEX users_email_key ON users (email);\n"
+        }
+      ]
+    },
+    {
+      "user": "reverting was annoying so I ran repair on staging. it starts now but theres no index",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. repair runs no SQL at all. It only overwrites the stored checksum with the one from the current file. So the staging history now says V2 created the index while the table has none. Left like this, only a freshly built environment would get the index through V2, and the schemas drift apart. Put V2 back and move the index to V3."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/CREATE UNIQUE INDEX/d' src/main/resources/db/migration/V2__add_users_email.sql"
+        },
+        {
+          "kind": "text",
+          "body": "Note: a checksum only matches if the file matches to the byte. This diff should print nothing."
+        },
+        {
+          "kind": "command",
+          "body": "git diff origin/main -- src/main/resources/db/migration/V2__add_users_email.sql"
+        }
+      ]
+    },
+    {
+      "user": "diff is empty. what about prod? and repair staging again?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "It comes down to what each history remembers. Staging remembers the checksum of the edited V2, so it will not match the reverted file. Run repair on staging once more to put the original value back. Prod was never repaired, so the reverted V2 matches as it is, and a deploy applies V3 and nothing else. Do not wire repair into startup. It would swallow exactly this kind of drift without a word."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "id": "channels-producer-csharp-en",
+  "title": "The CSV import channel eats all the memory",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "csharp",
+  "summary": "Swap an unbounded channel for CreateBounded, stop TryWrite from dropping rows, finish with Complete and ReadAllAsync, and carry a failure across in both directions.",
+  "files": [
+    {
+      "path": "src/Import/CustomerImporter.cs",
+      "content": "using System.Threading.Channels;\n\nnamespace Acme.Import;\n\npublic sealed class CustomerImporter(ICustomerStore store)\n{\n    public async Task ImportAsync(string path, CancellationToken ct)\n    {\n        var channel = Channel.CreateUnbounded<CustomerRow>();\n\n        var producer = Task.Run(async () =>\n        {\n            await foreach (var line in File.ReadLinesAsync(path, ct))\n            {\n                channel.Writer.TryWrite(CustomerRow.Parse(line));\n            }\n        }, ct);\n\n        var consumer = Task.Run(async () =>\n        {\n            while (true)\n            {\n                var row = await channel.Reader.ReadAsync(ct);\n                await store.UpsertAsync(row, ct);\n            }\n        }, ct);\n\n        await Task.WhenAll(producer, consumer);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "customer CSV import, fed it a 2GB file, it hit 6GB and got OOMKilled. yes i know the DB writes are slow",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: CreateUnbounded never pushes back on the writer, so every line read piles up in memory while the DB catches up. A CreateBounded channel with BoundedChannelFullMode.Wait makes the writer wait for space once 1000 rows are queued, which keeps memory flat. The Drop modes throw rows away, so Wait is the only one that fits an import."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "var channel = Channel.CreateBounded<CustomerRow>(new BoundedChannelOptions(1000)\n{\n    FullMode = BoundedChannelFullMode.Wait,\n    SingleWriter = true,\n    SingleReader = true,\n});\n"
+        }
+      ]
+    },
+    {
+      "user": "memory sits around 300MB now. but the file has 800k rows and the DB got a bit over 1000",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. Only WriteAsync waits in Wait mode. TryWrite never waits: when the channel is full it returns false and the row goes nowhere. With the unbounded channel TryWrite always succeeded, so ignoring its return value never showed. Let's switch to an awaited WriteAsync."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/channel.Writer.TryWrite(CustomerRow.Parse(line));/await channel.Writer.WriteAsync(CustomerRow.Parse(line), ct);/' src/Import/CustomerImporter.cs"
+        }
+      ]
+    },
+    {
+      "user": "counts match. but the job never finishes after the last row and gets killed by the timeout. also a broken row should fail the import, pretty sure nobody catches the Parse exception right now",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "The writer never calls Complete, so ReadAsync waits forever for a row that is not coming. Call Complete() when writing is done and Complete(ex) when it fails. With ReadAllAsync on the reader side, the loop ends once the channel is closed, and after Complete(ex) it drains what is left and then throws that exception, so a writer failure reaches WhenAll through the reader."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "var producer = Task.Run(async () =>\n{\n    try\n    {\n        await foreach (var line in File.ReadLinesAsync(path, ct))\n        {\n            await channel.Writer.WriteAsync(CustomerRow.Parse(line), ct);\n        }\n        channel.Writer.Complete();\n    }\n    catch (Exception ex)\n    {\n        channel.Writer.Complete(ex);\n    }\n}, ct);\n\nvar consumer = Task.Run(async () =>\n{\n    await foreach (var row in channel.Reader.ReadAllAsync(ct))\n    {\n        await store.UpsertAsync(row, ct);\n    }\n}, ct);\n"
+        }
+      ]
+    },
+    {
+      "user": "stopped the DB to test it and now it just hangs. no logs, nothing",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "When the reader fails, nothing tells the writer, so its WriteAsync into a full channel waits for a reader that is gone. Closing the channel from the reader side with TryComplete(ex) wakes that WriteAsync with a ChannelClosedException. Note: Complete throws when the channel is already closed, and if the writer dies that way WhenAll throws its exception ahead of the DB one. The writer switches to TryComplete as well, so WhenAll comes back with the real cause either way."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "var consumer = Task.Run(async () =>\n{\n    try\n    {\n        await foreach (var row in channel.Reader.ReadAllAsync(ct))\n        {\n            await store.UpsertAsync(row, ct);\n        }\n    }\n    catch (Exception ex)\n    {\n        channel.Writer.TryComplete(ex);\n        throw;\n    }\n}, ct);\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/channel.Writer.Complete(/channel.Writer.TryComplete(/' src/Import/CustomerImporter.cs"
+        }
+      ]
+    }
+  ]
+}

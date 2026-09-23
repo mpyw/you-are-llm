@@ -1,0 +1,82 @@
+{
+  "id": "sqlalchemy-async-python-en",
+  "title": "Stop MissingGreenlet in AsyncSession by loading ahead",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "python",
+  "summary": "Replace a lazy load that cannot run under asyncio with selectinload, stop the expiry after commit with expire_on_commit=False, and await an occasional relationship through awaitable_attrs.",
+  "files": [
+    {
+      "path": "app/db.py",
+      "content": "from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine\nfrom sqlalchemy.orm import DeclarativeBase\n\nengine = create_async_engine(\"postgresql+asyncpg://app@localhost/app\")\nSessionLocal = async_sessionmaker(engine)\n\n\nclass Base(DeclarativeBase):\n    pass\n"
+    },
+    {
+      "path": "app/models.py",
+      "content": "from sqlalchemy import ForeignKey, String\nfrom sqlalchemy.orm import Mapped, mapped_column, relationship\n\nfrom .db import Base\n\n\nclass Author(Base):\n    __tablename__ = \"authors\"\n\n    id: Mapped[int] = mapped_column(primary_key=True)\n    name: Mapped[str] = mapped_column(String(100))\n    posts: Mapped[list[\"Post\"]] = relationship(back_populates=\"author\")\n\n\nclass Post(Base):\n    __tablename__ = \"posts\"\n\n    id: Mapped[int] = mapped_column(primary_key=True)\n    title: Mapped[str] = mapped_column(String(200))\n    author_id: Mapped[int] = mapped_column(ForeignKey(\"authors.id\"))\n    author: Mapped[\"Author\"] = relationship(back_populates=\"posts\")\n"
+    },
+    {
+      "path": "app/service.py",
+      "content": "from sqlalchemy import select\n\nfrom .db import SessionLocal\nfrom .models import Author\n\n\nasync def list_authors():\n    async with SessionLocal() as session:\n        result = await session.scalars(select(Author).order_by(Author.name))\n        return [\n            {\"name\": a.name, \"posts\": [p.title for p in a.posts]}\n            for a in result\n        ]\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "moved to AsyncSession and the author list now dies with sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place? at a.posts",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's what is going on: a.posts is a lazy load. With a sync Session, the first touch of a relationship quietly runs a SELECT. AsyncSession has nowhere to await that SQL, so SQLAlchemy stops with MissingGreenlet. The fix is to load the relationship up front in the first query. With joinedload, the authors and their posts come back in a single query over a JOIN."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from sqlalchemy import select\nfrom sqlalchemy.orm import joinedload\n\nfrom .db import SessionLocal\nfrom .models import Author\n\n\nasync def list_authors():\n    async with SessionLocal() as session:\n        result = await session.scalars(\n            select(Author).options(joinedload(Author.posts)).order_by(Author.name)\n        )\n        return [\n            {\"name\": a.name, \"posts\": [p.title for p in a.posts]}\n            for a in result\n        ]\n"
+        }
+      ]
+    },
+    {
+      "user": "now InvalidRequestError: The unique() method must be invoked on this Result, as it contains results that include joined eager loads against collections",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. joinedload is a poor fit for a collection. The JOIN repeats each author once per post, and 2.0 refuses to return those rows until unique() folds the duplicates. For a one to many like posts, selectinload is the best practice. It fetches the authors, then loads their posts in a second query with an IN over their ids, so no row is repeated."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/joinedload/selectinload/g' app/service.py"
+        }
+      ]
+    },
+    {
+      "user": "list works. create post has the same error though. it just adds, commits and returns post.id",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "The commit is the cause. By default commit expires every object in the session, and the next attribute read reloads it with a SELECT. Reading post.id is enough to run that outside any await. The documented answer for asyncio is to pass expire_on_commit=False to async_sessionmaker. The id is already set at flush, so an object that was never expired can still read it."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/async_sessionmaker(engine)/async_sessionmaker(engine, expire_on_commit=False)/' app/db.py"
+        }
+      ]
+    },
+    {
+      "user": "some detail pages touch posts only now and then. im going to forget options every time. anything better?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. Mixing AsyncAttrs into Base gives every model awaitable_attrs. Writing await author.awaitable_attrs.posts runs the lazy load in a form you can await. Caveat: calling that across a list of authors brings back N+1, one SELECT per author. Use selectinload where you read many, and awaitable_attrs where you touch just one."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/import async_sessionmaker/import AsyncAttrs, async_sessionmaker/' -e 's/^class Base(DeclarativeBase):$/class Base(AsyncAttrs, DeclarativeBase):/' app/db.py"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "async def post_titles(author_id):\n    async with SessionLocal() as session:\n        author = await session.get(Author, author_id)\n        posts = await author.awaitable_attrs.posts\n        return [p.title for p in posts]\n"
+        }
+      ]
+    }
+  ]
+}

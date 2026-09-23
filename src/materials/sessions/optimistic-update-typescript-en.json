@@ -2,7 +2,7 @@
   "id": "optimistic-update-typescript-en",
   "title": "Optimistic updates with useMutation",
   "language": "en",
-  "difficulty": "expert",
+  "difficulty": "hard",
   "codeLanguage": "typescript",
   "summary": "Change the screen before the server answers and roll back on failure. The checkbox that flips back on fast clicks is a missing cancelQueries.",
   "files": [

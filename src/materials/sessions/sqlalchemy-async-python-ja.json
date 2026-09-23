@@ -1,0 +1,86 @@
+{
+  "id": "sqlalchemy-async-python-ja",
+  "title": "AsyncSession の MissingGreenlet を先読みで潰す",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "python",
+  "summary": "非同期では動かない遅延ロードを selectinload に置き換え、commit 後の失効を expire_on_commit=False で止め、たまに触る関連は awaitable_attrs で待つ。",
+  "files": [
+    {
+      "path": "app/db.py",
+      "content": "from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine\nfrom sqlalchemy.orm import DeclarativeBase\n\nengine = create_async_engine(\"postgresql+asyncpg://app@localhost/app\")\nSessionLocal = async_sessionmaker(engine)\n\n\nclass Base(DeclarativeBase):\n    pass\n"
+    },
+    {
+      "path": "app/models.py",
+      "content": "from sqlalchemy import ForeignKey, String\nfrom sqlalchemy.orm import Mapped, mapped_column, relationship\n\nfrom .db import Base\n\n\nclass Author(Base):\n    __tablename__ = \"authors\"\n\n    id: Mapped[int] = mapped_column(primary_key=True)\n    name: Mapped[str] = mapped_column(String(100))\n    posts: Mapped[list[\"Post\"]] = relationship(back_populates=\"author\")\n\n\nclass Post(Base):\n    __tablename__ = \"posts\"\n\n    id: Mapped[int] = mapped_column(primary_key=True)\n    title: Mapped[str] = mapped_column(String(200))\n    author_id: Mapped[int] = mapped_column(ForeignKey(\"authors.id\"))\n    author: Mapped[\"Author\"] = relationship(back_populates=\"posts\")\n"
+    },
+    {
+      "path": "app/service.py",
+      "content": "from sqlalchemy import select\n\nfrom .db import SessionLocal\nfrom .models import Author\n\n\nasync def list_authors():\n    async with SessionLocal() as session:\n        result = await session.scalars(select(Author).order_by(Author.name))\n        return [\n            {\"name\": a.name, \"posts\": [p.title for p in a.posts]}\n            for a in result\n        ]\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "AsyncSession に移したら著者一覧で sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place? って出る。a.posts のとこ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、原因は a.posts の遅延ロードです。同期の Session では、関連に初めて触れた時点で裏で SELECT が走ります。AsyncSession ではその SQL を await する場所がないので、SQLAlchemy は MissingGreenlet で止めます。解決策は、関連を最初のクエリで一緒に読み込んでおくことです。joinedload を指定すると、JOIN で著者と投稿を 1 回のクエリで取得することが可能になります。",
+          "reading": "Now、げんいんは a.posts のちえんろーどです。どうきの Session では、かんれんにはじめてふれたじてんでうらで SELECT がはしります。AsyncSession ではその SQL を await するばしょがないので、SQLAlchemy は MissingGreenlet でとめます。かいけつさくは、かんれんをさいしょのくえりでいっしょによみこんでおくことです。joinedload をしていすると、JOIN でちょしゃととうこうを 1 かいのくえりでしゅとくすることがかのうになります。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from sqlalchemy import select\nfrom sqlalchemy.orm import joinedload\n\nfrom .db import SessionLocal\nfrom .models import Author\n\n\nasync def list_authors():\n    async with SessionLocal() as session:\n        result = await session.scalars(\n            select(Author).options(joinedload(Author.posts)).order_by(Author.name)\n        )\n        return [\n            {\"name\": a.name, \"posts\": [p.title for p in a.posts]}\n            for a in result\n        ]\n"
+        }
+      ]
+    },
+    {
+      "user": "今度は InvalidRequestError: The unique() method must be invoked on this Result, as it contains results that include joined eager loads against collections",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "失礼しました。先ほどの joinedload はコレクションの関連には不向きでした。JOIN すると著者 1 人が投稿の数だけ行に複製されるので、2.0 では unique() で重複を畳まない限り結果を返してくれません。posts のような一対多には selectinload がベストプラクティスです。著者を取ったあと、その id をまとめた IN で投稿を 2 本目のクエリとして読むので、行の重複が起きません。",
+          "reading": "しつれいしました。さきほどの joinedload はこれくしょんのかんれんにはふむきでした。JOIN するとちょしゃ 1 にんがとうこうのかずだけぎょうにふくせいされるので、2.0 では unique() でちょうふくをたたまないかぎりけっかをかえしてくれません。posts のようないったいたには selectinload がべすとぷらくてぃすです。ちょしゃをとったあと、その id をまとめた IN でとうこうを 2 ほんめのくえりとしてよむので、ぎょうのちょうふくがおきません。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/joinedload/selectinload/g' app/service.py"
+        }
+      ]
+    },
+    {
+      "user": "一覧は OK。投稿作成のほうも同じエラー出る。add して commit して post.id 返してるだけなんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "commit が原因です。既定では commit の直後にセッション内のすべてのオブジェクトが失効し、次に属性を読んだときに SELECT で読み直されます。post.id を読むだけで、それが await の外で走ります。非同期ではこの読み直しを止めるのが公式の推奨で、async_sessionmaker に expire_on_commit=False を渡します。id は flush の時点で入っているので、失効させなければそのまま読めます。",
+          "reading": "commit がげんいんです。きていでは commit のちょくごにせっしょんないのすべてのおぶじぇくとがしっこうし、つぎにぞくせいをよんだときに SELECT でよみなおされます。post.id をよむだけで、それが await のそとではしります。ひどうきではこのよみなおしをとめるのがこうしきのすいしょうで、async_sessionmaker に expire_on_commit=False をわたします。id は flush のじてんではいっているので、しっこうさせなければそのままよめます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/async_sessionmaker(engine)/async_sessionmaker(engine, expire_on_commit=False)/' app/db.py"
+        }
+      ]
+    },
+    {
+      "user": "詳細画面とかでたまに posts 触るとこ、毎回 options 付けるの絶対忘れる。なんかない？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。Base に AsyncAttrs を混ぜると、どのモデルにも awaitable_attrs が生えます。await author.awaitable_attrs.posts と書けば、遅延ロードを await できる形で実行してくれます。ただし一覧のように何件もの著者でこれを呼ぶと、1 人ごとに SELECT が走る N+1 に戻るという点に注意することが重要です。まとめて読む場面は selectinload、1 件だけ触る場面は awaitable_attrs と使い分けます。",
+          "reading": "しょうちしました。Base に AsyncAttrs をまぜると、どのもでるにも awaitable_attrs がはえます。await author.awaitable_attrs.posts とかけば、ちえんろーどを await できるかたちでじっこうしてくれます。ただしいちらんのようになんけんものちょしゃでこれをよぶと、1 にんごとに SELECT がはしる N+1 にもどるというてんにちゅういすることがじゅうようです。まとめてよむばめんは selectinload、1 けんだけさわるばめんは awaitable_attrs とつかいわけます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/import async_sessionmaker/import AsyncAttrs, async_sessionmaker/' -e 's/^class Base(DeclarativeBase):$/class Base(AsyncAttrs, DeclarativeBase):/' app/db.py"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "async def post_titles(author_id):\n    async with SessionLocal() as session:\n        author = await session.get(Author, author_id)\n        posts = await author.awaitable_attrs.posts\n        return [p.title for p in posts]\n"
+        }
+      ]
+    }
+  ]
+}

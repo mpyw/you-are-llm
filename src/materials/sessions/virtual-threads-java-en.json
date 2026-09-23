@@ -1,0 +1,79 @@
+{
+  "id": "virtual-threads-java-en",
+  "title": "Replace a synchronized block that stalls virtual threads",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "java",
+  "summary": "Turning on spring.threads.virtual.enabled pins the carrier threads on an HTTP call inside synchronized, and the per-tenant rewrite walks into the same trap again.",
+  "files": [
+    {
+      "path": "src/main/resources/application.yml",
+      "content": "spring:\n  threads:\n    virtual:\n      enabled: true\npartner:\n  base-url: https://partner.example.com\n"
+    },
+    {
+      "path": "src/main/java/com/example/partner/PartnerTokenClient.java",
+      "content": "package com.example.partner;\n\nimport java.time.Instant;\n\nimport org.springframework.stereotype.Component;\nimport org.springframework.web.client.RestClient;\n\n@Component\npublic class PartnerTokenClient {\n    private final RestClient http;\n    private String token;\n    private Instant expiresAt = Instant.EPOCH;\n\n    public PartnerTokenClient(RestClient partnerRestClient) {\n        this.http = partnerRestClient;\n    }\n\n    public synchronized String token() {\n        if (Instant.now().isBefore(expiresAt)) {\n            return token;\n        }\n        TokenResponse response = http.post()\n            .uri(\"/oauth/token\")\n            .retrieve()\n            .body(TokenResponse.class);\n        token = response.accessToken();\n        expiresAt = Instant.now().plusSeconds(response.expiresIn());\n        return token;\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "turned on spring.threads.virtual.enabled=true on Boot 3.3 and the whole app freezes under load. even the health check hangs. seems stuck around PartnerTokenClient.token(). JDK 21",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: the HTTP call inside synchronized. On JDK 21, a virtual thread that blocks inside synchronized holds on to its carrier thread, which is called pinning. A thread only waiting to enter the monitor is stuck the same way. There are only as many carriers as CPU cores by default, so one slow token fetch fills every carrier, and requests that never touch token, the health check included, stop too. A virtual thread waiting on a ReentrantLock unmounts from its carrier, so the others keep running. To confirm, look for the jdk.VirtualThreadPinned event in JFR."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import java.util.concurrent.locks.ReentrantLock;\n\n    private final ReentrantLock lock = new ReentrantLock();\n\n    public String token() {\n        lock.lock();\n        try {\n            if (Instant.now().isBefore(expiresAt)) {\n                return token;\n            }\n            TokenResponse response = http.post()\n                .uri(\"/oauth/token\")\n                .retrieve()\n                .body(TokenResponse.class);\n            token = response.accessToken();\n            expiresAt = Instant.now().plusSeconds(response.expiresIn());\n            return token;\n        } finally {\n            lock.unlock();\n        }\n    }\n"
+        },
+        {
+          "kind": "text",
+          "body": "Note: this applies to JDK 21 through 23. JEP 491 in JDK 24 lets a virtual thread release its carrier while blocked inside synchronized, so this pinning no longer happens there. On 21, -Djdk.tracePinnedThreads=full also prints where it pinned. JDK 24 removed that property. As long as you stay on the 21 LTS, ReentrantLock is what you need."
+        }
+      ]
+    },
+    {
+      "user": "works. next month tokens become per tenant. make it token(tenantId). there are hundreds of tenants so no single lock for all of them",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's lean on ConcurrentHashMap.compute. It updates each key atomically, so the hand written lock boilerplate goes away. A token still in date is returned as is, and an expired one is fetched again inside compute."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.partner;\n\nimport java.time.Instant;\nimport java.util.concurrent.ConcurrentHashMap;\n\nimport org.springframework.stereotype.Component;\nimport org.springframework.web.client.RestClient;\n\n@Component\npublic class PartnerTokenClient {\n    private final RestClient http;\n    private final ConcurrentHashMap<String, Token> tokens = new ConcurrentHashMap<>();\n\n    public PartnerTokenClient(RestClient partnerRestClient) {\n        this.http = partnerRestClient;\n    }\n\n    public String token(String tenantId) {\n        return tokens.compute(tenantId, (id, current) ->\n            current != null && current.isValid(Instant.now()) ? current : fetch(id)).value();\n    }\n\n    private Token fetch(String tenantId) {\n        TokenResponse response = http.post()\n            .uri(\"/tenants/{id}/oauth/token\", tenantId)\n            .retrieve()\n            .body(TokenResponse.class);\n        return new Token(response.accessToken(), Instant.now().plusSeconds(response.expiresIn()));\n    }\n\n    private record Token(String value, Instant expiresAt) {\n        boolean isValid(Instant now) {\n            return now.isBefore(expiresAt);\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "frozen again. JFR shows VirtualThreadPinned with ConcurrentHashMap.compute in the stack. didnt we remove synchronized??",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Important correction. ConcurrentHashMap.compute runs your function inside a synchronized block on the bucket. The keyword left our code, but the HTTP call in fetch is still inside a monitor, so JDK 21 pins exactly as before. In other words, I hid the lock rather than removing it. Other tenants that land in the same bucket also wait on it, and that part stays even on JDK 24. Only short work with no I/O belongs in compute, so computeIfAbsent now creates a ReentrantLock per tenant and nothing more. The second check after taking the lock covers a thread ahead of us that already fetched while we waited."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import java.util.concurrent.locks.ReentrantLock;\n\n    private final ConcurrentHashMap<String, Token> tokens = new ConcurrentHashMap<>();\n    private final ConcurrentHashMap<String, ReentrantLock> locks = new ConcurrentHashMap<>();\n\n    public String token(String tenantId) {\n        Token cached = tokens.get(tenantId);\n        if (cached != null && cached.isValid(Instant.now())) {\n            return cached.value();\n        }\n        ReentrantLock lock = locks.computeIfAbsent(tenantId, id -> new ReentrantLock());\n        lock.lock();\n        try {\n            Token current = tokens.get(tenantId);\n            if (current != null && current.isValid(Instant.now())) {\n                return current.value();\n            }\n            Token fresh = fetch(tenantId);\n            tokens.put(tenantId, fresh);\n            return fresh.value();\n        } finally {\n            lock.unlock();\n        }\n    }\n"
+        }
+      ]
+    },
+    {
+      "user": "also apparently a token right at its expiry sometimes gets a 401 from them. refresh 30 seconds early",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "isValid gets a 30 second margin."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/return now.isBefore(expiresAt);/return now.plusSeconds(30).isBefore(expiresAt);/' src/main/java/com/example/partner/PartnerTokenClient.java"
+        }
+      ]
+    }
+  ]
+}

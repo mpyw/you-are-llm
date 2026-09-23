@@ -1,0 +1,45 @@
+{
+  "id": "go-embed-go-ja",
+  "title": "別のディレクトリから起動するとテンプレートが見つからない",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "go",
+  "summary": "実行時に相対パスで読んでいたテンプレートと静的ファイルを //go:embed でバイナリに入れ、fs.Sub と http.FS で配信する。_ で始まるディレクトリが落ちる件は all: で拾う。",
+  "files": [
+    {
+      "path": "main.go",
+      "content": "package main\n\nimport (\n  \"html/template\"\n  \"log\"\n  \"net/http\"\n)\n\nvar tmpl = template.Must(template.ParseGlob(\"templates/*.html\"))\n\nfunc main() {\n  mux := http.NewServeMux()\n  mux.Handle(\"/static/\", http.StripPrefix(\"/static/\", http.FileServer(http.Dir(\"static\"))))\n  mux.HandleFunc(\"/\", func(w http.ResponseWriter, r *http.Request) {\n    if err := tmpl.ExecuteTemplate(w, \"index.html\", nil); err != nil {\n      http.Error(w, err.Error(), http.StatusInternalServerError)\n    }\n  })\n  log.Fatal(http.ListenAndServe(\":8080\", mux))\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "go run . だと動くのに systemd から /usr/local/bin/web で起動すると panic: html/template: pattern matches no files: `templates/*.html` で即死する。ファイルはちゃんとサーバに置いてある",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。ParseGlob も http.Dir も、相対パスをバイナリの場所ではなくプロセスのカレントディレクトリから解決します。go run . はリポジトリ直下で動くので見つかりますが、systemd の WorkingDirectory は既定で / です。//go:embed でファイルをバイナリに埋め込めば、どこから起動しても同じ中身が読めることを保証します。埋め込んだ static は中のパスが static/app.css になるので、fs.Sub で 1 段はがしてから http.FS に渡します。",
+          "reading": "しょうちしました。ParseGlob も http.Dir も、そうたいパスをバイナリのばしょではなくプロセスのカレントディレクトリからかいけつします。go run . はリポジトリじっかでうごくのでみつかりますが、systemd の WorkingDirectory はきていで / です。//go:embed でファイルをバイナリにうめこめば、どこからきどうしてもおなじなかみがよめることをほしょうします。うめこんだ static はなかのパスが static/app.css になるので、fs.Sub で 1 だんはがしてから http.FS にわたします。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "package main\n\nimport (\n  \"embed\"\n  \"html/template\"\n  \"io/fs\"\n  \"log\"\n  \"net/http\"\n)\n\n//go:embed templates/*.html\nvar templateFS embed.FS\n\n//go:embed static\nvar staticFS embed.FS\n\nvar tmpl = template.Must(template.ParseFS(templateFS, \"templates/*.html\"))\n\nfunc main() {\n  static, err := fs.Sub(staticFS, \"static\")\n  if err != nil {\n    log.Fatal(err)\n  }\n  mux := http.NewServeMux()\n  mux.Handle(\"/static/\", http.StripPrefix(\"/static/\", http.FileServer(http.FS(static))))\n  mux.HandleFunc(\"/\", func(w http.ResponseWriter, r *http.Request) {\n    if err := tmpl.ExecuteTemplate(w, \"index.html\", nil); err != nil {\n      http.Error(w, err.Error(), http.StatusInternalServerError)\n    }\n  })\n  log.Fatal(http.ListenAndServe(\":8080\", mux))\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "起動はした。けど static/_app/ の下だけ全部 404。フロントのビルド結果そのまま置いてる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。ディレクトリを指定した //go:embed は、名前が . か _ で始まるファイルとディレクトリを黙って除外します。SvelteKit が出力する _app がまさにそれです。パターンの先頭に all: を付けると除外されなくなります。ただし .DS_Store のような隠しファイルも入るようになる点に注意することが重要です。",
+          "reading": "するどいごしてきです。ディレクトリをしていした //go:embed は、なまえが . か _ ではじまるファイルとディレクトリをだまってじょがいします。SvelteKit がしゅつりょくする _app がまさにそれです。パターンのせんとうに all: をつけるとじょがいされなくなります。ただし .DS_Store のようなかくしファイルもはいるようになるてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's|//go:embed static|//go:embed all:static|' main.go"
+        }
+      ]
+    }
+  ]
+}

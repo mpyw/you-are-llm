@@ -1,0 +1,57 @@
+{
+  "id": "libxml2-xpath-c-en",
+  "title": "Pull RSS titles out with libxml2 XPath",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "c",
+  "summary": "Replace a hand-written child walk with xmlXPathEvalExpression and clean up its results in the right order.",
+  "files": [
+    {
+      "path": "src/feed/titles.c",
+      "content": "#include <stdio.h>\n#include <libxml/parser.h>\n#include <libxml/tree.h>\n\nint print_titles(const char *path) {\n  xmlDocPtr doc = xmlReadFile(path, NULL, XML_PARSE_NONET);\n  if (doc == NULL) return -1;\n  xmlNodePtr root = xmlDocGetRootElement(doc);\n  for (xmlNodePtr n = root->children; n != NULL; n = n->next) {\n    if (n->type == XML_ELEMENT_NODE && xmlStrEqual(n->name, BAD_CAST \"title\")) {\n      printf(\"%s\\n\", (const char *)xmlNodeGetContent(n));\n    }\n  }\n  xmlFreeDoc(doc);\n  return 0;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "print_titles prints nothing. its rss > channel > item > title. rewrite it with xpath and let me pass the expression in, other feeds will use it too",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the rewrite. The current loop only looks at the children of the root, so it stops at channel and never reaches inside item. XPath does not care about depth, so //item/title just works. The function becomes print_nodes and takes the expression. The key point is the order of cleanup: the reverse of creation, so xmlXPathFreeObject, then xmlXPathFreeContext, then xmlFreeDoc. The node set points into the document tree, so the document goes last. The string from xmlNodeGetContent belongs to the caller and needs xmlFree. The old code leaked it."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#include <stdio.h>\n#include <libxml/parser.h>\n#include <libxml/xpath.h>\n\nint print_nodes(const char *path, const char *expr) {\n  xmlDocPtr doc = xmlReadFile(path, NULL, XML_PARSE_NONET);\n  if (doc == NULL) return -1;\n  xmlXPathContextPtr ctx = xmlXPathNewContext(doc);\n  if (ctx == NULL) {\n    xmlFreeDoc(doc);\n    return -1;\n  }\n  xmlXPathObjectPtr obj = xmlXPathEvalExpression(BAD_CAST expr, ctx);\n  if (obj == NULL) {\n    xmlXPathFreeContext(ctx);\n    xmlFreeDoc(doc);\n    return -1;\n  }\n  xmlNodeSetPtr nodes = obj->nodesetval;\n  for (int i = 0; i < nodes->nodeNr; i++) {\n    xmlChar *text = xmlNodeGetContent(nodes->nodeTab[i]);\n    if (text == NULL) continue;\n    printf(\"%s\\n\", (const char *)text);\n    xmlFree(text);\n  }\n  xmlXPathFreeObject(obj);\n  xmlXPathFreeContext(ctx);\n  xmlFreeDoc(doc);\n  return 0;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "accidentally put count(//item) in the config and it segfaulted",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, I missed the NULL case on nodesetval. An expression like count() or string() evaluates to a number or a string, so no node set is built and nodesetval stays NULL. Reading nodeNr through it is what crashed. Anything that is not XPATH_NODESET now returns an error, and the count comes from xmlXPathNodeSetGetLength, which treats NULL as zero. Put differently, the robust approach is to assume NULL even when the type says node set."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "  if (obj->type != XPATH_NODESET) {\n    xmlXPathFreeObject(obj);\n    xmlXPathFreeContext(ctx);\n    xmlFreeDoc(doc);\n    return -1;\n  }\n  xmlNodeSetPtr nodes = obj->nodesetval;\n  int count = xmlXPathNodeSetGetLength(nodes);\n  for (int i = 0; i < count; i++) {\n    xmlChar *text = xmlNodeGetContent(xmlXPathNodeSetItem(nodes, i));\n    if (text == NULL) continue;\n    printf(\"%s\\n\", (const char *)text);\n    xmlFree(text);\n  }\n"
+        }
+      ]
+    },
+    {
+      "user": "also broken feeds spray parser errors all over stderr. mess up the logs. just getting -1 back is enough",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: add XML_PARSE_NOERROR and XML_PARSE_NOWARNING to the parser options and the error and warning output stops. The return value does not change, so a broken document still gives -1. XML_PARSE_NONET stays, because it keeps the parser from fetching external DTDs over the network."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/XML_PARSE_NONET)/XML_PARSE_NONET | XML_PARSE_NOERROR | XML_PARSE_NOWARNING)/' src/feed/titles.c"
+        }
+      ]
+    }
+  ]
+}

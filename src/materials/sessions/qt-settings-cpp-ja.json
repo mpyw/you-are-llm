@@ -1,0 +1,59 @@
+{
+  "id": "qt-settings-cpp-ja",
+  "title": "フォルダ名に = があると設定が消える",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "cpp",
+  "summary": "自前の key=value ファイルをやめて QSettings に任せる。value には既定値を渡し、組織名とアプリ名は最初の QSettings より先に決める。",
+  "files": [
+    {
+      "path": "src/app/preferences.h",
+      "content": "#pragma once\n\n#include <QString>\n\nstruct Preferences\n{\n    int fontSize = 12;\n    QString lastDir;\n\n    static Preferences load();\n    void save() const;\n};\n"
+    },
+    {
+      "path": "src/app/preferences.cpp",
+      "content": "#include \"preferences.h\"\n\n#include <QDir>\n#include <QFile>\n#include <QStringList>\n#include <QTextStream>\n\nstatic QString configPath()\n{\n    return QDir::homePath() + \"/.notepad.conf\";\n}\n\nPreferences Preferences::load()\n{\n    Preferences prefs;\n    QFile file(configPath());\n    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))\n        return prefs;\n    QTextStream in(&file);\n    while (!in.atEnd()) {\n        const QStringList parts = in.readLine().split('=');\n        if (parts.size() != 2)\n            continue;\n        if (parts[0] == \"fontSize\")\n            prefs.fontSize = parts[1].toInt();\n        else if (parts[0] == \"lastDir\")\n            prefs.lastDir = parts[1];\n    }\n    return prefs;\n}\n\nvoid Preferences::save() const\n{\n    QFile file(configPath());\n    if (!file.open(QIODevice::WriteOnly | QIODevice::Text))\n        return;\n    QTextStream out(&file);\n    out << \"fontSize=\" << fontSize << \"\\n\";\n    out << \"lastDir=\" << lastDir << \"\\n\";\n}\n"
+    },
+    {
+      "path": "src/main.cpp",
+      "content": "#include <QApplication>\n\n#include \"mainwindow.h\"\n\nint main(int argc, char *argv[])\n{\n    QApplication app(argc, argv);\n\n    MainWindow window;\n    window.show();\n    return app.exec();\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "設定を ~/.notepad.conf に自前で書いてるんだけど、フォルダ名に = が入ってると次に起動したとき lastDir が消えてる。てか Qt ってこういうの標準でなかったっけ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。原因は split('=') です。行を = で分けて、ちょうど二つに分かれた行だけを読んでいたので、値に = が入ると三つに分かれ、その行ごと捨てられていました。Qt には QSettings があるので、自前のファイルはやめてそちらに任せます。書き方も置き場所も Qt が OS ごとに決めてくれます。value の第 2 引数は、キーがまだないときの既定値です。引数なしの QSettings は組織名とアプリ名から保存先を決めるので、main で先に設定します。この二つが未設定のままだと読み書きが一切できず、status() が AccessError になる点に注意することが重要です。",
+          "reading": "するどいごしてきです。げんいんは split('=') です。ぎょうを = でわけて、ちょうどふたつにわかれたぎょうだけをよんでいたので、あたいに = がはいるとみっつにわかれ、そのぎょうごとすてられていました。Qt には QSettings があるので、じまえのふぁいるはやめてそちらにまかせます。かきかたもおきばしょも Qt が OS ごとにきめてくれます。value のだい 2 ひきすうは、きーがまだないときのきていちです。ひきすうなしの QSettings はそしきめいとあぷりめいからほぞんさきをきめるので、main でさきにせっていします。このふたつがみせっていのままだとよみかきがいっさいできず、status() が AccessError になるてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include \"preferences.h\"\n\n#include <QDir>\n#include <QSettings>\n\nPreferences Preferences::load()\n{\n    QSettings settings;\n    Preferences prefs;\n    prefs.fontSize = settings.value(\"editor/fontSize\", 12).toInt();\n    prefs.lastDir = settings.value(\"files/lastDir\", QDir::homePath()).toString();\n    return prefs;\n}\n\nvoid Preferences::save() const\n{\n    QSettings settings;\n    settings.setValue(\"editor/fontSize\", fontSize);\n    settings.setValue(\"files/lastDir\", lastDir);\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "int main(int argc, char *argv[])\n{\n    QApplication app(argc, argv);\n    QCoreApplication::setOrganizationName(\"Acme\");\n    QCoreApplication::setApplicationName(\"Notepad\");\n\n    MainWindow window;\n    window.show();\n    return app.exec();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "いけた。ついでにウィンドウの大きさと位置も覚えといて。あ、最大化してたらそれも",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。saveGeometry は大きさと位置に加えて、最大化されていたかどうかもまとめて QByteArray にしてくれます。閉じるときに保存して、起動時に restoreGeometry で戻します。初回はまだ何も保存されていないので空の QByteArray が返りますが、restoreGeometry は false を返すだけで何もせず、既定の大きさのまま開きます。",
+          "reading": "しょうちしました。saveGeometry はおおきさといちにくわえて、さいだいかされていたかどうかもまとめて QByteArray にしてくれます。とじるときにほぞんして、きどうじに restoreGeometry でもどします。しょかいはまだなにもほぞんされていないのでからの QByteArray がかえりますが、restoreGeometry は false をかえすだけでなにもせず、きていのおおきさのままひらきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "MainWindow::MainWindow(QWidget *parent)\n    : QMainWindow(parent)\n{\n    QSettings settings;\n    restoreGeometry(settings.value(\"window/geometry\").toByteArray());\n}\n\nvoid MainWindow::closeEvent(QCloseEvent *event)\n{\n    QSettings settings;\n    settings.setValue(\"window/geometry\", saveGeometry());\n    QMainWindow::closeEvent(event);\n}\n"
+        }
+      ]
+    }
+  ]
+}

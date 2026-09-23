@@ -1,0 +1,59 @@
+{
+  "id": "libpq-params-c-ja",
+  "title": "libpq のクエリをパラメータ化する",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "c",
+  "summary": "文字列連結で組んだ SQL を PQexecParams に置き換え、PQclear を必ず呼び、SELECT の結果を PGRES_TUPLES_OK で確かめる。",
+  "files": [
+    {
+      "path": "src/db/user.c",
+      "content": "#include <stdio.h>\n#include <stdlib.h>\n#include <libpq-fe.h>\n\nint find_user_id(PGconn *conn, const char *email) {\n  char sql[256];\n  snprintf(sql, sizeof sql, \"SELECT id FROM users WHERE email = '%s'\", email);\n  PGresult *res = PQexec(conn, sql);\n  if (PQntuples(res) == 0) return 0;\n  return atoi(PQgetvalue(res, 0, 0));\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "find_user_id、メアドに ' が入ってるユーザーで落ちる。あと長く動かしてるとメモリじわじわ増えてる気がする",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。原因は 2 つあります。1 つ目は、email を snprintf で SQL に埋め込んでいることです。' が入るとクエリの構文が壊れ、悪意のある入力なら SQL インジェクションになります。PQexecParams を使うと、値は $1 のプレースホルダとは別に送られるので、エスケープそのものが要らなくなります。2 つ目は、PQexec が返した PGresult を一度も PQclear していないことです。結果を読み終えたら、成功でも失敗でも必ず解放します。あわせて PQresultStatus で結果の状態を確かめるようにします。",
+          "reading": "するどいごしてきです。げんいんは 2 つあります。1 つめは、email を snprintf で SQL にうめこんでいることです。' がはいるとくえりのこうぶんがこわれ、あくいのあるにゅうりょくなら SQL いんじぇくしょんになります。PQexecParams をつかうと、あたいは $1 のぷれーすほるだとはべつにおくられるので、えすけーぷそのものがいらなくなります。2 つめは、PQexec がかえした PGresult をいちども PQclear していないことです。けっかをよみおえたら、せいこうでもしっぱいでもかならずかいほうします。あわせて PQresultStatus でけっかのじょうたいをたしかめるようにします。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#include <stdio.h>\n#include <stdlib.h>\n#include <libpq-fe.h>\n\nint find_user_id(PGconn *conn, const char *email) {\n  const char *params[1] = { email };\n  PGresult *res = PQexecParams(conn,\n      \"SELECT id FROM users WHERE email = $1\",\n      1, NULL, params, NULL, NULL, 0);\n  int id = -1;\n  if (PQresultStatus(res) == PGRES_COMMAND_OK) {\n    id = PQntuples(res) == 0 ? 0 : atoi(PQgetvalue(res, 0, 0));\n  } else {\n    fprintf(stderr, \"find_user_id: %s\", PQresultErrorMessage(res));\n  }\n  PQclear(res);\n  return id;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "' のは直った。けど今度はいるはずのユーザーでも -1 返る。ログは find_user_id: だけで中身空っぽ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの状態チェックが誤っていました。PGRES_COMMAND_OK は、INSERT や UPDATE のように行を返さないコマンドが成功したときの値です。SELECT は 0 行でも PGRES_TUPLES_OK を返します。クエリ自体は成功していたので、エラーメッセージが空のまま else に入っていました。比べる値を 1 か所直します。",
+          "reading": "もうしわけありません。さきほどのじょうたいちぇっくがあやまっていました。PGRES_COMMAND_OK は、INSERT や UPDATE のようにぎょうをかえさないこまんどがせいこうしたときのあたいです。SELECT は 0 ぎょうでも PGRES_TUPLES_OK をかえします。くえりじたいはせいこうしていたので、えらーめっせーじがからのまま else にはいっていました。くらべるあたいを 1 かしょなおします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/== PGRES_COMMAND_OK/== PGRES_TUPLES_OK/' src/db/user.c"
+        }
+      ]
+    },
+    {
+      "user": "あーごめん、email ってテナントごとにユニークなんだった。tenant_id も引数でもらって絞って",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。tenant_id を 1 つ目のパラメータにして、email を $2 にずらします。paramTypes に NULL を渡しているので、それぞれの型はサーバーが列の型から推論します。言い換えると、呼び出し側は tenant_id も文字列のまま渡せば足ります。nParams とプレースホルダの数を必ずそろえる、という点に注意することが重要です。",
+          "reading": "しょうちしました。tenant_id を 1 つめのぱらめーたにして、email を $2 にずらします。paramTypes に NULL をわたしているので、それぞれのかたはさーばーがれつのかたからすいろんします。いいかえると、よびだしがわは tenant_id ももじれつのままわたせばたります。nParams とぷれーすほるだのかずをかならずそろえる、というてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/const char \\*email)/const char *tenant, const char *email)/; s/params\\[1\\] = { email }/params[2] = { tenant, email }/; s/WHERE email = \\$1/WHERE tenant_id = $1 AND email = $2/; s/1, NULL, params/2, NULL, params/' src/db/user.c"
+        }
+      ]
+    }
+  ]
+}

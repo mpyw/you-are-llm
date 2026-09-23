@@ -1,0 +1,80 @@
+{
+  "id": "fastapi-auth-dependency-python-en",
+  "title": "Make the current user a dependency with OAuth2PasswordBearer",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "python",
+  "summary": "Replace the hand-written token check in every endpoint with get_current_user, send WWW-Authenticate with the 401, clean up a leaking dependency_overrides with a fixture, and answer 403 for inactive users.",
+  "files": [
+    {
+      "path": "app/main.py",
+      "content": "from fastapi import FastAPI, Header, HTTPException\n\nfrom app.auth import USERS, decode_token\n\napp = FastAPI()\n\n\n@app.get(\"/me\")\ndef read_me(authorization: str = Header()):\n    user_id = decode_token(authorization.removeprefix(\"Bearer \"))\n    if user_id is None or user_id not in USERS:\n        raise HTTPException(status_code=401, detail=\"invalid token\")\n    return USERS[user_id]\n\n\n@app.get(\"/orders\")\ndef list_orders(authorization: str = Header()):\n    user_id = decode_token(authorization.removeprefix(\"Bearer \"))\n    if user_id is None or user_id not in USERS:\n        raise HTTPException(status_code=401, detail=\"invalid token\")\n    return {\"user_id\": user_id, \"orders\": []}\n"
+    },
+    {
+      "path": "app/auth.py",
+      "content": "import jwt\nfrom pydantic import BaseModel\n\nSECRET_KEY = \"change-me\"\n\n\nclass User(BaseModel):\n    id: int\n    name: str\n    is_active: bool = True\n\n\nUSERS = {1: User(id=1, name=\"mpyw\"), 2: User(id=2, name=\"ghost\", is_active=False)}\n\n\ndef decode_token(token: str) -> int | None:\n    try:\n        payload = jwt.decode(token, SECRET_KEY, algorithms=[\"HS256\"])\n    except jwt.InvalidTokenError:\n        return None\n    return int(payload[\"sub\"])\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "every new endpoint i copy paste this token check. also hitting it without the header gives 422 not 401 which is weird",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's take it step by step. Header() has no default, so a missing Authorization header is a missing required parameter to FastAPI, hence the 422. Making OAuth2PasswordBearer a dependency hands it the job of pulling out the Bearer token, and it answers 401 when the header is absent. get_current_user in auth.py checks the token and returns the user, and Annotated wraps that into a CurrentUser type. The 401 carries WWW-Authenticate: Bearer, the header HTTP requires on every 401. tokenUrl is where Swagger UI goes to fetch a token."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from typing import Annotated\n\nfrom fastapi import Depends, HTTPException, status\nfrom fastapi.security import OAuth2PasswordBearer\n\noauth2_scheme = OAuth2PasswordBearer(tokenUrl=\"token\")\n\n\ndef get_current_user(token: Annotated[str, Depends(oauth2_scheme)]) -> User:\n    user_id = decode_token(token)\n    if user_id is None or user_id not in USERS:\n        raise HTTPException(\n            status_code=status.HTTP_401_UNAUTHORIZED,\n            detail=\"invalid token\",\n            headers={\"WWW-Authenticate\": \"Bearer\"},\n        )\n    return USERS[user_id]\n\n\nCurrentUser = Annotated[User, Depends(get_current_user)]\n"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from fastapi import FastAPI\n\nfrom app.auth import CurrentUser\n\napp = FastAPI()\n\n\n@app.get(\"/me\")\ndef read_me(user: CurrentUser):\n    return user\n\n\n@app.get(\"/orders\")\ndef list_orders(user: CurrentUser):\n    return {\"user_id\": user.id, \"orders\": []}\n"
+        }
+      ]
+    },
+    {
+      "user": "nice. want tests but minting a JWT every time is a pain",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! Put a function in app.dependency_overrides under get_current_user, and FastAPI calls it instead of the real dependency. A lambda returning a fake user logs the test in without any JWT."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from fastapi.testclient import TestClient\n\nfrom app.auth import User, get_current_user\nfrom app.main import app\n\napp.dependency_overrides[get_current_user] = lambda: User(id=1, name=\"mpyw\")\n\nclient = TestClient(app)\n\n\ndef test_read_me():\n    response = client.get(\"/me\")\n    assert response.status_code == 200\n    assert response.json()[\"name\"] == \"mpyw\"\n"
+        }
+      ]
+    },
+    {
+      "user": "added a test that no token gives 401, got 200. and now everything in tests/test_orders.py is logged in too",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous test changed dependency_overrides at import time. It is one dict on the app, so an override set there stays until the pytest process exits and leaks into every other test file. The override has to go in per test and come out afterwards. A fixture clears it after its yield, and only the tests that want a logged in user ask for that fixture."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "import pytest\nfrom fastapi.testclient import TestClient\n\nfrom app.auth import User, get_current_user\nfrom app.main import app\n\nclient = TestClient(app)\n\n\n@pytest.fixture\ndef logged_in():\n    app.dependency_overrides[get_current_user] = lambda: User(id=1, name=\"mpyw\")\n    yield\n    app.dependency_overrides.clear()\n\n\ndef test_read_me(logged_in):\n    response = client.get(\"/me\")\n    assert response.status_code == 200\n    assert response.json()[\"name\"] == \"mpyw\"\n\n\ndef test_read_me_without_token():\n    response = client.get(\"/me\")\n    assert response.status_code == 401\n    assert response.headers[\"WWW-Authenticate\"] == \"Bearer\"\n"
+        }
+      ]
+    },
+    {
+      "user": "oh and users who left, is_active False. if their token hasn't expired they still get in. make that a 403",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. The check goes right before the return in get_current_user. The sed captures the leading spaces and reuses them with \\1, so the two new lines sit at the same depth. Note: a test that overrides get_current_user skips this check along with everything else in it."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^\\( *\\)return USERS\\[user_id\\]$/\\1if not USERS[user_id].is_active:\\n\\1    raise HTTPException(status_code=403, detail=\"inactive user\")\\n&/' app/auth.py"
+        }
+      ]
+    }
+  ]
+}

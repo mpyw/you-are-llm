@@ -1,0 +1,57 @@
+{
+  "id": "jpa-enum-string-java-en",
+  "title": "Store a JPA enum by name, not by position",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "java",
+  "summary": "Inserting a constant in the middle would shift what every existing row means, so the enum is stored by name and the data is moved over.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/order/OrderStatus.java",
+      "content": "package com.example.order;\n\npublic enum OrderStatus {\n    PENDING,\n    PAID,\n    SHIPPED,\n    DELIVERED\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/order/Order.java",
+      "content": "package com.example.order;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.Table;\n\n@Entity\n@Table(name = \"orders\")\npublic class Order {\n    @Id\n    @GeneratedValue\n    private Long id;\n\n    private OrderStatus status;\n\n    protected Order() {\n    }\n\n    public OrderStatus getStatus() {\n        return status;\n    }\n}\n"
+    },
+    {
+      "path": "src/main/resources/application.yml",
+      "content": "spring:\n  datasource:\n    url: jdbc:postgresql://localhost:5432/shop\n  jpa:\n    hibernate:\n      ddl-auto: validate\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "want to add PAYMENT_FAILED to OrderStatus. right after PENDING reads nicer yeah? take a look before i open the PR",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Happy to help. As things stand, that insert is dangerous. The status field has no @Enumerated, so JPA falls back to EnumType.ORDINAL and stores each constant's position. Put PAYMENT_FAILED after PENDING and PAID moves from 1 to 2, so every order already paid reads back as PAYMENT_FAILED. Nothing throws. You find out when a customer writes in. Switch to EnumType.STRING first, which stores the name, and rewrite the existing numbers as names. The numbers in the CASE are the positions as they are today, before anything is added. Note: once this ships, a new constant can go anywhere."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import jakarta.persistence.Column;\nimport jakarta.persistence.EnumType;\nimport jakarta.persistence.Enumerated;\n\n    @Enumerated(EnumType.STRING)\n    @Column(length = 32)\n    private OrderStatus status;\n"
+        },
+        {
+          "kind": "code",
+          "lang": "sql",
+          "body": "ALTER TABLE orders ALTER COLUMN status TYPE varchar(32)\n    USING CASE status\n        WHEN 0 THEN 'PENDING'\n        WHEN 1 THEN 'PAID'\n        WHEN 2 THEN 'SHIPPED'\n        WHEN 3 THEN 'DELIVERED'\n    END;\n"
+        }
+      ]
+    },
+    {
+      "user": "ok. also theres talk of renaming PAID to CAPTURED. what happens with STRING then",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question, because that is the price of STRING. The order of the constants no longer matters, but the name is now part of the data. Rename the constant and every existing PAID row fails to load. Ship the rename in the same release as an update to the rows."
+        },
+        {
+          "kind": "code",
+          "lang": "sql",
+          "body": "UPDATE orders SET status = 'CAPTURED' WHERE status = 'PAID';\n"
+        }
+      ]
+    }
+  ]
+}

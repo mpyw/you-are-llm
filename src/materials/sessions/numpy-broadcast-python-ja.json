@@ -1,0 +1,60 @@
+{
+  "id": "numpy-broadcast-python-ja",
+  "title": "NumPy の二重ループをブロードキャストで消す",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "python",
+  "summary": "距離行列を a[:, None, :] - b[None, :, :] で一度に作り、shapes のエラーを右から読み、膨らんだ中間配列をチャンクに分ける。",
+  "files": [
+    {
+      "path": "geo/nearest.py",
+      "content": "import numpy as np\n\n\ndef pairwise_distances(a, b):\n    n, m = len(a), len(b)\n    out = np.empty((n, m))\n    for i in range(n):\n        for j in range(m):\n            out[i, j] = np.sqrt(np.sum((a[i] - b[j]) ** 2))\n    return out\n\n\ndef nearest(a, b):\n    return pairwise_distances(a, b).argmin(axis=1)\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "顧客 5000 件それぞれの一番近い店舗 (2000 件) 探してるんだけど 1 分近くかかる。ブロードキャストってやつで a - b したら ValueError: operands could not be broadcast together with shapes (5000,2) (2000,2) って言われた",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい着眼点です。エラーの shapes は右端の次元からそろえて比べます。右端は 2 と 2 で一致しますが、その左は 5000 と 2000 で、どちらも 1 ではないので揃えられません。ブロードキャストは長さ 1 の次元しか引き伸ばさないからです。a[:, None, :] で (5000, 1, 2)、b[None, :, :] で (1, 2000, 2) にすると、差は (5000, 2000, 2) になり、全組み合わせを一度に計算できます。Python のループが消えるので、1 秒もかからないはずです。",
+          "reading": "すばらしいちゃくがんてんです。えらーの shapes はみぎはしのじげんからそろえてくらべます。みぎはしは 2 と 2 でいっちしますが、そのひだりは 5000 と 2000 で、どちらも 1 ではないのでそろえられません。ぶろーどきゃすとはながさ 1 のじげんしかひきのばさないからです。a[:, None, :] で (5000, 1, 2)、b[None, :, :] で (1, 2000, 2) にすると、さは (5000, 2000, 2) になり、ぜんくみあわせをいちどにけいさんできます。Python のるーぷがきえるので、1 びょうもかからないはずです。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "import numpy as np\n\n\ndef pairwise_distances(a, b):\n    diff = a[:, None, :] - b[None, :, :]\n    return np.sqrt((diff ** 2).sum(axis=-1))\n\n\ndef nearest(a, b):\n    return pairwise_distances(a, b).argmin(axis=1)\n"
+        }
+      ]
+    },
+    {
+      "user": "手元だと一瞬になった。けど本番のバッチ (顧客 50 万) で流したら OOM で kill された",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません、メモリ量を見落としていました。ブロードキャストはループを消す代わりに、全組み合わせの中間配列を実際にメモリへ作ります。(500000, 2000, 2) の float64 は 16 GB で、二乗した配列もさらに同じ大きさだけ確保されます。言い換えると、速さとメモリを交換していたわけです。a を 1000 行ずつに切って計算すれば、1 回あたり 32 MB 程度に収まり、ループは 500 回だけなので速さはほぼ変わりません。",
+          "reading": "もうしわけありません、めもりりょうをみおとしていました。ぶろーどきゃすとはるーぷをけすかわりに、ぜんくみあわせのちゅうかんはいれつをじっさいにめもりへつくります。(500000, 2000, 2) の float64 は 16 GB で、にじょうしたはいれつもさらにおなじおおきさだけかくほされます。いいかえると、はやさとめもりをこうかんしていたわけです。a を 1000 ぎょうずつにきってけいさんすれば、1 かいあたり 32 MB ていどにおさまり、るーぷは 500 かいだけなのではやさはほぼかわりません。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "import numpy as np\n\n\ndef pairwise_distances(a, b):\n    diff = a[:, None, :] - b[None, :, :]\n    return np.sqrt((diff ** 2).sum(axis=-1))\n\n\ndef nearest(a, b, chunk=1000):\n    out = np.empty(len(a), dtype=np.intp)\n    for start in range(0, len(a), chunk):\n        stop = start + chunk\n        out[start:stop] = pairwise_distances(a[start:stop], b).argmin(axis=1)\n    return out\n"
+        }
+      ]
+    },
+    {
+      "user": "通った。てか距離の値ってどこでも使ってないよね？argmin しか見てないなら sqrt いらなくない？名前もそれっぽく変えといて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ご指摘のとおりです。平方根は単調増加なので、二乗距離のままでも argmin の結果は変わりません。np.sqrt を外し、関数名も二乗距離だと分かる pairwise_sq_distances に変えます。呼び出し側は nearest の中だけなので、g フラグで両方まとめて置き換えます。",
+          "reading": "ごしてきのとおりです。へいほうこんはたんちょうぞうかなので、にじょうきょりのままでも argmin のけっかはかわりません。np.sqrt をはずし、かんすうめいもにじょうきょりだとわかる pairwise_sq_distances にかえます。よびだしがわは nearest のなかだけなので、g ふらぐでりょうほうまとめておきかえます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/return np.sqrt((diff \\*\\* 2).sum(axis=-1))/return (diff ** 2).sum(axis=-1)/' -e 's/pairwise_distances/pairwise_sq_distances/g' geo/nearest.py"
+        }
+      ]
+    }
+  ]
+}

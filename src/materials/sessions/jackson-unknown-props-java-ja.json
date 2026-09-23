@@ -1,0 +1,50 @@
+{
+  "id": "jackson-unknown-props-java-ja",
+  "title": "配送 API が項目を足しただけで送料が取れなくなった",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "java",
+  "summary": "自前で new した ObjectMapper は知らない項目で落ちる。Boot が用意したものは落ちない。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/shipping/ShippingRateClient.java",
+      "content": "package com.example.shipping;\n\nimport com.fasterxml.jackson.core.JsonProcessingException;\nimport com.fasterxml.jackson.databind.ObjectMapper;\nimport org.springframework.stereotype.Component;\nimport org.springframework.web.client.RestClient;\n\n@Component\npublic class ShippingRateClient {\n    private final RestClient restClient;\n    private final ObjectMapper objectMapper = new ObjectMapper();\n\n    public ShippingRateClient(RestClient.Builder builder) {\n        this.restClient = builder.baseUrl(\"https://rates.example.com\").build();\n    }\n\n    public ShippingRate fetch(String zipCode) throws JsonProcessingException {\n        String body = restClient.get()\n                .uri(\"/v1/rates?zip={zip}\", zipCode)\n                .retrieve()\n                .body(String.class);\n        return objectMapper.readValue(body, ShippingRate.class);\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/shipping/ShippingRate.java",
+      "content": "package com.example.shipping;\n\npublic record ShippingRate(String carrier, int amount, int days) {\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "今朝から送料取得が全部 500。ログは UnrecognizedPropertyException: Unrecognized field \"currency\" (class com.example.shipping.ShippingRate), not marked as ignorable。うちは何も変えてない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、相手の API がレスポンスに currency を足したのが原因です。new ObjectMapper() で作った素の ObjectMapper は、既定で FAIL_ON_UNKNOWN_PROPERTIES が有効なので、record にない項目が 1 つでもあると例外を投げます。レコードに @JsonIgnoreProperties(ignoreUnknown = true) を付ければ、知らない項目は読み飛ばされます。これで相手が項目を足しても壊れないことを保証します。",
+          "reading": "けつろんからいうと、あいての API がレスポンスに currency をたしたのがげんいんです。new ObjectMapper() でつくったすの ObjectMapper は、きていで FAIL_ON_UNKNOWN_PROPERTIES がゆうこうなので、record にないこうもくが 1 つでもあるとれいがいをなげます。レコードに @JsonIgnoreProperties(ignoreUnknown = true) をつければ、しらないこうもくはよみとばされます。これであいてがこうもくをたしてもこわれないことをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.shipping;\n\nimport com.fasterxml.jackson.annotation.JsonIgnoreProperties;\n\n@JsonIgnoreProperties(ignoreUnknown = true)\npublic record ShippingRate(String carrier, int amount, int days) {\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "直った。でも他の API クライアントは RestClient の body(Foo.class) で受けてて、同じように項目増えても落ちてないんだけど。DTO 全部に付けて回るの？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。Spring Boot が自動構成する ObjectMapper は、FAIL_ON_UNKNOWN_PROPERTIES を最初から無効にしています。RestClient.Builder もその ObjectMapper を使うので、body(Foo.class) は落ちません。落ちたのは、このクラスだけが new ObjectMapper() で Boot の設定を素通りしていたからです。Boot の ObjectMapper をコンストラクタで受け取れば、spring.jackson.* の設定が唯一の情報源になります。付けた注釈は、どの ObjectMapper に渡されても同じ動きをするので残しておいて構いません。",
+          "reading": "するどいごしてきです。Spring Boot がじどうこうせいする ObjectMapper は、FAIL_ON_UNKNOWN_PROPERTIES をさいしょからむこうにしています。RestClient.Builder もその ObjectMapper をつかうので、body(Foo.class) はおちません。おちたのは、このクラスだけが new ObjectMapper() で Boot のせっていをすどおりしていたからです。Boot の ObjectMapper をコンストラクタでうけとれば、spring.jackson.* のせっていがゆいいつのじょうほうげんになります。つけたちゅうしゃくは、どの ObjectMapper にわたされてもおなじうごきをするのでのこしておいてかまいません。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "private final RestClient restClient;\nprivate final ObjectMapper objectMapper;\n\npublic ShippingRateClient(RestClient.Builder builder, ObjectMapper objectMapper) {\n    this.restClient = builder.baseUrl(\"https://rates.example.com\").build();\n    this.objectMapper = objectMapper;\n}\n"
+        }
+      ]
+    }
+  ]
+}

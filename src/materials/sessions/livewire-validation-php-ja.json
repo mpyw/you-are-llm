@@ -1,0 +1,68 @@
+{
+  "id": "livewire-validation-php-ja",
+  "title": "Livewire 3 で入力中にバリデーションを出す",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "ルールを #[Validate] 属性に移したのにエラーが送信時まで出ず、Livewire 3 の wire:model が既定で遅延することを見落とす。",
+  "files": [
+    {
+      "path": "app/Livewire/NewsletterSignup.php",
+      "content": "<?php\n\nnamespace App\\Livewire;\n\nuse App\\Models\\Subscriber;\nuse Livewire\\Component;\n\nclass NewsletterSignup extends Component\n{\n    public string $name = '';\n\n    public string $email = '';\n\n    public function save()\n    {\n        $validated = $this->validate([\n            'name' => 'required|min:2',\n            'email' => 'required|email|unique:subscribers,email',\n        ]);\n\n        Subscriber::create($validated);\n\n        $this->reset();\n\n        session()->flash('status', 'Subscribed.');\n    }\n\n    public function render()\n    {\n        return view('livewire.newsletter-signup');\n    }\n}\n"
+    },
+    {
+      "path": "resources/views/livewire/newsletter-signup.blade.php",
+      "content": "<form wire:submit=\"save\">\n    <input type=\"text\" wire:model=\"name\">\n    @error('name') <span class=\"error\">{{ $message }}</span> @enderror\n\n    <input type=\"email\" wire:model=\"email\">\n    @error('email') <span class=\"error\">{{ $message }}</span> @enderror\n\n    <button type=\"submit\">Subscribe</button>\n</form>\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "Livewire 3 に上げたら購読フォームのエラーが送信押すまで出なくなった。v2 のときは打ってる途中で出てた気がする。あとネットワークタブ見ても入力のたびのリクエスト飛んでないっぽい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい観察です。Livewire 3 では、ルールをプロパティの #[Validate] 属性に書くと、そのプロパティが更新されるたびに自動で検証が走ります。save の中は引数なしの $this->validate() で同じルールを使えるので、ルールを 2 か所に書く必要もありません。これで入力中にもエラーが表示され、期待どおりに動作します。",
+          "reading": "すばらしいかんさつです。Livewire 3 では、ルールをプロパティの #[Validate] ぞくせいにかくと、そのプロパティがこうしんされるたびにじどうでけんしょうがはしります。save のなかはひきすうなしの $this->validate() でおなじルールをつかえるので、ルールを 2 かしょにかくひつようもありません。これでにゅうりょくちゅうにもエラーがひょうじされ、きたいどおりにどうさします。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Livewire\\Attributes\\Validate;\n\nclass NewsletterSignup extends Component\n{\n    #[Validate('required|min:2')]\n    public string $name = '';\n\n    #[Validate('required|email|unique:subscribers,email')]\n    public string $email = '';\n\n    public function save()\n    {\n        $validated = $this->validate();\n\n        Subscriber::create($validated);\n\n        $this->reset();\n\n        session()->flash('status', 'Subscribed.');\n    }\n"
+        }
+      ]
+    },
+    {
+      "user": "変わらん。やっぱ送信するまで何も出ない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません、先ほどの説明は正確ではありませんでした。Livewire 3 の wire:model は既定で遅延し、入力した値は次のアクションと一緒に送られます。このフォームでは送信がそれにあたります。言い換えると、送信までサーバ側のプロパティが更新されないので、#[Validate] の検証も走りません。ビューを wire:model.live に変えます。",
+          "reading": "もうしわけありません、さきほどのせつめいはせいかくではありませんでした。Livewire 3 の wire:model はきていでちえんし、にゅうりょくしたあたいはつぎのアクションといっしょにおくられます。このフォームではそうしんがそれにあたります。いいかえると、そうしんまでサーバがわのプロパティがこうしんされないので、#[Validate] のけんしょうもはしりません。ビューを wire:model.live にかえます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/wire:model=\"/wire:model.live=\"/' resources/views/livewire/newsletter-signup.blade.php"
+        },
+        {
+          "kind": "text",
+          "body": "Note: wire:model.live は入力が止まってから 150 ミリ秒待って送るので、キーを押すたびに毎回リクエストが飛ぶわけではありません。",
+          "reading": "Note: wire:model.live はにゅうりょくがとまってから 150 ミリびょうまっておくるので、キーをおすたびにまいかいリクエストがとぶわけではありません。"
+        }
+      ]
+    },
+    {
+      "user": "出るようになった。けどメアド打ち始めた瞬間に赤字で怒られるのうざいし、unique で毎回 DB 叩いてるよねこれ。メアドは打ち終わってからでいい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。email だけ wire:model.blur にして、欄からフォーカスが外れたときに一度だけ送ります。unique の問い合わせもその 1 回で済みます。名前は wire:model.live のまま残します。",
+          "reading": "しょうちしました。email だけ wire:model.blur にして、らんからフォーカスがはずれたときにいちどだけおくります。unique のといあわせもその 1 かいですみます。なまえは wire:model.live のままのこします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/type=\"email\"/s/wire:model.live=/wire:model.blur=/' resources/views/livewire/newsletter-signup.blade.php"
+        }
+      ]
+    }
+  ]
+}

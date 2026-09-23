@@ -1,0 +1,57 @@
+{
+  "id": "angular-unsubscribe-typescript-en",
+  "title": "Polling multiplies every time you leave and come back",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "typescript",
+  "summary": "An interval subscribed in ngOnInit outlives its component, and each visit adds one more. takeUntilDestroyed with no argument in ngOnInit throws NG0203, and passing DestroyRef fixes it. Then the async pipe takes over.",
+  "files": [
+    {
+      "path": "src/app/dashboard.component.ts",
+      "content": "import { Component, OnInit, inject, signal } from '@angular/core'\nimport { HttpClient } from '@angular/common/http'\nimport { interval, switchMap } from 'rxjs'\n\ntype Stats = { active: number; queued: number }\n\n@Component({\n  selector: 'app-dashboard',\n  standalone: true,\n  template: `\n    <p>Active: {{ stats()?.active }}</p>\n    <p>Queued: {{ stats()?.queued }}</p>\n  `,\n})\nexport class DashboardComponent implements OnInit {\n  private http = inject(HttpClient)\n  stats = signal<Stats | null>(null)\n\n  ngOnInit() {\n    interval(5000)\n      .pipe(switchMap(() => this.http.get<Stats>('/api/stats')))\n      .subscribe((stats) => this.stats.set(stats))\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "dashboard: every time I go to another page and come back, /api/stats fires more. after 3 round trips its 4 requests every 5s",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: the subscription is never torn down. The component is destroyed when you leave the page, but interval keeps going until someone unsubscribes. The destroyed component leaves its subscription behind, and each visit stacks one more on top. takeUntilDestroyed, available since Angular 16, completes the subscription when the component is destroyed. It goes last in the pipe. Anything after it, such as switchMap, keeps its inner subscription running."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { Component, OnInit, inject, signal } from '@angular/core'\nimport { takeUntilDestroyed } from '@angular/core/rxjs-interop'\nimport { HttpClient } from '@angular/common/http'\nimport { interval, switchMap } from 'rxjs'\n\ntype Stats = { active: number; queued: number }\n\n@Component({\n  selector: 'app-dashboard',\n  standalone: true,\n  template: `\n    <p>Active: {{ stats()?.active }}</p>\n    <p>Queued: {{ stats()?.queued }}</p>\n  `,\n})\nexport class DashboardComponent implements OnInit {\n  private http = inject(HttpClient)\n  stats = signal<Stats | null>(null)\n\n  ngOnInit() {\n    interval(5000)\n      .pipe(\n        switchMap(() => this.http.get<Stats>('/api/stats')),\n        takeUntilDestroyed(),\n      )\n      .subscribe((stats) => this.stats.set(stats))\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "crashes the moment it opens\nERROR RuntimeError: NG0203: takeUntilDestroyed() can only be used within an injection context such as a constructor, a factory function, a field initializer, or a function used with `runInInjectionContext`.",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Important correction. takeUntilDestroyed() with no argument calls inject(DestroyRef) to find out when to stop. inject only works inside an injection context, such as a constructor or a field initializer, and ngOnInit is outside it. My previous code called it right there. DestroyRef is now injected as a field and passed in explicitly as takeUntilDestroyed(this.destroyRef). Moving the whole subscription into the constructor also works, but an @Input has no value until ngOnInit, so this way is more robust."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/Component, OnInit, inject, signal/Component, DestroyRef, OnInit, inject, signal/' -e 's/takeUntilDestroyed(),/takeUntilDestroyed(this.destroyRef),/' -e '/private http = inject(HttpClient)/a\\\n  private destroyRef = inject(DestroyRef)\n' src/app/dashboard.component.ts"
+        }
+      ]
+    },
+    {
+      "user": "fixed. but do we even need subscribe and set? why not the async pipe? also the 5 seconds of nothing after opening has been bugging me",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Good point. With the async pipe the template subscribes, and it unsubscribes when the component is destroyed. Nothing holds a subscription by hand, so DestroyRef and takeUntilDestroyed both go away. The first 5 seconds are empty because interval emits its first value after 5 seconds. timer(0, 5000) emits the first one right away. Note: a standalone component has to list AsyncPipe in imports, or the template fails to compile."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { AsyncPipe } from '@angular/common'\nimport { HttpClient } from '@angular/common/http'\nimport { Component, inject } from '@angular/core'\nimport { switchMap, timer } from 'rxjs'\n\ntype Stats = { active: number; queued: number }\n\n@Component({\n  selector: 'app-dashboard',\n  standalone: true,\n  imports: [AsyncPipe],\n  template: `\n    @if (stats$ | async; as stats) {\n      <p>Active: {{ stats.active }}</p>\n      <p>Queued: {{ stats.queued }}</p>\n    }\n  `,\n})\nexport class DashboardComponent {\n  private http = inject(HttpClient)\n  stats$ = timer(0, 5000).pipe(switchMap(() => this.http.get<Stats>('/api/stats')))\n}\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "id": "requests-session-python-en",
+  "title": "Reuse connections with requests.Session and add a timeout",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "python",
+  "summary": "Fold repeated requests.get calls into one Session, pass a timeout so the job cannot hang, and stop on every error except 404 with raise_for_status.",
+  "files": [
+    {
+      "path": "jobs/orders.py",
+      "content": "import requests\n\nAPI_URL = \"https://api.example.com\"\n\n\ndef fetch_orders(token, order_ids):\n    orders = []\n    for order_id in order_ids:\n        response = requests.get(\n            f\"{API_URL}/orders/{order_id}\",\n            headers={\"Authorization\": f\"Bearer {token}\"},\n        )\n        orders.append(response.json())\n    return orders\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "batch job pulls 500 orders from the orders api. slow, and sometimes it just sits there until morning",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: two separate problems. requests.get builds a throwaway Session on every call, so all 500 requests open a fresh TCP and TLS connection. A requests.Session keeps the connection to the same host and reuses it. The other one is the timeout. By default requests waits forever, so a server that goes quiet stalls the job until someone kills it. A tuple sets the connect and read limits separately. Note: a Session cannot hold a timeout, so it goes on every call."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "import requests\n\nAPI_URL = \"https://api.example.com\"\nTIMEOUT = (3.05, 10)\n\n\ndef fetch_orders(token, order_ids):\n    orders = []\n    with requests.Session() as session:\n        session.headers[\"Authorization\"] = f\"Bearer {token}\"\n        for order_id in order_ids:\n            response = session.get(f\"{API_URL}/orders/{order_id}\", timeout=TIMEOUT)\n            orders.append(response.json())\n    return orders\n"
+        }
+      ]
+    },
+    {
+      "user": "way faster. but deleted orders come back as {\"error\": \"not found\"} and land in orders, then the report dies with KeyError. skip 404s, stop on anything else",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. requests does not raise on a 4xx or 5xx, so the error body was treated as a normal order. This skips 404 first and lets raise_for_status turn everything else into an HTTPError. In other words, only a 2xx body can end up in orders."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "for order_id in order_ids:\n    response = session.get(f\"{API_URL}/orders/{order_id}\", timeout=TIMEOUT)\n    if response.status_code == 404:\n        continue\n    response.raise_for_status()\n    orders.append(response.json())\n"
+        }
+      ]
+    }
+  ]
+}

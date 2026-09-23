@@ -1,0 +1,60 @@
+{
+  "id": "pin-project-rust-ja",
+  "title": "自前の Timeout で Pin<&mut Self> のフィールドに触る",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "rust",
+  "summary": "poll からフィールドの Future を呼べない自作 Timeout を、Unpin を要求する回避で一度通し、async fn が渡せなくなったので pin_project! の射影に直す。最後に期限の時刻で受ける timeout_at にする。",
+  "files": [
+    {
+      "path": "src/timeout.rs",
+      "content": "use std::future::Future;\nuse std::pin::Pin;\nuse std::task::{Context, Poll};\nuse std::time::Duration;\n\nuse tokio::time::{sleep, Sleep};\n\npub struct Timeout<F> {\n    inner: F,\n    delay: Sleep,\n}\n\nimpl<F: Future> Future for Timeout<F> {\n    type Output = Option<F::Output>;\n\n    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {\n        if let Poll::Ready(out) = self.inner.poll(cx) {\n            return Poll::Ready(Some(out));\n        }\n        match self.delay.poll(cx) {\n            Poll::Ready(()) => Poll::Ready(None),\n            Poll::Pending => Poll::Pending,\n        }\n    }\n}\n\npub fn timeout<F: Future>(duration: Duration, inner: F) -> Timeout<F> {\n    Timeout { inner, delay: sleep(duration) }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "tokio の timeout 使えばいいのは知ってるけど勉強がてら自前で書いてる。self.inner.poll(cx) が no method named `poll` found for type parameter `F` で通らない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい質問です！Future::poll のレシーバは &mut Self ではなく Pin<&mut Self> なので、フィールドの F に直接 .poll は呼べません。Pin<&mut Timeout<F>> から Pin<&mut F> を取り出す必要があります。いちばん手軽なのは F に Unpin を要求することです。Unpin な値は Pin::new で包み直せます。Sleep は Unpin ではないので Box::pin でヒープに置けば、Timeout 全体が Unpin になり、self のフィールドに普通に触れます。実用上、ほとんどの Future は Unpin なので、この制約が問題になることはまずありません。",
+          "reading": "すばらしいしつもんです！Future::poll のれしーばは &mut Self ではなく Pin<&mut Self> なので、ふぃーるどの F にちょくせつ .poll はよべません。Pin<&mut Timeout<F>> から Pin<&mut F> をとりだすひつようがあります。いちばんてがるなのは F に Unpin をようきゅうすることです。Unpin なあたいは Pin::new でつつみなおせます。Sleep は Unpin ではないので Box::pin でひーぷにおけば、Timeout ぜんたいが Unpin になり、self のふぃーるどにふつうにさわれます。じつようじょう、ほとんどの Future は Unpin なので、このせいやくがもんだいになることはまずありません。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::future::Future;\nuse std::pin::Pin;\nuse std::task::{Context, Poll};\nuse std::time::Duration;\n\nuse tokio::time::{sleep, Sleep};\n\npub struct Timeout<F> {\n    inner: F,\n    delay: Pin<Box<Sleep>>,\n}\n\nimpl<F: Future + Unpin> Future for Timeout<F> {\n    type Output = Option<F::Output>;\n\n    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {\n        if let Poll::Ready(out) = Pin::new(&mut self.inner).poll(cx) {\n            return Poll::Ready(Some(out));\n        }\n        match self.delay.as_mut().poll(cx) {\n            Poll::Ready(()) => Poll::Ready(None),\n            Poll::Pending => Poll::Pending,\n        }\n    }\n}\n\npub fn timeout<F: Future + Unpin>(duration: Duration, inner: F) -> Timeout<F> {\n    Timeout { inner, delay: Box::pin(sleep(duration)) }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "timeout(Duration::from_secs(3), fetch(url)) したら `{async fn body of fetch()}` cannot be unpinned って出る。Box::pin(fetch(url)) なら通るけど毎回それやるの？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "前言を撤回します。async fn や async ブロックが返す Future は自分自身を指す参照を持ち得るので Unpin ではなく、「ほとんどの Future は Unpin」という説明は正確ではありませんでした。言い換えると、Unpin を要求すると呼び出し側に毎回 Box::pin を強いることになります。pin-project-lite の pin_project! で構造体を包むと、self.project() で #[pin] を付けたフィールドは Pin<&mut F> として、付けないフィールドは &mut として取り出せます。この射影は unsafe を書かずに健全であることを保証します。Unpin の制約も Box も要らなくなります。",
+          "reading": "ぜんげんをてっかいします。async fn や async ぶろっくがかえす Future はじぶんじしんをさすさんしょうをもちうるので Unpin ではなく、「ほとんどの Future は Unpin」というせつめいはせいかくではありませんでした。いいかえると、Unpin をようきゅうするとよびだしがわにまいかい Box::pin をしいることになります。pin-project-lite の pin_project! でこうぞうたいをつつむと、self.project() で #[pin] をつけたふぃーるどは Pin<&mut F> として、つけないふぃーるどは &mut としてとりだせます。このしゃえいは unsafe をかかずにけんぜんであることをほしょうします。Unpin のせいやくも Box もいらなくなります。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::future::Future;\nuse std::pin::Pin;\nuse std::task::{Context, Poll};\nuse std::time::Duration;\n\nuse pin_project_lite::pin_project;\nuse tokio::time::{sleep, Sleep};\n\npin_project! {\n    pub struct Timeout<F> {\n        #[pin]\n        inner: F,\n        #[pin]\n        delay: Sleep,\n    }\n}\n\nimpl<F: Future> Future for Timeout<F> {\n    type Output = Option<F::Output>;\n\n    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {\n        let this = self.project();\n        if let Poll::Ready(out) = this.inner.poll(cx) {\n            return Poll::Ready(Some(out));\n        }\n        match this.delay.poll(cx) {\n            Poll::Ready(()) => Poll::Ready(None),\n            Poll::Pending => Poll::Pending,\n        }\n    }\n}\n\npub fn timeout<F: Future>(duration: Duration, inner: F) -> Timeout<F> {\n    Timeout { inner, delay: sleep(duration) }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "リトライ全体で締め切り共有したいから Duration じゃなくて期限の時刻で受けたい。名前も timeout_at で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。ポイントは、Sleep が sleep_until(deadline) でも作れることです。構造体と poll はそのままで、コンストラクタと use だけ差し替えます。Instant は std ではなく tokio::time::Instant です。",
+          "reading": "しょうちしました。ぽいんとは、Sleep が sleep_until(deadline) でもつくれることです。こうぞうたいと poll はそのままで、こんすとらくたと use だけさしかえます。Instant は std ではなく tokio::time::Instant です。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e '/^use std::time::Duration;$/d' -e 's/{sleep, Sleep}/{sleep_until, Instant, Sleep}/' -e 's/pub fn timeout<F: Future>(duration: Duration, inner: F)/pub fn timeout_at<F: Future>(deadline: Instant, inner: F)/' -e 's/sleep(duration)/sleep_until(deadline)/' src/timeout.rs"
+        }
+      ]
+    }
+  ]
+}

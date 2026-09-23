@@ -1,0 +1,57 @@
+{
+  "id": "pin-project-rust-en",
+  "title": "Reach the fields of Pin<&mut Self> in a hand-written Timeout",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "rust",
+  "summary": "A home-made Timeout that cannot poll its inner future is first forced through with an Unpin bound, breaks on async fn, and is fixed with pin_project! projection, then takes a deadline as timeout_at.",
+  "files": [
+    {
+      "path": "src/timeout.rs",
+      "content": "use std::future::Future;\nuse std::pin::Pin;\nuse std::task::{Context, Poll};\nuse std::time::Duration;\n\nuse tokio::time::{sleep, Sleep};\n\npub struct Timeout<F> {\n    inner: F,\n    delay: Sleep,\n}\n\nimpl<F: Future> Future for Timeout<F> {\n    type Output = Option<F::Output>;\n\n    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {\n        if let Poll::Ready(out) = self.inner.poll(cx) {\n            return Poll::Ready(Some(out));\n        }\n        match self.delay.poll(cx) {\n            Poll::Ready(()) => Poll::Ready(None),\n            Poll::Pending => Poll::Pending,\n        }\n    }\n}\n\npub fn timeout<F: Future>(duration: Duration, inner: F) -> Timeout<F> {\n    Timeout { inner, delay: sleep(duration) }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "yes i know tokio has timeout, writing my own to learn. self.inner.poll(cx) fails with no method named `poll` found for type parameter `F`",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! Future::poll takes Pin<&mut Self>, not &mut Self, so you cannot call .poll on the F field directly. You need a Pin<&mut F> out of the Pin<&mut Timeout<F>>. The easiest way is to require F: Unpin, because an Unpin value can be wrapped again with Pin::new. Sleep is not Unpin, so put it on the heap with Box::pin. Then the whole Timeout is Unpin and self gives you its fields like any struct. In practice almost every future is Unpin, so this bound will rarely get in your way."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::future::Future;\nuse std::pin::Pin;\nuse std::task::{Context, Poll};\nuse std::time::Duration;\n\nuse tokio::time::{sleep, Sleep};\n\npub struct Timeout<F> {\n    inner: F,\n    delay: Pin<Box<Sleep>>,\n}\n\nimpl<F: Future + Unpin> Future for Timeout<F> {\n    type Output = Option<F::Output>;\n\n    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {\n        if let Poll::Ready(out) = Pin::new(&mut self.inner).poll(cx) {\n            return Poll::Ready(Some(out));\n        }\n        match self.delay.as_mut().poll(cx) {\n            Poll::Ready(()) => Poll::Ready(None),\n            Poll::Pending => Poll::Pending,\n        }\n    }\n}\n\npub fn timeout<F: Future + Unpin>(duration: Duration, inner: F) -> Timeout<F> {\n    Timeout { inner, delay: Box::pin(sleep(duration)) }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "timeout(Duration::from_secs(3), fetch(url)) says `{async fn body of fetch()}` cannot be unpinned. Box::pin(fetch(url)) works but do i have to do that every time?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "I'd like to walk that back. The future an async fn or async block returns may hold references into itself, so it is not Unpin, and my claim that almost every future is Unpin was wrong. In other words, an Unpin bound makes every caller pay for a Box::pin. Wrap the struct in pin_project! from pin-project-lite instead. self.project() hands out a field marked #[pin] as Pin<&mut F> and an unmarked one as &mut. That projection is sound without a line of unsafe, and both the Unpin bound and the Box go away."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::future::Future;\nuse std::pin::Pin;\nuse std::task::{Context, Poll};\nuse std::time::Duration;\n\nuse pin_project_lite::pin_project;\nuse tokio::time::{sleep, Sleep};\n\npin_project! {\n    pub struct Timeout<F> {\n        #[pin]\n        inner: F,\n        #[pin]\n        delay: Sleep,\n    }\n}\n\nimpl<F: Future> Future for Timeout<F> {\n    type Output = Option<F::Output>;\n\n    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {\n        let this = self.project();\n        if let Poll::Ready(out) = this.inner.poll(cx) {\n            return Poll::Ready(Some(out));\n        }\n        match this.delay.poll(cx) {\n            Poll::Ready(()) => Poll::Ready(None),\n            Poll::Pending => Poll::Pending,\n        }\n    }\n}\n\npub fn timeout<F: Future>(duration: Duration, inner: F) -> Timeout<F> {\n    Timeout { inner, delay: sleep(duration) }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "want to share one deadline across retries, so take the time it expires instead of a Duration. call it timeout_at",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. Here's the trick: a Sleep can also come from sleep_until(deadline). The struct and poll stay as they are, and only the constructor and the use lines change. Note: the Instant here is tokio::time::Instant, not the one from std."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e '/^use std::time::Duration;$/d' -e 's/{sleep, Sleep}/{sleep_until, Instant, Sleep}/' -e 's/pub fn timeout<F: Future>(duration: Duration, inner: F)/pub fn timeout_at<F: Future>(deadline: Instant, inner: F)/' -e 's/sleep(duration)/sleep_until(deadline)/' src/timeout.rs"
+        }
+      ]
+    }
+  ]
+}

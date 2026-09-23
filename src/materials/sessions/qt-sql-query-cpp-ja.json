@@ -1,0 +1,68 @@
+{
+  "id": "qt-sql-query-cpp-ja",
+  "title": "Bob's を足すと黙って消える ToDo",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "cpp",
+  "summary": "QSqlQuery に文字列連結で SQL を渡し、exec() の結果も見ていなかった。prepare と bindValue に替え、失敗は lastError() で拾う。引用符の中の :word はプレースホルダにならない。",
+  "files": [
+    {
+      "path": "src/store/todostore.h",
+      "content": "#pragma once\n\n#include <QList>\n#include <QSqlDatabase>\n#include <QString>\n\nstruct Todo\n{\n    int id;\n    QString title;\n};\n\nclass TodoStore\n{\npublic:\n    explicit TodoStore(const QSqlDatabase &db);\n\n    bool add(const QString &title, int priority);\n    QList<Todo> search(const QString &word);\n\nprivate:\n    QSqlDatabase db_;\n};\n"
+    },
+    {
+      "path": "src/store/todostore.cpp",
+      "content": "#include \"todostore.h\"\n\n#include <QSqlQuery>\n#include <QVariant>\n\nTodoStore::TodoStore(const QSqlDatabase &db) : db_(db) {}\n\nbool TodoStore::add(const QString &title, int priority)\n{\n    QSqlQuery query(db_);\n    query.exec(\"INSERT INTO todos (title, priority) VALUES ('\" + title + \"', \"\n               + QString::number(priority) + \")\");\n    return true;\n}\n\nQList<Todo> TodoStore::search(const QString &word)\n{\n    QSqlQuery query(db_);\n    query.exec(\"SELECT id, title FROM todos WHERE title LIKE '%\" + word + \"%'\");\n    QList<Todo> result;\n    while (query.next())\n        result.append({query.value(0).toInt(), query.value(1).toString()});\n    return result;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "タイトルに Bob's って入れると追加されない。エラーも出ないし add は true 返してくる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "良い質問ですね。タイトルの ' が SQL の文字列をそこで閉じてしまい、INSERT が構文エラーになっています。exec() は失敗すると false を返しますが、その戻り値を捨てたうえで常に true を返していたので、どこにも出てきませんでした。prepare でプレースホルダ付きの SQL を先に渡し、値は bindValue で別に渡します。値が SQL の文字列に混ざらないので、' が入っていても壊れない堅牢な形になります。失敗したときは lastError().text() を警告に出して false を返します。検索も同じ形に直します。",
+          "reading": "よいしつもんですね。たいとるの ' が SQL のもじれつをそこでとじてしまい、INSERT がこうぶんえらーになっています。exec() はしっぱいすると false をかえしますが、そのもどりちをすてたうえでつねに true をかえしていたので、どこにもでてきませんでした。prepare でぷれーすほるだつきの SQL をさきにわたし、あたいは bindValue でべつにわたします。あたいが SQL のもじれつにまざらないので、' がはいっていてもこわれないけんろうなかたちになります。しっぱいしたときは lastError().text() をけいこくにだして false をかえします。けんさくもおなじかたちになおします。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include \"todostore.h\"\n\n#include <QDebug>\n#include <QSqlError>\n#include <QSqlQuery>\n#include <QVariant>\n\nTodoStore::TodoStore(const QSqlDatabase &db) : db_(db) {}\n\nbool TodoStore::add(const QString &title, int priority)\n{\n    QSqlQuery query(db_);\n    query.prepare(\"INSERT INTO todos (title, priority) VALUES (:title, :priority)\");\n    query.bindValue(\":title\", title);\n    query.bindValue(\":priority\", priority);\n    if (!query.exec()) {\n        qWarning() << \"add failed:\" << query.lastError().text();\n        return false;\n    }\n    return true;\n}\n\nQList<Todo> TodoStore::search(const QString &word)\n{\n    QSqlQuery query(db_);\n    query.prepare(\"SELECT id, title FROM todos WHERE title LIKE '%:word%'\");\n    query.bindValue(\":word\", word);\n    QList<Todo> result;\n    if (!query.exec()) {\n        qWarning() << \"search failed:\" << query.lastError().text();\n        return result;\n    }\n    while (query.next())\n        result.append({query.value(0).toInt(), query.value(1).toString()});\n    return result;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "追加はできた。けど今度は検索が全部 0 件。warning も出てない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、先ほどの検索の SQL は正しくありませんでした。'%:word%' のように引用符の中に書いた :word は、プレースホルダではなくただの文字として扱われます。つまり「:word」という文字を含むタイトルを探していたので、0 件でもエラーにはなりません。% は SQL 側ではなく、bindValue で渡す値のほうに付けます。",
+          "reading": "あらためてかくにんしたところ、さきほどのけんさくの SQL はただしくありませんでした。'%:word%' のようにいんようふのなかにかいた :word は、ぷれーすほるだではなくただのもじとしてあつかわれます。つまり「:word」というもじをふくむたいとるをさがしていたので、0 けんでもえらーにはなりません。% は SQL がわではなく、bindValue でわたすあたいのほうにつけます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e \"s/LIKE '%:word%'/LIKE :word/\" -e 's/bindValue(\":word\", word)/bindValue(\":word\", \"%\" + word + \"%\")/' src/store/todostore.cpp"
+        }
+      ]
+    },
+    {
+      "user": "直った。あと add したら id 返してほしい、追加した行を UI で選択状態にしたいので",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、add の戻り値を bool から追加した行の id に変えます。exec() が成功した直後の lastInsertId() に、SQLite が振った id が入っています。失敗したときは -1 を返すので、呼び出し側は 0 以上かどうかで成否を判定できることを保証します。ヘッダの宣言も合わせて変えます。",
+          "reading": "Now、add のもどりちを bool からついかしたぎょうの id にかえます。exec() がせいこうしたちょくごの lastInsertId() に、SQLite がふった id がはいっています。しっぱいしたときは -1 をかえすので、よびだしがわは 0 いじょうかどうかでせいひをはんていできることをほしょうします。へっだのせんげんもあわせてかえます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/bool add(/int add(/' src/store/todostore.h"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "int TodoStore::add(const QString &title, int priority)\n{\n    QSqlQuery query(db_);\n    query.prepare(\"INSERT INTO todos (title, priority) VALUES (:title, :priority)\");\n    query.bindValue(\":title\", title);\n    query.bindValue(\":priority\", priority);\n    if (!query.exec()) {\n        qWarning() << \"add failed:\" << query.lastError().text();\n        return -1;\n    }\n    return query.lastInsertId().toInt();\n}\n"
+        }
+      ]
+    }
+  ]
+}

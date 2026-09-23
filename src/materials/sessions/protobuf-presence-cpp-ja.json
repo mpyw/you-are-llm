@@ -1,0 +1,73 @@
+{
+  "id": "protobuf-presence-cpp-ja",
+  "title": "在庫を 0 にする更新だけ効かない",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "cpp",
+  "summary": "proto3 のスカラーは 0 と未設定を区別できず、0 を送っても届かない。フィールドに optional を付けて生成し直し、has_ で判定する。",
+  "files": [
+    {
+      "path": "proto/shop/stock.proto",
+      "content": "syntax = \"proto3\";\n\npackage shop;\n\nmessage UpdateStockRequest {\n  string sku = 1;\n  int32 quantity = 2;\n  string note = 3;\n}\n"
+    },
+    {
+      "path": "src/stock_service.cpp",
+      "content": "#include \"shop/stock.pb.h\"\n\n#include \"inventory.h\"\n\nvoid ApplyUpdate(const shop::UpdateStockRequest& req, Inventory& inv) {\n  if (req.quantity() != 0) {\n    inv.SetQuantity(req.sku(), req.quantity());\n  }\n  if (!req.note().empty()) {\n    inv.SetNote(req.sku(), req.note());\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "部分更新の API、quantity 0 送っても在庫が変わらない。クライアントが 0 セットしてるのはログで見た",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、proto3 の仕様どおりの挙動です。optional の付いていないスカラーには「未設定」という状態がなく、0 は既定値なのでワイヤにすら載りません。受け側では 0 と未設定を区別できず、!= 0 の条件で両方とも捨てています。送られたかどうかを has_quantity() で判定します。",
+          "reading": "けつろんからいうと、proto3 のしようどおりのきょどうです。optional のついていないすからーには「みせってい」というじょうたいがなく、0 はきていちなのでわいやにすらのりません。うけがわでは 0 とみせっていをくべつできず、!= 0 のじょうけんでりょうほうともすてています。おくられたかどうかを has_quantity() ではんていします。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "  if (req.has_quantity()) {\n    inv.SetQuantity(req.sku(), req.quantity());\n  }\n"
+        }
+      ]
+    },
+    {
+      "user": "has_quantity なんてメンバ無いって言われてビルド通らないんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどのコードは proto 側の変更を抜かしていました。proto3 では optional を付けたフィールドにしか has_ が生成されません。quantity に optional を付けて、生成し直します。",
+          "reading": "もうしわけありません。さきほどのこーどは proto がわのへんこうをぬかしていました。proto3 では optional をつけたふぃーるどにしか has_ がせいせいされません。quantity に optional をつけて、せいせいしなおします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^  int32 quantity = 2;/  optional int32 quantity = 2;/' proto/shop/stock.proto"
+        },
+        {
+          "kind": "command",
+          "body": "protoc -I proto --cpp_out=gen proto/shop/stock.proto"
+        },
+        {
+          "kind": "text",
+          "body": "Note: proto3 の optional は protoc 3.15 以降なら追加のフラグなしで使えます。番号も型も変わらないのでワイヤ形式は互換ですが、送る側も生成し直す必要がある点に注意することが重要です。古い生成コードのクライアントは、0 をセットしても送信時に省いてしまいます。",
+          "reading": "Note: proto3 の optional は protoc 3.15 いこうならついかのふらぐなしでつかえます。ばんごうもかたもかわらないのでわいやけいしきはごかんですが、おくるがわもせいせいしなおすひつようがあるてんにちゅういすることがじゅうようです。ふるいせいせいこーどのくらいあんとは、0 をせっとしてもそうしんじにはぶいてしまいます。"
+        }
+      ]
+    },
+    {
+      "user": "クライアントも作り直した。じゃあ逆に quantity 送りたくないときは？ 今まで 0 入れてたんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "言い換えると、これからは 0 も「在庫なし」という普通の値です。送らないときはセッターを呼ばず、メッセージを使い回すなら clear_quantity() で未設定に戻します。送る側の意図が受け側にそのまま届く、堅牢な形になります。",
+          "reading": "いいかえると、これからは 0 も「ざいこなし」というふつうのあたいです。おくらないときはせったーをよばず、めっせーじをつかいまわすなら clear_quantity() でみせっていにもどします。おくるがわのいとがうけがわにそのままとどく、けんろうなかたちになります。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "void FillUpdate(shop::UpdateStockRequest& req, const std::string& sku,\n                std::optional<std::int32_t> quantity) {\n  req.set_sku(sku);\n  if (quantity) {\n    req.set_quantity(*quantity);\n  } else {\n    req.clear_quantity();\n  }\n}\n"
+        }
+      ]
+    }
+  ]
+}

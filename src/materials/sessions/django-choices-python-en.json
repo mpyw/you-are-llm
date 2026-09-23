@@ -1,0 +1,56 @@
+{
+  "id": "django-choices-python-en",
+  "title": "Gather Django status strings into TextChoices",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "python",
+  "summary": "Define a status that drifted between spellings once with models.TextChoices and choices=, then return its label with get_status_display().",
+  "files": [
+    {
+      "path": "orders/models.py",
+      "content": "from django.db import models\n\n\nclass Order(models.Model):\n    status = models.CharField(max_length=20, default=\"pending\")\n    total = models.PositiveIntegerField()\n    created_at = models.DateTimeField(auto_now_add=True)\n"
+    },
+    {
+      "path": "orders/views.py",
+      "content": "from django.http import JsonResponse\n\nfrom .models import Order\n\n\ndef order_summary(request):\n    recent = Order.objects.order_by(\"-created_at\")[:20]\n    return JsonResponse(\n        {\n            \"cancelled\": Order.objects.filter(status=\"canceled\").count(),\n            \"recent\": [{\"id\": o.id, \"status\": o.status} for o in recent],\n        }\n    )\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "order status is a plain string and the db has both canceled and cancelled in it. counts were off. whats the right fix",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Short answer: define the states once as a models.TextChoices class on the model and pass it to the CharField with choices=. That class becomes the single source of truth for the spelling. Code refers to Order.Status.CANCELLED, so a typo is an AttributeError instead of a silent new status. Note: save() does not check choices. Only forms and full_clean() reject an unknown value. The rows already stored as canceled get fixed with one update."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from django.db import models\n\n\nclass Order(models.Model):\n    class Status(models.TextChoices):\n        PENDING = \"pending\", \"Pending\"\n        PAID = \"paid\", \"Paid\"\n        SHIPPED = \"shipped\", \"Shipped\"\n        CANCELLED = \"cancelled\", \"Cancelled\"\n\n    status = models.CharField(\n        max_length=20,\n        choices=Status,\n        default=Status.PENDING,\n    )\n    total = models.PositiveIntegerField()\n    created_at = models.DateTimeField(auto_now_add=True)\n"
+        },
+        {
+          "kind": "command",
+          "body": "python manage.py makemigrations orders"
+        },
+        {
+          "kind": "command",
+          "body": "python manage.py shell -c \"from orders.models import Order; Order.objects.filter(status='canceled').update(status=Order.Status.CANCELLED)\""
+        }
+      ]
+    },
+    {
+      "user": "migrated. also return the display name from the API, i want to kill the lookup table in the frontend",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure thing. Django gives every field with choices a get_status_display() method. It returns the label for the stored value, so the mapping lives in one place on the model. The count also stops using a raw string and filters on Order.Status.CANCELLED."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from django.http import JsonResponse\n\nfrom .models import Order\n\n\ndef order_summary(request):\n    recent = Order.objects.order_by(\"-created_at\")[:20]\n    return JsonResponse(\n        {\n            \"cancelled\": Order.objects.filter(status=Order.Status.CANCELLED).count(),\n            \"recent\": [\n                {\n                    \"id\": o.id,\n                    \"status\": o.status,\n                    \"status_label\": o.get_status_display(),\n                }\n                for o in recent\n            ],\n        }\n    )\n"
+        }
+      ]
+    }
+  ]
+}

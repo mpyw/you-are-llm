@@ -1,0 +1,70 @@
+{
+  "id": "nestjs-scope-typescript-en",
+  "title": "Scope.REQUEST slowed down the orders API",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "typescript",
+  "summary": "A request scoped provider bubbles up to everything that injects it and rebuilds the chain per request. nestjs-cls brings back singletons, until a constructor reads the value once at boot.",
+  "files": [
+    {
+      "path": "src/request-context.ts",
+      "content": "import { Inject, Injectable, Scope } from '@nestjs/common'\nimport { REQUEST } from '@nestjs/core'\nimport type { Request } from 'express'\nimport { randomUUID } from 'node:crypto'\n\n@Injectable({ scope: Scope.REQUEST })\nexport class RequestContext {\n  readonly requestId: string\n  readonly tenantId: string\n\n  constructor(@Inject(REQUEST) req: Request) {\n    this.requestId = req.header('x-request-id') ?? randomUUID()\n    this.tenantId = req.header('x-tenant-id') ?? 'public'\n  }\n}\n"
+    },
+    {
+      "path": "src/orders/orders.repository.ts",
+      "content": "import { Injectable } from '@nestjs/common'\nimport { Database } from '../database'\nimport { RequestContext } from '../request-context'\n\n@Injectable()\nexport class OrdersRepository {\n  constructor(\n    private readonly db: Database,\n    private readonly ctx: RequestContext,\n  ) {}\n\n  findAll() {\n    return this.db.query('select * from orders where tenant_id = $1', [this.ctx.tenantId])\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "wanted the tenant id per request so i made RequestContext Scope.REQUEST. now orders api p99 is about double. only OrdersRepository uses it??",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! This is scope bubbling. As the Nest docs put it, REQUEST scope bubbles up the injection chain. Once OrdersRepository depends on RequestContext it becomes request scoped, and so do OrdersService and OrdersController that use it. Every request builds that whole chain again. To keep the providers as singletons and carry only the values per request, let's use nestjs-cls. Under the hood it is Node's AsyncLocalStorage: a middleware opens a context and it follows the request across await. Delete request-context.ts and drop it from the providers of OrdersModule."
+        },
+        {
+          "kind": "command",
+          "body": "pnpm add nestjs-cls"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { Module } from '@nestjs/common'\nimport type { Request } from 'express'\nimport { ClsModule } from 'nestjs-cls'\nimport { OrdersModule } from './orders/orders.module'\n\n@Module({\n  imports: [\n    ClsModule.forRoot({\n      global: true,\n      middleware: {\n        mount: true,\n        setup: (cls, req: Request) => {\n          cls.set('tenantId', req.header('x-tenant-id') ?? 'public')\n        },\n      },\n    }),\n    OrdersModule,\n  ],\n})\nexport class AppModule {}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { Injectable } from '@nestjs/common'\nimport { ClsService } from 'nestjs-cls'\nimport { Database } from '../database'\n\n@Injectable()\nexport class OrdersRepository {\n  private readonly tenantId: string\n\n  constructor(\n    private readonly db: Database,\n    cls: ClsService,\n  ) {\n    this.tenantId = cls.get('tenantId')\n  }\n\n  findAll() {\n    return this.db.query('select * from orders where tenant_id = $1', [this.tenantId])\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "p99 is back. but now orders is an empty array for every tenant",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous repository was wrong. A singleton constructor runs once at boot, when no request context exists yet. cls.get(\"tenantId\") returned undefined, and that undefined stayed in the field and went into every query. I carried over the RequestContext habit of reading values in the constructor. Injecting ClsService is fine; read from it when the method is called."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { Injectable } from '@nestjs/common'\nimport { ClsService } from 'nestjs-cls'\nimport { Database } from '../database'\n\n@Injectable()\nexport class OrdersRepository {\n  constructor(\n    private readonly db: Database,\n    private readonly cls: ClsService,\n  ) {}\n\n  findAll() {\n    const tenantId = this.cls.get<string>('tenantId')\n    return this.db.query('select * from orders where tenant_id = $1', [tenantId])\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "also want a request id for logs. use the x-request-id header if present, otherwise generate one",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the change: generateId and idGenerator on the ClsModule middleware. Anywhere inside the request, ClsService.getId() returns it. Note: middleware runs before guards, so with mount: true a guard sees the same id."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e \"/^import { Module }/a\\\\\nimport { randomUUID } from 'node:crypto'\n\" -e \"/mount: true,/a\\\\\n        generateId: true,\\\\\n        idGenerator: (req: Request) => req.header('x-request-id') ?? randomUUID(),\n\" src/app.module.ts"
+        }
+      ]
+    }
+  ]
+}

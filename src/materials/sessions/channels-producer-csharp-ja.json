@@ -1,0 +1,79 @@
+{
+  "id": "channels-producer-csharp-ja",
+  "title": "CSV 取り込みのチャネルでメモリが膨らむ",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "csharp",
+  "summary": "無制限チャネルを CreateBounded にし、TryWrite の取りこぼしを WriteAsync で直し、Complete と ReadAllAsync で終わらせて、失敗を読み手と書き手の両方に伝える。",
+  "files": [
+    {
+      "path": "src/Import/CustomerImporter.cs",
+      "content": "using System.Threading.Channels;\n\nnamespace Acme.Import;\n\npublic sealed class CustomerImporter(ICustomerStore store)\n{\n    public async Task ImportAsync(string path, CancellationToken ct)\n    {\n        var channel = Channel.CreateUnbounded<CustomerRow>();\n\n        var producer = Task.Run(async () =>\n        {\n            await foreach (var line in File.ReadLinesAsync(path, ct))\n            {\n                channel.Writer.TryWrite(CustomerRow.Parse(line));\n            }\n        }, ct);\n\n        var consumer = Task.Run(async () =>\n        {\n            while (true)\n            {\n                var row = await channel.Reader.ReadAsync(ct);\n                await store.UpsertAsync(row, ct);\n            }\n        }, ct);\n\n        await Task.WhenAll(producer, consumer);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "顧客 CSV の取り込みで 2GB のファイル流したら 6GB 食って OOMKilled された。DB 書き込みが遅いのはわかってる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、CreateUnbounded のチャネルは読み手が遅くても書き手を止めないので、読んだ行がすべてメモリに溜まります。容量付きの CreateBounded にして、FullMode を BoundedChannelFullMode.Wait にします。1000 件溜まった時点で書き手が空きを待つので、メモリ使用量がほぼ一定になることを保証します。DropOldest などは行を捨てるので、取りこぼせない取り込みでは Wait 一択です。",
+          "reading": "けつろんからいうと、CreateUnbounded のちゃねるはよみてがおそくてもかきてをとめないので、よんだぎょうがすべてめもりにたまります。ようりょうつきの CreateBounded にして、FullMode を BoundedChannelFullMode.Wait にします。1000 けんたまったじてんでかきてがあきをまつので、めもりしようりょうがほぼいっていになることをほしょうします。DropOldest などはぎょうをすてるので、とりこぼせないとりこみでは Wait いったくです。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "var channel = Channel.CreateBounded<CustomerRow>(new BoundedChannelOptions(1000)\n{\n    FullMode = BoundedChannelFullMode.Wait,\n    SingleWriter = true,\n    SingleReader = true,\n});\n"
+        }
+      ]
+    },
+    {
+      "user": "メモリは 300MB くらいで落ち着いた。でも 80 万行あるのに DB に 1000 件ちょっとしか入ってない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません、先ほどの説明は正確ではありませんでした。Wait モードで待つのは WriteAsync だけで、TryWrite は満杯なら待たずに false を返し、その行は書き込まれません。無制限チャネルでは TryWrite が必ず成功していたので、戻り値を見ていないことが表に出ていませんでした。書き込みを WriteAsync に替えて await します。",
+          "reading": "もうしわけありません、さきほどのせつめいはせいかくではありませんでした。Wait もーどでまつのは WriteAsync だけで、TryWrite はまんぱいならまたずに false をかえし、そのぎょうはかきこまれません。むせいげんちゃねるでは TryWrite がかならずせいこうしていたので、もどりちをみていないことがおもてにでていませんでした。かきこみを WriteAsync にかえて await します。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/channel.Writer.TryWrite(CustomerRow.Parse(line));/await channel.Writer.WriteAsync(CustomerRow.Parse(line), ct);/' src/Import/CustomerImporter.cs"
+        }
+      ]
+    },
+    {
+      "user": "件数は合った。けど最後の行のあとジョブが終わらなくてタイムアウトで殺されてる。あと壊れた行があったらそこで失敗にしたい、今 Parse の例外って誰も拾ってなくない？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "書き手が Complete を呼んでいないので、読み手の ReadAsync が来ない次の行を永遠に待っています。書き終えたら Complete()、途中で例外が出たら Complete(ex) でチャネルを閉じます。読み手を ReadAllAsync に替えると、閉じた時点でループを抜け、Complete(ex) なら残りを読み切ったあとにその例外を投げます。ポイントは、書き手の失敗が読み手を通って WhenAll まで届くことです。",
+          "reading": "かきてが Complete をよんでいないので、よみての ReadAsync がこないつぎのぎょうをえいえんにまっています。かきおえたら Complete()、とちゅうでれいがいがでたら Complete(ex) でちゃねるをとじます。よみてを ReadAllAsync にかえると、とじたじてんでるーぷをぬけ、Complete(ex) ならのこりをよみきったあとにそのれいがいをなげます。ぽいんとは、かきてのしっぱいがよみてをとおって WhenAll までとどくことです。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "var producer = Task.Run(async () =>\n{\n    try\n    {\n        await foreach (var line in File.ReadLinesAsync(path, ct))\n        {\n            await channel.Writer.WriteAsync(CustomerRow.Parse(line), ct);\n        }\n        channel.Writer.Complete();\n    }\n    catch (Exception ex)\n    {\n        channel.Writer.Complete(ex);\n    }\n}, ct);\n\nvar consumer = Task.Run(async () =>\n{\n    await foreach (var row in channel.Reader.ReadAllAsync(ct))\n    {\n        await store.UpsertAsync(row, ct);\n    }\n}, ct);\n"
+        }
+      ]
+    },
+    {
+      "user": "DB 止めて試したら今度は固まった。ログも何も出ない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "読み手が例外で抜けても書き手には伝わらないので、満杯のチャネルへの WriteAsync が誰にも読まれないまま待ち続けます。読み手側でも TryComplete(ex) でチャネルを閉じれば、待っている WriteAsync が ChannelClosedException で起こされます。Note: Complete は二度目の呼び出しで例外を投げ、書き手がそちらで落ちると WhenAll が DB の例外より先にそれを投げます。書き手側も TryComplete に揃えます。以上で、どちらが失敗しても WhenAll が本当の原因で戻ります。",
+          "reading": "よみてがれいがいでぬけてもかきてにはつたわらないので、まんぱいのちゃねるへの WriteAsync がだれにもよまれないまままちつづけます。よみてがわでも TryComplete(ex) でちゃねるをとじれば、まっている WriteAsync が ChannelClosedException でおこされます。Note: Complete はにどめのよびだしでれいがいをなげ、かきてがそちらでおちると WhenAll が DB のれいがいよりさきにそれをなげます。かきてがわも TryComplete にそろえます。いじょうで、どちらがしっぱいしても WhenAll がほんとうのげんいんでもどります。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "var consumer = Task.Run(async () =>\n{\n    try\n    {\n        await foreach (var row in channel.Reader.ReadAllAsync(ct))\n        {\n            await store.UpsertAsync(row, ct);\n        }\n    }\n    catch (Exception ex)\n    {\n        channel.Writer.TryComplete(ex);\n        throw;\n    }\n}, ct);\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/channel.Writer.Complete(/channel.Writer.TryComplete(/' src/Import/CustomerImporter.cs"
+        }
+      ]
+    }
+  ]
+}

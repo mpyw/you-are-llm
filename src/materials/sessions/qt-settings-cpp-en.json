@@ -1,0 +1,57 @@
+{
+  "id": "qt-settings-cpp-en",
+  "title": "An = in the folder name wipes the setting",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "cpp",
+  "summary": "Drop the hand written key=value file and let QSettings do it. Pass value a default, and set the organization and application names before the first QSettings.",
+  "files": [
+    {
+      "path": "src/app/preferences.h",
+      "content": "#pragma once\n\n#include <QString>\n\nstruct Preferences\n{\n    int fontSize = 12;\n    QString lastDir;\n\n    static Preferences load();\n    void save() const;\n};\n"
+    },
+    {
+      "path": "src/app/preferences.cpp",
+      "content": "#include \"preferences.h\"\n\n#include <QDir>\n#include <QFile>\n#include <QStringList>\n#include <QTextStream>\n\nstatic QString configPath()\n{\n    return QDir::homePath() + \"/.notepad.conf\";\n}\n\nPreferences Preferences::load()\n{\n    Preferences prefs;\n    QFile file(configPath());\n    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))\n        return prefs;\n    QTextStream in(&file);\n    while (!in.atEnd()) {\n        const QStringList parts = in.readLine().split('=');\n        if (parts.size() != 2)\n            continue;\n        if (parts[0] == \"fontSize\")\n            prefs.fontSize = parts[1].toInt();\n        else if (parts[0] == \"lastDir\")\n            prefs.lastDir = parts[1];\n    }\n    return prefs;\n}\n\nvoid Preferences::save() const\n{\n    QFile file(configPath());\n    if (!file.open(QIODevice::WriteOnly | QIODevice::Text))\n        return;\n    QTextStream out(&file);\n    out << \"fontSize=\" << fontSize << \"\\n\";\n    out << \"lastDir=\" << lastDir << \"\\n\";\n}\n"
+    },
+    {
+      "path": "src/main.cpp",
+      "content": "#include <QApplication>\n\n#include \"mainwindow.h\"\n\nint main(int argc, char *argv[])\n{\n    QApplication app(argc, argv);\n\n    MainWindow window;\n    window.show();\n    return app.exec();\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "I write settings to ~/.notepad.conf by hand and if the folder name has an = in it, lastDir is gone next launch. doesnt Qt have something for this already",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch! The culprit is split('='). Only lines that split into exactly two parts were read, so a value containing = came out as three parts and the whole line was dropped. Qt has QSettings for this, so the hand written file goes away. Qt picks the format and the location for each OS. The second argument to value is the default for a key that is not there yet. A QSettings built with no arguments finds its storage from the organization and application names, so main sets them first. Note: if either is missing, nothing is read or written at all, and status() reports AccessError."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include \"preferences.h\"\n\n#include <QDir>\n#include <QSettings>\n\nPreferences Preferences::load()\n{\n    QSettings settings;\n    Preferences prefs;\n    prefs.fontSize = settings.value(\"editor/fontSize\", 12).toInt();\n    prefs.lastDir = settings.value(\"files/lastDir\", QDir::homePath()).toString();\n    return prefs;\n}\n\nvoid Preferences::save() const\n{\n    QSettings settings;\n    settings.setValue(\"editor/fontSize\", fontSize);\n    settings.setValue(\"files/lastDir\", lastDir);\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "int main(int argc, char *argv[])\n{\n    QApplication app(argc, argv);\n    QCoreApplication::setOrganizationName(\"Acme\");\n    QCoreApplication::setApplicationName(\"Notepad\");\n\n    MainWindow window;\n    window.show();\n    return app.exec();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "works. while youre at it remember the window size and position too. oh and whether it was maximized",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure thing. saveGeometry packs the size, the position and the maximized state into one QByteArray. Save it on close and hand it back to restoreGeometry at startup. On the very first launch nothing has been saved, so value returns an empty QByteArray, restoreGeometry just returns false, and the window opens at its default size."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "MainWindow::MainWindow(QWidget *parent)\n    : QMainWindow(parent)\n{\n    QSettings settings;\n    restoreGeometry(settings.value(\"window/geometry\").toByteArray());\n}\n\nvoid MainWindow::closeEvent(QCloseEvent *event)\n{\n    QSettings settings;\n    settings.setValue(\"window/geometry\", saveGeometry());\n    QMainWindow::closeEvent(event);\n}\n"
+        }
+      ]
+    }
+  ]
+}

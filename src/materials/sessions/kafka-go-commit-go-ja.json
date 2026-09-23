@@ -1,0 +1,60 @@
+{
+  "id": "kafka-go-commit-go-ja",
+  "title": "kafka-go で処理に失敗したメッセージが消える",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "go",
+  "summary": "グループ使用時の ReadMessage は読んだ時点でコミットするので、FetchMessage と処理後の CommitMessages に分ける。失敗を continue で飛ばすと後続のコミットに追い越される。少なくとも 1 回の配信になるので処理を冪等にする。",
+  "files": [
+    {
+      "path": "internal/consumer/orders.go",
+      "content": "package consumer\n\nimport (\n  \"context\"\n  \"log/slog\"\n\n  \"github.com/segmentio/kafka-go\"\n)\n\ntype Consumer struct {\n  reader *kafka.Reader\n  orders OrderService\n}\n\nfunc New(brokers []string, orders OrderService) *Consumer {\n  return &Consumer{\n    reader: kafka.NewReader(kafka.ReaderConfig{\n      Brokers: brokers,\n      GroupID: \"order-worker\",\n      Topic:   \"orders\",\n    }),\n    orders: orders,\n  }\n}\n\nfunc (c *Consumer) Run(ctx context.Context) error {\n  for {\n    m, err := c.reader.ReadMessage(ctx)\n    if err != nil {\n      return err\n    }\n    if err := c.orders.Handle(ctx, m.Value); err != nil {\n      slog.Error(\"handle order\", \"offset\", m.Offset, \"err\", err)\n    }\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "DB が 10 分くらい落ちてた間の注文、復旧後も処理されてない。handle order のエラーはログに出てる。kafka には残ってるはずだから拾い直してほしい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、ReadMessage が原因です。kafka-go の ReadMessage は GroupID が設定されていると、メッセージを返す前にそのオフセットをコミットします。Handle が失敗した時点で、グループとしてはもう処理済みです。FetchMessage で取り出し、Handle が成功してから CommitMessages を呼ぶ形に分けます。CommitInterval が 0 のままなら、CommitMessages はブローカーへの書き込みを待ってから戻ります。失敗したメッセージはコミットしないので、Kafka から読み直されます。",
+          "reading": "けつろんからいうと、ReadMessage がげんいんです。kafka-go の ReadMessage は GroupID がせっていされていると、メッセージをかえすまえにそのオフセットをコミットします。Handle がしっぱいしたじてんで、グループとしてはもうしょりずみです。FetchMessage でとりだし、Handle がせいこうしてから CommitMessages をよぶかたちにわけます。CommitInterval が 0 のままなら、CommitMessages はブローカーへのかきこみをまってからもどります。しっぱいしたメッセージはコミットしないので、Kafka からよみなおされます。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (c *Consumer) Run(ctx context.Context) error {\n  for {\n    m, err := c.reader.FetchMessage(ctx)\n    if err != nil {\n      return err\n    }\n    if err := c.orders.Handle(ctx, m.Value); err != nil {\n      slog.Error(\"handle order\", \"partition\", m.Partition, \"offset\", m.Offset, \"err\", err)\n      continue\n    }\n    if err := c.reader.CommitMessages(ctx, m); err != nil {\n      return err\n    }\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ステージングで DB 止めて試した。失敗した offset 41 が再起動しても戻ってこない。42 以降は処理されてる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません、私の誤りでした。Kafka のコミットはメッセージごとの既読印ではなく、パーティションごとの「ここまで読んだ」という位置です。41 を飛ばして 42 をコミットすると位置は 43 に進み、41 もまとめて処理済みになります。同じプロセスの中でも、FetchMessage はコミットと関係なく先へ進みます。失敗したら continue せずに Run から抜け、プロセスを再起動させて、最後にコミットした位置から読み直させます。何度やっても失敗する壊れたメッセージはそこで止まり続けるので、それは別のトピックに逃がす必要があります。",
+          "reading": "もうしわけありません、わたしのあやまりでした。Kafka のコミットはメッセージごとのきどくいんではなく、パーティションごとの「ここまでよんだ」といういちです。41 をとばして 42 をコミットするといちは 43 にすすみ、41 もまとめてしょりずみになります。おなじプロセスのなかでも、FetchMessage はコミットとかんけいなくさきへすすみます。しっぱいしたら continue せずに Run からぬけ、プロセスをさいきどうさせて、さいごにコミットしたいちからよみなおさせます。なんどやってもしっぱいするこわれたメッセージはそこでとまりつづけるので、それはべつのトピックににがすひつようがあります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/      continue/      return err/' internal/consumer/orders.go"
+        }
+      ]
+    },
+    {
+      "user": "戻ってきた。けど逆に Handle 成功してコミット前に落ちたら在庫引当 2 回走るよね？それはまずい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。まさにその通りで、この形は少なくとも 1 回の配信です。Handle の成功とコミットの間で落ちれば、同じメッセージがもう一度届きます。Kafka 側で 1 回に絞るのではなく、internal/order/service.go の Handle を冪等にします。イベント ID を processed_events に INSERT し、在庫の引当と同じトランザクションでコミットするので、記録と引当はアトミックです。ID が既にあれば RowsAffected が 0 になるので、何もせずに成功として返し、オフセットを進めます。event_id には主キーか UNIQUE 制約が必要です。",
+          "reading": "するどいごしてきです。まさにそのとおりで、このかたちはすくなくとも 1 かいのはいしんです。Handle のせいこうとコミットのあいだでおちれば、おなじメッセージがもういちどとどきます。Kafka がわで 1 かいにしぼるのではなく、internal/order/service.go の Handle をべきとうにします。イベント ID を processed_events に INSERT し、ざいこのひきあてとおなじトランザクションでコミットするので、きろくとひきあてはアトミックです。ID がすでにあれば RowsAffected が 0 になるので、なにもせずにせいこうとしてかえし、オフセットをすすめます。event_id にはしゅキーか UNIQUE せいやくがひつようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (s *OrderService) Handle(ctx context.Context, value []byte) error {\n  var ev OrderEvent\n  if err := json.Unmarshal(value, &ev); err != nil {\n    return err\n  }\n  tx, err := s.db.BeginTx(ctx, nil)\n  if err != nil {\n    return err\n  }\n  defer tx.Rollback()\n\n  res, err := tx.ExecContext(ctx,\n    \"INSERT INTO processed_events (event_id) VALUES ($1) ON CONFLICT DO NOTHING\", ev.ID)\n  if err != nil {\n    return err\n  }\n  n, err := res.RowsAffected()\n  if err != nil {\n    return err\n  }\n  if n == 0 {\n    return nil\n  }\n  if err := s.reserveStock(ctx, tx, ev); err != nil {\n    return err\n  }\n  return tx.Commit()\n}\n"
+        }
+      ]
+    }
+  ]
+}

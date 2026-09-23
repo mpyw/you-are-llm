@@ -2,7 +2,7 @@
   "id": "sql-injection-php-ja",
   "title": "検索クエリの連結をプリペアドに直す",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "expert",
   "codeLanguage": "php",
   "summary": "文字列連結の SELECT をプレースホルダに寄せ、並び順は許可リストで弾く。",
   "files": [

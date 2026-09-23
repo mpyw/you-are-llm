@@ -1,0 +1,50 @@
+{
+  "id": "angular-signal-typescript-ja",
+  "title": "カートの合計を signal と computed にする",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "typescript",
+  "summary": "操作のたびに手で合計を再計算していて、remove で呼び忘れる。items を signal に、total を computed にする。",
+  "files": [
+    {
+      "path": "src/app/cart.component.ts",
+      "content": "import { Component } from '@angular/core'\n\ntype Item = { name: string; price: number; qty: number }\n\n@Component({\n  selector: 'app-cart',\n  standalone: true,\n  template: `\n    <ul>\n      @for (item of items; track item.name) {\n        <li>\n          {{ item.name }} x {{ item.qty }}\n          <button (click)=\"add(item.name)\">+</button>\n          <button (click)=\"remove(item.name)\">-</button>\n        </li>\n      }\n    </ul>\n    <p>Total: {{ total }}</p>\n  `,\n})\nexport class CartComponent {\n  items: Item[] = [\n    { name: 'Tea', price: 400, qty: 1 },\n    { name: 'Cake', price: 550, qty: 0 },\n  ]\n  total = 400\n\n  add(name: string) {\n    this.items = this.items.map((item) =>\n      item.name === name ? { ...item, qty: item.qty + 1 } : item,\n    )\n    this.recalc()\n  }\n\n  remove(name: string) {\n    this.items = this.items.map((item) =>\n      item.name === name ? { ...item, qty: Math.max(0, item.qty - 1) } : item,\n    )\n  }\n\n  private recalc() {\n    this.total = this.items.reduce((sum, item) => sum + item.price * item.qty, 0)\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "カートの - 押しても合計減らないんだけど。+ は動く",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ご指摘のとおり、remove が recalc を呼び忘れています。ただ呼び足すだけだと、次に操作を増やしたときにまた同じことが起きます。items を signal にし、total は computed で items から導出します。これで合計の正本は items だけになり、再計算の呼び忘れが起きないことを保証します。テンプレートでは signal を関数として呼ぶので、items() と total() になります。",
+          "reading": "ごしてきのとおり、remove が recalc をよびわすれています。ただよびたすだけだと、つぎにそうさをふやしたときにまたおなじことがおきます。items を signal にし、total は computed で items からどうしゅつします。これでごうけいのせいほんは items だけになり、さいけいさんのよびわすれがおきないことをほしょうします。てんぷれーとでは signal をかんすうとしてよぶので、items() と total() になります。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { Component, computed, signal } from '@angular/core'\n\ntype Item = { name: string; price: number; qty: number }\n\n@Component({\n  selector: 'app-cart',\n  standalone: true,\n  template: `\n    <ul>\n      @for (item of items(); track item.name) {\n        <li>\n          {{ item.name }} x {{ item.qty }}\n          <button (click)=\"add(item.name)\">+</button>\n          <button (click)=\"remove(item.name)\">-</button>\n        </li>\n      }\n    </ul>\n    <p>Total: {{ total() }}</p>\n  `,\n})\nexport class CartComponent {\n  items = signal<Item[]>([\n    { name: 'Tea', price: 400, qty: 1 },\n    { name: 'Cake', price: 550, qty: 0 },\n  ])\n  total = computed(() =>\n    this.items().reduce((sum, item) => sum + item.price * item.qty, 0),\n  )\n\n  add(name: string) {\n    this.items.update((list) =>\n      list.map((item) => (item.name === name ? { ...item, qty: item.qty + 1 } : item)),\n    )\n  }\n\n  remove(name: string) {\n    this.items.update((list) =>\n      list.map((item) =>\n        item.name === name ? { ...item, qty: Math.max(0, item.qty - 1) } : item,\n      ),\n    )\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "おけ。あと送料出したい、3000 以上なら無料でそれ以外 500。合計の下に。あ、送料込みのも",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。computed は別の computed を読めます。shipping は total から、grandTotal は total と shipping から導出します。依存は読んだ signal から自動で追跡されるので、どこにも再計算の呼び出しは要りません。total の下に 2 つ足し、テンプレートにも 2 行足します。",
+          "reading": "しょうちしました。computed はべつの computed をよめます。shipping は total から、grandTotal は total と shipping からどうしゅつします。いぞんはよんだ signal からじどうでついせきされるので、どこにもさいけいさんのよびだしはいりません。total のしたに 2 つたし、てんぷれーとにも 2 ぎょうたします。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "  shipping = computed(() => (this.total() >= 3000 ? 0 : 500))\n  grandTotal = computed(() => this.total() + this.shipping())\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/<p>Total: {{ total() }}<\\/p>/a\\\n    <p>Shipping: {{ shipping() }}</p>\\\n    <p>Grand total: {{ grandTotal() }}</p>\n' src/app/cart.component.ts"
+        }
+      ]
+    }
+  ]
+}

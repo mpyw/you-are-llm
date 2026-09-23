@@ -1,0 +1,65 @@
+{
+  "id": "jwt-bearer-csharp-en",
+  "title": "AddJwtBearer keeps answering 401",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "csharp",
+  "summary": "A Keycloak token fails on an audience mismatch, and once it passes, sub is missing because MapInboundClaims renamed it.",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using System.Security.Claims;\nusing Microsoft.AspNetCore.Authentication.JwtBearer;\n\nvar builder = WebApplication.CreateBuilder(args);\n\nbuilder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)\n    .AddJwtBearer(options =>\n    {\n        options.Authority = \"https://auth.example.com/realms/shop\";\n        options.Audience = \"orders-api\";\n    });\nbuilder.Services.AddAuthorization();\n\nvar app = builder.Build();\n\napp.UseAuthentication();\napp.UseAuthorization();\n\napp.MapGet(\"/me\", (ClaimsPrincipal user) =>\n{\n    var userId = Guid.Parse(user.FindFirstValue(\"sub\")!);\n    return Results.Ok(new { userId });\n}).RequireAuthorization();\n\napp.Run();\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "set up AddJwtBearer, keycloak token still gets 401. nothing in the logs either. curl -i shows WWW-Authenticate: Bearer error=\"invalid_token\", error_description=\"The audience 'account' is invalid\"",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great debugging! That header is the answer. The token's aud does not match the orders-api you set as Audience, so JwtBearer rejects it. With Keycloak's defaults, an access token usually carries only account in aud. The fix belongs in Keycloak: add an Audience mapper to a client scope of the frontend client and pick orders-api as the Included Client Audience. Do not add account to ValidAudiences. That would let in a token from any client in the realm."
+        },
+        {
+          "kind": "text",
+          "body": "Note: the logs are quiet because the template appsettings.json sets Microsoft.AspNetCore to Warning. Token validation failures log at Information, so lower just the authentication category in appsettings.Development.json while you work on this."
+        },
+        {
+          "kind": "code",
+          "lang": "json",
+          "body": "{\n  \"Logging\": {\n    \"LogLevel\": {\n      \"Default\": \"Information\",\n      \"Microsoft.AspNetCore\": \"Warning\",\n      \"Microsoft.AspNetCore.Authentication\": \"Information\"\n    }\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "added the mapper, 401 gone! now /me is a 500. debugger says FindFirstValue(\"sub\") is null. the token has sub, i checked",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "JwtBearer renames incoming claims to the old .NET URI names by default. In other words, sub arrives as http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier, and a lookup by sub finds nothing. Clear the mapping table and the claims keep their names."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using System.IdentityModel.Tokens.Jwt;\nusing System.Security.Claims;\nusing Microsoft.AspNetCore.Authentication.JwtBearer;\n\nJwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();\n\nvar builder = WebApplication.CreateBuilder(args);\n"
+        }
+      ]
+    },
+    {
+      "user": "no change. still null. every stackoverflow answer says to do exactly that though",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. That table only works up to .NET 7. Since .NET 8, JwtBearer uses JsonWebTokenHandler by default and never reads the JwtSecurityTokenHandler table. The switch that stops the renaming is MapInboundClaims on JwtBearerOptions. Set it to false and sub stays sub. The old lines go."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e '/System.IdentityModel.Tokens.Jwt/d' -e '/DefaultInboundClaimTypeMap/,/^$/d' -e 's/options.Audience = \"orders-api\";/&\\\n        options.MapInboundClaims = false;/' src/Program.cs"
+        },
+        {
+          "kind": "text",
+          "body": "If anything reads User.Identity.Name, set TokenValidationParameters.NameClaimType to preferred_username as well. With the renaming off, deciding which claim is the name is up to you."
+        }
+      ]
+    }
+  ]
+}

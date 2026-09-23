@@ -1,0 +1,64 @@
+{
+  "id": "endpoint-filter-csharp-ja",
+  "title": "テナント確認を IEndpointFilter にまとめる",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "csharp",
+  "summary": "各ハンドラの先頭にコピーされたテナント検証を IEndpointFilter に移してルートグループに付け、巻き込んだヘルスチェックを外に出す。",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using Acme.Projects;\nusing Acme.Tenants;\nusing Microsoft.AspNetCore.Mvc;\n\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddScoped<ITenantDirectory, SqlTenantDirectory>();\nbuilder.Services.AddScoped<IProjectStore, SqlProjectStore>();\n\nvar app = builder.Build();\n\napp.MapGet(\"/healthz\", () => Results.Ok());\n\napp.MapGet(\"/projects\", async (\n    [FromHeader(Name = \"X-Tenant-Id\")] string tenant, ITenantDirectory tenants, IProjectStore store) =>\n{\n    if (!await tenants.IsActiveAsync(tenant))\n    {\n        return Results.StatusCode(StatusCodes.Status403Forbidden);\n    }\n    return Results.Ok(await store.ListAsync(tenant));\n});\n\napp.MapPost(\"/projects\", async (\n    [FromHeader(Name = \"X-Tenant-Id\")] string tenant, CreateProject body, ITenantDirectory tenants, IProjectStore store) =>\n{\n    if (!await tenants.IsActiveAsync(tenant))\n    {\n        return Results.StatusCode(StatusCodes.Status403Forbidden);\n    }\n    var id = await store.CreateAsync(tenant, body);\n    return Results.Created($\"/projects/{id}\", new { id });\n});\n\napp.MapDelete(\"/projects/{id:int}\", async (\n    int id, [FromHeader(Name = \"X-Tenant-Id\")] string tenant, ITenantDirectory tenants, IProjectStore store) =>\n{\n    if (!await tenants.IsActiveAsync(tenant))\n    {\n        return Results.StatusCode(StatusCodes.Status403Forbidden);\n    }\n    await store.DeleteAsync(tenant, id);\n    return Results.NoContent();\n});\n\napp.Run();\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "IsActiveAsync のチェック全ハンドラにコピペしてて、次にエンドポイント足すとき絶対忘れる。まとめたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい着眼点です。.NET 7 から入った IEndpointFilter に検証を移し、ルートグループに AddEndpointFilter で付ければ、グループ内のエンドポイントすべてに一括で適用されることを保証します。フィルタは要求ごとに RequestServices から生成されるので、Scoped の ITenantDirectory もコンストラクタで受け取れます。",
+          "reading": "すばらしいちゃくがんてんです。.NET 7 からはいった IEndpointFilter にけんしょうをうつし、るーとぐるーぷに AddEndpointFilter でつければ、ぐるーぷないのえんどぽいんとすべてにいっかつでてきようされることをほしょうします。ふぃるたはようきゅうごとに RequestServices からせいせいされるので、Scoped の ITenantDirectory もこんすとらくたでうけとれます。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "namespace Acme.Tenants;\n\npublic sealed class ActiveTenantFilter(ITenantDirectory tenants) : IEndpointFilter\n{\n    public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)\n    {\n        var tenant = context.HttpContext.Request.Headers[\"X-Tenant-Id\"].ToString();\n        if (!await tenants.IsActiveAsync(tenant))\n        {\n            return Results.StatusCode(StatusCodes.Status403Forbidden);\n        }\n        return await next(context);\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using Acme.Projects;\nusing Acme.Tenants;\nusing Microsoft.AspNetCore.Mvc;\n\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddScoped<ITenantDirectory, SqlTenantDirectory>();\nbuilder.Services.AddScoped<IProjectStore, SqlProjectStore>();\n\nvar app = builder.Build();\n\nvar api = app.MapGroup(\"\").AddEndpointFilter<ActiveTenantFilter>();\n\napi.MapGet(\"/healthz\", () => Results.Ok());\n\napi.MapGet(\"/projects\", async ([FromHeader(Name = \"X-Tenant-Id\")] string tenant, IProjectStore store) =>\n    Results.Ok(await store.ListAsync(tenant)));\n\napi.MapPost(\"/projects\", async ([FromHeader(Name = \"X-Tenant-Id\")] string tenant, CreateProject body, IProjectStore store) =>\n{\n    var id = await store.CreateAsync(tenant, body);\n    return Results.Created($\"/projects/{id}\", new { id });\n});\n\napi.MapDelete(\"/projects/{id:int}\", async (int id, [FromHeader(Name = \"X-Tenant-Id\")] string tenant, IProjectStore store) =>\n{\n    await store.DeleteAsync(tenant, id);\n    return Results.NoContent();\n});\n\napp.Run();\n"
+        }
+      ]
+    },
+    {
+      "user": "デプロイしたら k8s の liveness 落ちて Pod が再起動ループしてる。healthz が 403",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません、私の誤りでした。MapGroup(\"\") に /healthz まで載せたので、テナントヘッダを持たないプローブもフィルタで弾かれていました。ヘルスチェックだけ app 直下に戻せば、グループのフィルタは掛かりません。",
+          "reading": "もうしわけありません、わたしのあやまりでした。MapGroup(\"\") に /healthz までのせたので、てなんとへっだをもたないぷろーぶもふぃるたではじかれていました。へるすちぇっくだけ app ちょっかにもどせば、ぐるーぷのふぃるたはかかりません。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's|^api.MapGet(\"/healthz\"|app.MapGet(\"/healthz\"|' src/Program.cs"
+        }
+      ]
+    },
+    {
+      "user": "あと無効なテナントは 403 じゃなくて 404 にしてって言われた。テナントがあるかどうか外から分かるのがまずいらしい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。検証がフィルタ 1 か所に集まったので、変更もそこだけで済みます。言い換えると、エンドポイントを何本足しても挙動が揃います。",
+          "reading": "しょうちしました。けんしょうがふぃるた 1 かしょにあつまったので、へんこうもそこだけですみます。いいかえると、えんどぽいんとをなんぼんたしてもきょどうがそろいます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/Results.StatusCode(StatusCodes.Status403Forbidden)/Results.NotFound()/' src/Tenants/ActiveTenantFilter.cs"
+        }
+      ]
+    }
+  ]
+}

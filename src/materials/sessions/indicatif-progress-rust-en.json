@@ -1,0 +1,44 @@
+{
+  "id": "indicatif-progress-rust-en",
+  "title": "Show migration progress with indicatif",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "rust",
+  "summary": "Put a ProgressBar on a migration loop that runs silent for ten minutes, then fix the missing {msg} slot and log lines that break the bar.",
+  "files": [
+    {
+      "path": "src/migrate.rs",
+      "content": "use anyhow::Result;\n\npub struct Row {\n    pub id: u64,\n    pub email: String,\n}\n\nfn copy_row(row: &Row) -> Result<()> {\n    if !row.email.contains('@') {\n        anyhow::bail!(\"row {} has no valid email\", row.id);\n    }\n    std::thread::sleep(std::time::Duration::from_millis(5));\n    Ok(())\n}\n\npub fn migrate(rows: &[Row]) -> Result<usize> {\n    let mut copied = 0;\n    for row in rows {\n        copy_row(row)?;\n        copied += 1;\n    }\n    Ok(copied)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "migrate runs like 10 min with zero output, cant tell if its stuck or working. added indicatif, give me a bar",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! The row count is known up front, so rows.len() goes into ProgressBar::new. ProgressStyle::with_template sets the look. A typo in the template comes back at run time as a TemplateError, and ? hands it to the caller. Each finished row calls inc(1), and finish_with_message stops the bar and leaves a message behind. {eta} is the estimated time left, which is exactly what you were missing."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use indicatif::{ProgressBar, ProgressStyle};\n\npub fn migrate(rows: &[Row]) -> Result<usize> {\n    let bar = ProgressBar::new(rows.len() as u64);\n    bar.set_style(\n        ProgressStyle::with_template(\"{elapsed_precise} [{bar:40.cyan/blue}] {pos}/{len} ({eta})\")?\n            .progress_chars(\"=> \"),\n    );\n    let mut copied = 0;\n    for row in rows {\n        copy_row(row)?;\n        copied += 1;\n        bar.inc(1);\n    }\n    bar.finish_with_message(format!(\"copied {copied} rows\"));\n    Ok(copied)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "bar works. but the final copied X rows never shows. also dont stop everything on one broken email, skip it and tell me which one",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous template had no {msg} in it. finish_with_message swaps the message and stops the bar, so with no slot for it nothing appears. Broken rows are now matched and skipped without counting them. Note: calling eprintln! directly would print in the middle of the bar and garble it, and bar.println prints nothing at all when stderr is not a terminal. bar.suspend hides the bar, runs the closure, and redraws, so the line survives in both cases."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "pub fn migrate(rows: &[Row]) -> Result<usize> {\n    let bar = ProgressBar::new(rows.len() as u64);\n    bar.set_style(\n        ProgressStyle::with_template(\"{elapsed_precise} [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}\")?\n            .progress_chars(\"=> \"),\n    );\n    let mut copied = 0;\n    for row in rows {\n        match copy_row(row) {\n            Ok(()) => copied += 1,\n            Err(err) => bar.suspend(|| eprintln!(\"skipped: {err}\")),\n        }\n        bar.inc(1);\n    }\n    bar.finish_with_message(format!(\"copied {copied} rows\"));\n    Ok(copied)\n}\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "id": "requests-session-python-ja",
+  "title": "requests.Session で接続を使い回し timeout を付ける",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "python",
+  "summary": "毎回の requests.get を Session にまとめ、止まらないように timeout を渡し、404 以外のエラーを raise_for_status で止める。",
+  "files": [
+    {
+      "path": "jobs/orders.py",
+      "content": "import requests\n\nAPI_URL = \"https://api.example.com\"\n\n\ndef fetch_orders(token, order_ids):\n    orders = []\n    for order_id in order_ids:\n        response = requests.get(\n            f\"{API_URL}/orders/{order_id}\",\n            headers={\"Authorization\": f\"Bearer {token}\"},\n        )\n        orders.append(response.json())\n    return orders\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "注文 API から 500 件引っ張ってくるバッチ、遅いうえにたまに朝まで止まったまま終わらない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、原因は 2 つあります。requests.get は呼ぶたびに使い捨ての Session を作るので、500 回とも TCP と TLS の接続を張り直しています。requests.Session を使えば、同じホストへの接続を使い回します。もう 1 つは timeout です。requests はデフォルトでは待ち時間に上限がないので、相手が黙るといつまでも待ち続けます。タプルで渡すと、接続と読み取りの上限を別々に決められます。Note: timeout は Session に持たせられないので、呼び出しごとに渡します。",
+          "reading": "けつろんからいうと、げんいんは 2 つあります。requests.get はよぶたびにつかいすての Session をつくるので、500 かいとも TCP と TLS のせつぞくをはりなおしています。requests.Session をつかえば、おなじほすとへのせつぞくをつかいまわします。もう 1 つは timeout です。requests はでふぉるとではまちじかんにじょうげんがないので、あいてがだまるといつまでもまちつづけます。たぷるでわたすと、せつぞくとよみとりのじょうげんをべつべつにきめられます。Note: timeout は Session にもたせられないので、よびだしごとにわたします。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "import requests\n\nAPI_URL = \"https://api.example.com\"\nTIMEOUT = (3.05, 10)\n\n\ndef fetch_orders(token, order_ids):\n    orders = []\n    with requests.Session() as session:\n        session.headers[\"Authorization\"] = f\"Bearer {token}\"\n        for order_id in order_ids:\n            response = session.get(f\"{API_URL}/orders/{order_id}\", timeout=TIMEOUT)\n            orders.append(response.json())\n    return orders\n"
+        }
+      ]
+    },
+    {
+      "user": "速くなった。けど消えた注文が混じってると {\"error\": \"not found\"} がそのまま orders に入ってて、後ろの集計で KeyError。404 は飛ばしていい、他のエラーは止めて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。requests は 4xx や 5xx が返ってきても例外を投げないので、エラーの JSON がそのまま成功扱いになっていました。404 だけ先に飛ばし、残りは raise_for_status で HTTPError にします。言い換えると、orders には 2xx の本文しか入らないことを保証します。",
+          "reading": "しょうちしました。requests は 4xx や 5xx がかえってきてもれいがいをなげないので、えらーの JSON がそのまませいこうあつかいになっていました。404 だけさきにとばし、のこりは raise_for_status で HTTPError にします。いいかえると、orders には 2xx のほんぶんしかはいらないことをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "for order_id in order_ids:\n    response = session.get(f\"{API_URL}/orders/{order_id}\", timeout=TIMEOUT)\n    if response.status_code == 404:\n        continue\n    response.raise_for_status()\n    orders.append(response.json())\n"
+        }
+      ]
+    }
+  ]
+}

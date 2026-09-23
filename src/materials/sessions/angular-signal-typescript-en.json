@@ -1,0 +1,48 @@
+{
+  "id": "angular-signal-typescript-en",
+  "title": "Turn a cart total into signal and computed",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "typescript",
+  "summary": "The total is recalculated by hand after each action, and remove forgets to. items becomes a signal and total a computed.",
+  "files": [
+    {
+      "path": "src/app/cart.component.ts",
+      "content": "import { Component } from '@angular/core'\n\ntype Item = { name: string; price: number; qty: number }\n\n@Component({\n  selector: 'app-cart',\n  standalone: true,\n  template: `\n    <ul>\n      @for (item of items; track item.name) {\n        <li>\n          {{ item.name }} x {{ item.qty }}\n          <button (click)=\"add(item.name)\">+</button>\n          <button (click)=\"remove(item.name)\">-</button>\n        </li>\n      }\n    </ul>\n    <p>Total: {{ total }}</p>\n  `,\n})\nexport class CartComponent {\n  items: Item[] = [\n    { name: 'Tea', price: 400, qty: 1 },\n    { name: 'Cake', price: 550, qty: 0 },\n  ]\n  total = 400\n\n  add(name: string) {\n    this.items = this.items.map((item) =>\n      item.name === name ? { ...item, qty: item.qty + 1 } : item,\n    )\n    this.recalc()\n  }\n\n  remove(name: string) {\n    this.items = this.items.map((item) =>\n      item.name === name ? { ...item, qty: Math.max(0, item.qty - 1) } : item,\n    )\n  }\n\n  private recalc() {\n    this.total = this.items.reduce((sum, item) => sum + item.price * item.qty, 0)\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "pressing - in the cart doesnt lower the total. + works",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "You're right, remove never calls recalc. Adding the call would fix it today, but the next action someone adds can forget it the same way. Let's make items a signal and derive total from it with computed. items becomes the single source of truth for the total, so a forgotten recalc can no longer happen. Signals are read by calling them, so the template reads items() and total()."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { Component, computed, signal } from '@angular/core'\n\ntype Item = { name: string; price: number; qty: number }\n\n@Component({\n  selector: 'app-cart',\n  standalone: true,\n  template: `\n    <ul>\n      @for (item of items(); track item.name) {\n        <li>\n          {{ item.name }} x {{ item.qty }}\n          <button (click)=\"add(item.name)\">+</button>\n          <button (click)=\"remove(item.name)\">-</button>\n        </li>\n      }\n    </ul>\n    <p>Total: {{ total() }}</p>\n  `,\n})\nexport class CartComponent {\n  items = signal<Item[]>([\n    { name: 'Tea', price: 400, qty: 1 },\n    { name: 'Cake', price: 550, qty: 0 },\n  ])\n  total = computed(() =>\n    this.items().reduce((sum, item) => sum + item.price * item.qty, 0),\n  )\n\n  add(name: string) {\n    this.items.update((list) =>\n      list.map((item) => (item.name === name ? { ...item, qty: item.qty + 1 } : item)),\n    )\n  }\n\n  remove(name: string) {\n    this.items.update((list) =>\n      list.map((item) =>\n        item.name === name ? { ...item, qty: Math.max(0, item.qty - 1) } : item,\n      ),\n    )\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ok. also want shipping, free at 3000 or more, 500 otherwise. under the total. oh and the total with shipping too",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. A computed can read another computed. shipping derives from total, and grandTotal from total and shipping. Dependencies are tracked from whatever signals get read, so nothing has to trigger a recalculation. Two fields go under total, and two lines go into the template."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "  shipping = computed(() => (this.total() >= 3000 ? 0 : 500))\n  grandTotal = computed(() => this.total() + this.shipping())\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/<p>Total: {{ total() }}<\\/p>/a\\\n    <p>Shipping: {{ shipping() }}</p>\\\n    <p>Grand total: {{ grandTotal() }}</p>\n' src/app/cart.component.ts"
+        }
+      ]
+    }
+  ]
+}

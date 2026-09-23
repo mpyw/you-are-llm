@@ -2,7 +2,7 @@
   "id": "cancellation-token-csharp-ja",
   "title": "止まらない夜間同期に CancellationToken を通す",
   "language": "ja",
-  "difficulty": "expert",
+  "difficulty": "hard",
   "codeLanguage": "csharp",
   "summary": "後付けで CancellationToken を通し、OperationCanceledException の扱いと倉庫ごとのタイムアウトまで詰める。",
   "files": [

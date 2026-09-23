@@ -1,0 +1,61 @@
+{
+  "id": "spring-events-java-en",
+  "title": "Stop a rolled back order sending its confirmation mail",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "java",
+  "summary": "An @EventListener sent mail in the middle of the transaction, so it moves to @TransactionalEventListener, and logging the mail walks into the propagation trap.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/order/OrderService.java",
+      "content": "package com.example.order;\n\nimport org.springframework.context.ApplicationEventPublisher;\nimport org.springframework.stereotype.Service;\nimport org.springframework.transaction.annotation.Transactional;\n\n@Service\npublic class OrderService {\n    private final OrderRepository orders;\n    private final StockService stock;\n    private final ApplicationEventPublisher events;\n\n    public OrderService(OrderRepository orders, StockService stock, ApplicationEventPublisher events) {\n        this.orders = orders;\n        this.stock = stock;\n        this.events = events;\n    }\n\n    @Transactional\n    public Order place(PlaceOrder command) {\n        Order order = orders.save(Order.from(command));\n        events.publishEvent(new OrderPlaced(order.getId(), command.email()));\n        stock.reserve(command.items());\n        return order;\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/order/OrderMailListener.java",
+      "content": "package com.example.order;\n\nimport org.springframework.context.event.EventListener;\nimport org.springframework.stereotype.Component;\n\n@Component\npublic class OrderMailListener {\n    private final OrderMailer mailer;\n\n    public OrderMailListener(OrderMailer mailer) {\n        this.mailer = mailer;\n    }\n\n    @EventListener\n    public void on(OrderPlaced event) {\n        mailer.sendConfirmation(event.email(), event.orderId());\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "got a complaint that someone got a confirmation mail for an order that rolled back (out of stock). how",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "An @EventListener runs synchronously, right where publishEvent is called. The mail goes out inside place, and when stock.reserve throws afterwards and the order rolls back, the mail has already been sent. A @TransactionalEventListener holds the event until the transaction finishes. With phase AFTER_COMMIT it only runs once the commit succeeds, and never after a rollback. This guarantees a rolled back order never gets a mail. Note: the reverse holds too. If sending fails, the order is already committed and stays that way."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.order;\n\nimport org.springframework.stereotype.Component;\nimport org.springframework.transaction.event.TransactionPhase;\nimport org.springframework.transaction.event.TransactionalEventListener;\n\n@Component\npublic class OrderMailListener {\n    private final OrderMailer mailer;\n\n    public OrderMailListener(OrderMailer mailer) {\n        this.mailer = mailer;\n    }\n\n    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)\n    public void on(OrderPlaced event) {\n        mailer.sendConfirmation(event.email(), event.orderId());\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "fixed. while youre there, log each sent mail to mail_log. audit wants it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! The listener takes a MailLogRepository and saves a row after sending. The row should live in the same transaction as the order, so @Transactional states Propagation.REQUIRED explicitly. Now the order and its mail record are written together."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.order;\n\nimport org.springframework.stereotype.Component;\nimport org.springframework.transaction.annotation.Propagation;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.transaction.event.TransactionPhase;\nimport org.springframework.transaction.event.TransactionalEventListener;\n\n@Component\npublic class OrderMailListener {\n    private final OrderMailer mailer;\n    private final MailLogRepository logs;\n\n    public OrderMailListener(OrderMailer mailer, MailLogRepository logs) {\n        this.mailer = mailer;\n        this.logs = logs;\n    }\n\n    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)\n    @Transactional(propagation = Propagation.REQUIRED)\n    public void on(OrderPlaced event) {\n        mailer.sendConfirmation(event.email(), event.orderId());\n        logs.save(new MailLog(event.orderId(), event.email()));\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "now it doesnt start\nIllegalStateException: @TransactionalEventListener method must not be annotated with @Transactional unless when declared as REQUIRES_NEW or NOT_SUPPORTED",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was wrong. By the time an AFTER_COMMIT listener runs, the order's transaction has already committed. The connection is still bound to the thread, though, so REQUIRED joins that finished transaction. The save goes through without an error, no commit ever follows, and mail_log stays empty. In other words, a write that vanishes silently. Since Spring 6.1 that combination is rejected at startup, which is the check you hit. REQUIRES_NEW opens a transaction of its own."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/Propagation.REQUIRED)/Propagation.REQUIRES_NEW)/' src/main/java/com/example/order/OrderMailListener.java"
+        }
+      ]
+    }
+  ]
+}

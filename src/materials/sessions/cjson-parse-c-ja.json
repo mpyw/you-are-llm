@@ -2,7 +2,7 @@
   "id": "cjson-parse-c-ja",
   "title": "cJSON の型を確かめてから値を読む",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "c",
   "summary": "cJSON_IsString で型を確かめ、cJSON_Delete で解放し、解放後の valuestring を掴まないようにする。",
   "files": [

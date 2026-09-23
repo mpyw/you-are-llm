@@ -1,0 +1,61 @@
+{
+  "id": "doctrine-flush-php-en",
+  "title": "Split a bulk import with flush and clear",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "php",
+  "summary": "Turn a CSV import that flushes every row into flush() and clear() every few hundred rows, then trip over the Category that clear() detached.",
+  "files": [
+    {
+      "path": "src/Command/ImportProductsCommand.php",
+      "content": "<?php\n\nnamespace App\\Command;\n\nuse App\\Entity\\Product;\nuse App\\Repository\\CategoryRepository;\nuse Doctrine\\ORM\\EntityManagerInterface;\nuse Symfony\\Component\\Console\\Attribute\\AsCommand;\nuse Symfony\\Component\\Console\\Command\\Command;\nuse Symfony\\Component\\Console\\Input\\InputArgument;\nuse Symfony\\Component\\Console\\Input\\InputInterface;\nuse Symfony\\Component\\Console\\Output\\OutputInterface;\n\n#[AsCommand(name: 'app:import-products')]\nclass ImportProductsCommand extends Command\n{\n    public function __construct(\n        private readonly EntityManagerInterface $em,\n        private readonly CategoryRepository $categories,\n    ) {\n        parent::__construct();\n    }\n\n    protected function configure(): void\n    {\n        $this->addArgument('file', InputArgument::REQUIRED);\n    }\n\n    protected function execute(InputInterface $input, OutputInterface $output): int\n    {\n        $category = $this->categories->findOneBy(['name' => 'imported'])\n            ?? throw new \\RuntimeException('Category \"imported\" does not exist.');\n\n        $handle = fopen($input->getArgument('file'), 'r');\n        fgetcsv($handle, escape: '');\n\n        while (($row = fgetcsv($handle, escape: '')) !== false) {\n            [$sku, $name, $price] = $row;\n            $this->em->persist(new Product($sku, $name, (int) $price, $category));\n            $this->em->flush();\n        }\n\n        fclose($handle);\n\n        return Command::SUCCESS;\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "the product csv import command is way too slow. 100k rows takes almost an hour. I tried moving flush out of the loop once and it died with Allowed memory size, so right now it flushes every row",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Flushing every row opens and commits a transaction each time, and the UnitOfWork keeps every entity persisted so far, so each flush has more to compute than the last. One flush after the loop has the opposite problem: all 100k entities sit in memory. The standard pattern is to flush() every N rows and clear() the UnitOfWork right after."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "$batchSize = 500;\n$count = 0;\n\nwhile (($row = fgetcsv($handle, escape: '')) !== false) {\n    [$sku, $name, $price] = $row;\n    $this->em->persist(new Product($sku, $name, (int) $price, $category));\n\n    if (++$count % $batchSize === 0) {\n        $this->em->flush();\n        $this->em->clear();\n        $output->writeln(sprintf('%d rows', $count));\n    }\n}\n\n$this->em->flush();\n$this->em->clear();\nfclose($handle);\n"
+        }
+      ]
+    },
+    {
+      "user": "died at row 501. A new entity was found through the relationship 'App\\Entity\\Product#category' that was not configured to cascade persist operations for entity: App\\Entity\\Category@327. the first 500 went in",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Correction: clear() detaches every entity the UnitOfWork manages, including the $category fetched before the loop. Doctrine sees an unmanaged Category, treats it as new, and refuses because the association has no cascade persist. Keep only the ID and take a fresh getReference() for each row. Within one batch the same ID returns the same instance, and no SELECT is issued. Each flush committed, so delete those 500 rows before running it again."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use App\\Entity\\Category;\n\n$categoryId = $this->categories->findOneBy(['name' => 'imported'])?->getId()\n    ?? throw new \\RuntimeException('Category \"imported\" does not exist.');\n\n// ...\n\nwhile (($row = fgetcsv($handle, escape: '')) !== false) {\n    [$sku, $name, $price] = $row;\n    $category = $this->em->getReference(Category::class, $categoryId);\n    $this->em->persist(new Product($sku, $name, (int) $price, $category));\n"
+        }
+      ]
+    },
+    {
+      "user": "works. but now it runs out around 15000 rows, Allowed memory size of 134217728 bytes exhausted. even with clear. also 500 feels too small, make it 1000",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Good catch! In dev, kernel.debug is on, so DoctrineBundle records every query with its backtrace for the profiler. That lives outside the UnitOfWork, so clear() never frees it. Run bulk imports with --no-debug, or with APP_ENV=prod. Memory then stays flat from one batch to the next."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/\\$batchSize = 500;/$batchSize = 1000;/' src/Command/ImportProductsCommand.php"
+        },
+        {
+          "kind": "command",
+          "body": "php bin/console app:import-products var/products.csv --no-debug"
+        }
+      ]
+    }
+  ]
+}

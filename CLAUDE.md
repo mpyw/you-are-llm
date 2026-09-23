@@ -164,7 +164,7 @@ The result is the one that matches anyone who has typed both. Rust mostly lands 
 above, and the exceptions are attributes on a type or one library call, which really are easier.
 Java mostly lands at Hard or below, and the exceptions have a `sed` dense with escapes or a long test
 setup. The only Expert+ session is the Rust `transaction` that takes a closure, which scores 37.0
-against 31.8 for the next one down.
+against 31.3 for the next one down.
 
 The grade is relative to the whole set, so adding a batch moves old sessions too. Describe these
 patterns as tendencies, not as lists of names, or every batch breaks the sentence.

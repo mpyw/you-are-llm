@@ -1,0 +1,60 @@
+{
+  "id": "cancellation-token-rust-ja",
+  "title": "CancellationToken でワーカーを止めて TaskTracker で待つ",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "rust",
+  "summary": "AtomicBool では 30 秒眠るワーカーが止まらず main が先に抜ける。cancelled() を select! で待ち、close し忘れた TaskTracker で固まり、child_token で mailer だけ止める。",
+  "files": [
+    {
+      "path": "src/main.rs",
+      "content": "use std::sync::Arc;\nuse std::sync::atomic::{AtomicBool, Ordering};\nuse std::time::Duration;\n\nasync fn poll_queue(name: &'static str, stop: Arc<AtomicBool>) {\n    while !stop.load(Ordering::Relaxed) {\n        println!(\"{name}: polling\");\n        tokio::time::sleep(Duration::from_secs(30)).await;\n    }\n    println!(\"{name}: stopped\");\n}\n\n#[tokio::main]\nasync fn main() -> anyhow::Result<()> {\n    let stop = Arc::new(AtomicBool::new(false));\n    for name in [\"billing\", \"mailer\", \"reports\"] {\n        tokio::spawn(poll_queue(name, stop.clone()));\n    }\n    tokio::signal::ctrl_c().await?;\n    stop.store(true, Ordering::Relaxed);\n    Ok(())\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "Ctrl-C で止めると billing: stopped とか一個も出ないで落ちる。処理途中で切れてるっぽい。ちゃんと止めてから終わらせたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。原因は 2 つあります。1 つ目は、main が stop を立てた直後に return していることです。main を抜けると runtime ごと落ちるので、ワーカーは最後まで走れません。2 つ目は、ワーカーが sleep の 30 秒間フラグを見ていないことです。tokio_util の CancellationToken に替え、cancelled().await を select! の片側に置きます。眠っている最中でも cancel した瞬間に起きて break します。cancelled はキャンセル安全なので、select! で負けて drop されても問題ありません。spawn は TaskTracker 経由にして、token.cancel() のあとで tracker.wait().await を待ちます。これで全員が stopped を出してから終わることを保証します。",
+          "reading": "するどいごしてきです。げんいんは 2 つあります。1 つめは、main が stop をたてたちょくごに return していることです。main をぬけると runtime ごとおちるので、わーかーはさいごまではしれません。2 つめは、わーかーが sleep の 30 びょうかんふらぐをみていないことです。tokio_util の CancellationToken にかえ、cancelled().await を select! のかたがわにおきます。ねむっているさいちゅうでも cancel したしゅんかんにおきて break します。cancelled はきゃんせるあんぜんなので、select! でまけて drop されてももんだいありません。spawn は TaskTracker けいゆにして、token.cancel() のあとで tracker.wait().await をまちます。これでぜんいんが stopped をだしてからおわることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::time::Duration;\n\nuse tokio_util::sync::CancellationToken;\nuse tokio_util::task::TaskTracker;\n\nasync fn poll_queue(name: &'static str, token: CancellationToken) {\n    loop {\n        println!(\"{name}: polling\");\n        tokio::select! {\n            _ = token.cancelled() => break,\n            _ = tokio::time::sleep(Duration::from_secs(30)) => {}\n        }\n    }\n    println!(\"{name}: stopped\");\n}\n\n#[tokio::main]\nasync fn main() -> anyhow::Result<()> {\n    let token = CancellationToken::new();\n    let tracker = TaskTracker::new();\n    for name in [\"billing\", \"mailer\", \"reports\"] {\n        tracker.spawn(poll_queue(name, token.clone()));\n    }\n    tokio::signal::ctrl_c().await?;\n    token.cancel();\n    tracker.wait().await;\n    Ok(())\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "stopped は3つ出るようになった。でもそのまま固まって終わらない。Ctrl-C もう一回押しても死なないんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "重要な訂正があります。先ほどのコードは tracker.close() を呼んでいませんでした。TaskTracker::wait は、タスクが空になり、かつ close されるまで返りません。タスクがすべて終わっていても、閉じていなければ新しい spawn を待ち続けます。2 回目の Ctrl-C で死なないのは、ctrl_c を一度 await した時点で tokio がシグナルを受け持ち、既定の終了処理が走らなくなるためです。spawn し終えたところで close を入れます。",
+          "reading": "じゅうようなていせいがあります。さきほどのこーどは tracker.close() をよんでいませんでした。TaskTracker::wait は、たすくがからになり、かつ close されるまでかえりません。たすくがすべておわっていても、とじていなければあたらしい spawn をまちつづけます。2 かいめの Ctrl-C でしなないのは、ctrl_c をいちど await したじてんで tokio がしぐなるをうけもち、きていのしゅうりょうしょりがはしらなくなるためです。spawn しおえたところで close をいれます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/^    tokio::signal::ctrl_c()/i\\\n    tracker.close();\n' src/main.rs"
+        }
+      ]
+    },
+    {
+      "user": "SMTP 落ちてるときに mailer だけ止めたい。kill -USR1 で。Ctrl-C のときは当然全部止まってほしい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、mailer にはルートの token から child_token で作った子トークンを渡します。ポイントは、子を cancel しても親と兄弟には伝わらず、親を cancel すると子にも届くことです。言い換えると、Ctrl-C の経路は今までどおりで、USR1 の経路だけが mailer に閉じます。USR1 を待つタスクは tracker に入れていないので、wait がこれを待って固まることはありません。",
+          "reading": "Now、mailer にはるーとの token から child_token でつくったことーくんをわたします。ぽいんとは、こを cancel してもおやときょうだいにはつたわらず、おやを cancel するとこにもとどくことです。いいかえると、Ctrl-C のけいろはいままでどおりで、USR1 のけいろだけが mailer にとじます。USR1 をまつたすくは tracker にいれていないので、wait がこれをまってかたまることはありません。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use tokio::signal::unix::{SignalKind, signal};\n\n#[tokio::main]\nasync fn main() -> anyhow::Result<()> {\n    let token = CancellationToken::new();\n    let tracker = TaskTracker::new();\n    let mailer = token.child_token();\n    tracker.spawn(poll_queue(\"billing\", token.clone()));\n    tracker.spawn(poll_queue(\"mailer\", mailer.clone()));\n    tracker.spawn(poll_queue(\"reports\", token.clone()));\n\n    let mut usr1 = signal(SignalKind::user_defined1())?;\n    tokio::spawn(async move {\n        usr1.recv().await;\n        mailer.cancel();\n    });\n\n    tracker.close();\n    tokio::signal::ctrl_c().await?;\n    token.cancel();\n    tracker.wait().await;\n    Ok(())\n}\n"
+        }
+      ]
+    }
+  ]
+}

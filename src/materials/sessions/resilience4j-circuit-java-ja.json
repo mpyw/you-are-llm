@@ -1,0 +1,74 @@
+{
+  "id": "resilience4j-circuit-java-ja",
+  "title": "@CircuitBreaker を付けたのに fallback が呼ばれない",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "java",
+  "summary": "long と Long で fallback が見つからず、直したら今度は設定名の食い違いでサーキットが開かない。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/price/PriceClient.java",
+      "content": "package com.example.price;\n\nimport io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;\nimport org.springframework.stereotype.Component;\nimport org.springframework.web.client.RestClient;\n\n@Component\npublic class PriceClient {\n    private final RestClient restClient;\n\n    public PriceClient(RestClient.Builder builder) {\n        this.restClient = builder.baseUrl(\"https://prices.example.com\").build();\n    }\n\n    @CircuitBreaker(name = \"priceApi\", fallbackMethod = \"fallback\")\n    public Price fetch(long productId) {\n        return restClient.get()\n                .uri(\"/v1/prices/{id}\", productId)\n                .retrieve()\n                .body(Price.class);\n    }\n\n    private Price fallback(Long productId, Exception e) {\n        return Price.unknown(productId);\n    }\n}\n"
+    },
+    {
+      "path": "src/main/resources/application.yml",
+      "content": "resilience4j:\n  circuitbreaker:\n    instances:\n      price-api:\n        sliding-window-size: 10\n        failure-rate-threshold: 50\n        wait-duration-in-open-state: 30s\n        permitted-number-of-calls-in-half-open-state: 3\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "価格 API が落ちたら fallback で「価格未定」にしたい。@CircuitBreaker 付けたけど 500 がそのまま返ってくる。fallback 一回も呼ばれてない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "順を追って見ます。Resilience4j は fallback を、元のメソッドと同じ引数の型を同じ順に並べ、最後に例外を 1 つ足したシグネチャで探します。型は完全一致で比べるので、元が long で fallback が Long だと別物です。見つからないときは WARN で No fallback method match found を出し、fallback なしで動きます。500 がそのまま返ったのはこのためです。long に揃えれば期待どおりに動作します。これで API が落ちると fallback が返り、yml のとおり直近 10 回のうち半分が失敗すると OPEN になります。",
+          "reading": "じゅんをおってみます。Resilience4j は fallback を、もとのメソッドとおなじひきすうのかたをおなじじゅんにならべ、さいごにれいがいを 1 つたしたシグネチャでさがします。かたはかんぜんいっちでくらべるので、もとが long で fallback が Long だとべつものです。みつからないときは WARN で No fallback method match found をだし、fallback なしでうごきます。500 がそのままかえったのはこのためです。long にそろえればきたいどおりにどうさします。これで API がおちると fallback がかえり、yml のとおりちょっきん 10 かいのうちはんぶんがしっぱいすると OPEN になります。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "private Price fallback(long productId, Exception e) {\n    return Price.unknown(productId);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "fallback は出るようになった。けど API 止めてても毎回タイムアウトまで待たされる。actuator/circuitbreakers 見たら priceApi が failedCalls 40 で CLOSED のまま",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、先ほどの「yml のとおり」は正しくありませんでした。注釈の name は priceApi で、yml のキーは price-api です。instances はただの Map なので、この 2 つは別の名前として扱われます。設定のない名前には既定の設定が使われ、スライディングウィンドウは 100 回、失敗率を計算し始めるまでの最小呼び出し数も 100 回です。40 回失敗しても失敗率はまだ計算されず、CLOSED のままになります。キーを注釈に合わせます。",
+          "reading": "あらためてかくにんしたところ、さきほどの「yml のとおり」はただしくありませんでした。ちゅうしゃくの name は priceApi で、yml のキーは price-api です。instances はただの Map なので、この 2 つはべつのなまえとしてあつかわれます。せっていのないなまえにはきていのせっていがつかわれ、スライディングウィンドウは 100 かい、しっぱいりつをけいさんしはじめるまでのさいしょうよびだしすうも 100 かいです。40 かいしっぱいしてもしっぱいりつはまだけいさんされず、CLOSED のままになります。キーをちゅうしゃくにあわせます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^      price-api:$/      priceApi:/' src/main/resources/application.yml"
+        },
+        {
+          "kind": "text",
+          "body": "Now、状態遷移はこうなります。CLOSED では直近 10 回を数え、失敗が 50 % 以上になると OPEN に移ります。OPEN の 30 秒間は API を呼ばず、CallNotPermittedException で即座に fallback に回るので、タイムアウトを待たなくなります。30 秒を過ぎた次の呼び出しで HALF_OPEN に入り、3 回だけ試します。その 3 回の失敗率がしきい値を下回れば CLOSED に戻り、そうでなければ OPEN からやり直します。",
+          "reading": "Now、じょうたいせんいはこうなります。CLOSED ではちょっきん 10 かいをかぞえ、しっぱいが 50 % いじょうになると OPEN にうつります。OPEN の 30 びょうかんは API をよばず、CallNotPermittedException でそくざに fallback にまわるので、タイムアウトをまたなくなります。30 びょうをすぎたつぎのよびだしで HALF_OPEN にはいり、3 かいだけためします。その 3 かいのしっぱいりつがしきいちをしたまわれば CLOSED にもどり、そうでなければ OPEN からやりなおします。"
+        }
+      ]
+    },
+    {
+      "user": "開くようになった。あ、あと存在しない商品 ID だと 404 で、それも価格未定になってる。404 は NotFound のまま上に返したいし、失敗にも数えたくない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ここでは 2 つの設定が独立していることに注意することが重要です。ignore-exceptions に入れた例外は、成功にも失敗にも数えられません。ただし fallback は、サーキットの集計とは関係なく例外が出るたびに呼ばれます。そこで fallback の中で NotFound だけ投げ直します。fallback から投げた例外は、そのまま呼び出し元に届きます。言い換えると、ignore は集計の話で、fallback は戻り値の話です。",
+          "reading": "ここでは 2 つのせっていがどくりつしていることにちゅういすることがじゅうようです。ignore-exceptions にいれたれいがいは、せいこうにもしっぱいにもかぞえられません。ただし fallback は、サーキットのしゅうけいとはかんけいなくれいがいがでるたびによばれます。そこで fallback のなかで NotFound だけなげなおします。fallback からなげたれいがいは、そのままよびだしもとにとどきます。いいかえると、ignore はしゅうけいのはなしで、fallback はもどりちのはなしです。"
+        },
+        {
+          "kind": "code",
+          "lang": "yaml",
+          "body": "resilience4j:\n  circuitbreaker:\n    instances:\n      priceApi:\n        sliding-window-size: 10\n        failure-rate-threshold: 50\n        wait-duration-in-open-state: 30s\n        permitted-number-of-calls-in-half-open-state: 3\n        ignore-exceptions:\n          - org.springframework.web.client.HttpClientErrorException$NotFound\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import org.springframework.web.client.HttpClientErrorException;\n\nprivate Price fallback(long productId, Exception e) {\n    if (e instanceof HttpClientErrorException.NotFound notFound) {\n        throw notFound;\n    }\n    return Price.unknown(productId);\n}\n"
+        }
+      ]
+    }
+  ]
+}

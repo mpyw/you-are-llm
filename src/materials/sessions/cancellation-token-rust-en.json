@@ -1,0 +1,57 @@
+{
+  "id": "cancellation-token-rust-en",
+  "title": "Stop workers with CancellationToken and wait with TaskTracker",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "rust",
+  "summary": "An AtomicBool cannot wake a worker asleep for 30 seconds, and main exits first. Race cancelled() in select!, hang on a TaskTracker nobody closed, and stop only the mailer with child_token.",
+  "files": [
+    {
+      "path": "src/main.rs",
+      "content": "use std::sync::Arc;\nuse std::sync::atomic::{AtomicBool, Ordering};\nuse std::time::Duration;\n\nasync fn poll_queue(name: &'static str, stop: Arc<AtomicBool>) {\n    while !stop.load(Ordering::Relaxed) {\n        println!(\"{name}: polling\");\n        tokio::time::sleep(Duration::from_secs(30)).await;\n    }\n    println!(\"{name}: stopped\");\n}\n\n#[tokio::main]\nasync fn main() -> anyhow::Result<()> {\n    let stop = Arc::new(AtomicBool::new(false));\n    for name in [\"billing\", \"mailer\", \"reports\"] {\n        tokio::spawn(poll_queue(name, stop.clone()));\n    }\n    tokio::signal::ctrl_c().await?;\n    stop.store(true, Ordering::Relaxed);\n    Ok(())\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "ctrl-c kills it without a single \"billing: stopped\". looks like jobs get cut mid way. i want it to actually stop and then exit",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! There are two causes. First, main returns right after setting stop, and leaving main tears down the runtime, so the workers never get to finish. Second, a worker does not look at the flag during its 30 second sleep. Switching to CancellationToken from tokio_util puts cancelled().await on one side of a select!, so a sleeping worker wakes and breaks the moment cancel is called. cancelled is cancel safe, so losing the select! and being dropped is fine. Spawning through a TaskTracker and awaiting tracker.wait() after token.cancel() guarantees every worker prints stopped before the process ends."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::time::Duration;\n\nuse tokio_util::sync::CancellationToken;\nuse tokio_util::task::TaskTracker;\n\nasync fn poll_queue(name: &'static str, token: CancellationToken) {\n    loop {\n        println!(\"{name}: polling\");\n        tokio::select! {\n            _ = token.cancelled() => break,\n            _ = tokio::time::sleep(Duration::from_secs(30)) => {}\n        }\n    }\n    println!(\"{name}: stopped\");\n}\n\n#[tokio::main]\nasync fn main() -> anyhow::Result<()> {\n    let token = CancellationToken::new();\n    let tracker = TaskTracker::new();\n    for name in [\"billing\", \"mailer\", \"reports\"] {\n        tracker.spawn(poll_queue(name, token.clone()));\n    }\n    tokio::signal::ctrl_c().await?;\n    token.cancel();\n    tracker.wait().await;\n    Ok(())\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ok 3 stopped lines now. but then it just hangs. hitting ctrl-c again does nothing either",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous code never called tracker.close(). TaskTracker::wait returns only once the tracker is empty and closed. With every task done but the tracker still open, it keeps waiting for a spawn that never comes. The second Ctrl-C does nothing because once ctrl_c has been awaited, tokio owns the signal and the default exit no longer runs. close goes right after the last spawn."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/^    tokio::signal::ctrl_c()/i\\\n    tracker.close();\n' src/main.rs"
+        }
+      ]
+    },
+    {
+      "user": "need to stop just the mailer when SMTP is down. via kill -USR1. ctrl-c should obviously still stop everything",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the split. The mailer gets a child token made with child_token from the root. Cancelling a child reaches neither the parent nor its siblings, while cancelling the parent reaches every child. So the Ctrl-C path stays as it was, and USR1 only touches the mailer. The task waiting on USR1 is not in the tracker, so wait will not hang on it."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use tokio::signal::unix::{SignalKind, signal};\n\n#[tokio::main]\nasync fn main() -> anyhow::Result<()> {\n    let token = CancellationToken::new();\n    let tracker = TaskTracker::new();\n    let mailer = token.child_token();\n    tracker.spawn(poll_queue(\"billing\", token.clone()));\n    tracker.spawn(poll_queue(\"mailer\", mailer.clone()));\n    tracker.spawn(poll_queue(\"reports\", token.clone()));\n\n    let mut usr1 = signal(SignalKind::user_defined1())?;\n    tokio::spawn(async move {\n        usr1.recv().await;\n        mailer.cancel();\n    });\n\n    tracker.close();\n    tokio::signal::ctrl_c().await?;\n    token.cancel();\n    tracker.wait().await;\n    Ok(())\n}\n"
+        }
+      ]
+    }
+  ]
+}

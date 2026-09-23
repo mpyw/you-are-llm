@@ -1,0 +1,59 @@
+{
+  "id": "config-layers-rust-ja",
+  "title": "config クレートで設定ファイルを環境変数で上書きする",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "rust",
+  "summary": "区切りのない Environment で上書きが効かず、separator(\"__\") で接頭辞の区切りまで変わる落とし穴を prefix_separator で直して try_deserialize する。",
+  "files": [
+    {
+      "path": "src/settings.rs",
+      "content": "use anyhow::Result;\nuse config::{Config, Environment, File};\n\npub struct Settings {\n    pub port: u16,\n    pub database_url: String,\n    pub max_connections: u32,\n}\n\npub fn load() -> Result<Settings> {\n    let config = Config::builder()\n        .add_source(File::with_name(\"config/default\"))\n        .add_source(Environment::with_prefix(\"APP\"))\n        .build()?;\n    Ok(Settings {\n        port: config.get_int(\"port\")? as u16,\n        database_url: config.get_string(\"database.url\")?,\n        max_connections: config.get_int(\"database.max_connections\")? as u32,\n    })\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "本番で APP_DATABASE_URL 入れてんのに default.toml の localhost に繋ぎにいく。ついでに get_int とか並べてるのダサいから構造体にして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、原因は Environment に区切りを指定していないことです。区切りがないと APP_DATABASE_URL は database_url という平たいキーになり、ファイル側の database.url とは別物として並ぶだけです。separator(\"__\") を指定すると、APP_DATABASE__URL が database.url に入ります。区切りを _ 1 つにしないのは、max_connections の _ まで区切りとして割られてしまうからです。値は try_deserialize で Settings にまとめて取り出します。環境変数は文字列で入りますが、u16 や u32 への変換は deserialize のときに行われます。言い換えると、ファイルが土台で、環境変数が上に重なる形です。",
+          "reading": "けつろんからいうと、げんいんは Environment にくぎりをしていしていないことです。くぎりがないと APP_DATABASE_URL は database_url というひらたいきーになり、ふぁいるがわの database.url とはべつものとしてならぶだけです。separator(\"__\") をしていすると、APP_DATABASE__URL が database.url にはいります。くぎりを _ 1 つにしないのは、max_connections の _ までくぎりとしてわられてしまうからです。あたいは try_deserialize で Settings にまとめてとりだします。かんきょうへんすうはもじれつではいりますが、u16 や u32 へのへんかんは deserialize のときにおこなわれます。いいかえると、ふぁいるがどだいで、かんきょうへんすうがうえにかさなるかたちです。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use anyhow::Result;\nuse config::{Config, Environment, File};\nuse serde::Deserialize;\n\n#[derive(Debug, Deserialize)]\npub struct Database {\n    pub url: String,\n    pub max_connections: u32,\n}\n\n#[derive(Debug, Deserialize)]\npub struct Settings {\n    pub port: u16,\n    pub database: Database,\n}\n\npub fn load() -> Result<Settings> {\n    let settings = Config::builder()\n        .add_source(File::with_name(\"config/default\"))\n        .add_source(Environment::with_prefix(\"APP\").separator(\"__\"))\n        .build()?\n        .try_deserialize()?;\n    Ok(settings)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "APP_DATABASE__URL にしたけどまだ localhost。てか APP_PORT も効かなくなったんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの説明は正確ではありませんでした。config の Environment は、prefix_separator を指定しないと separator の値を接頭辞の区切りにも使います。そのため今は APP__DATABASE__URL や APP__PORT の形しか拾っていません。prefix_separator(\"_\") を足して、接頭辞の後ろだけ _ 1 つに戻します。これで APP_PORT と APP_DATABASE__URL が期待どおりに動作します。",
+          "reading": "もうしわけありません。さきほどのせつめいはせいかくではありませんでした。config の Environment は、prefix_separator をしていしないと separator のあたいをせっとうじのくぎりにもつかいます。そのためいまは APP__DATABASE__URL や APP__PORT のかたちしかひろっていません。prefix_separator(\"_\") をたして、せっとうじのうしろだけ _ 1 つにもどします。これで APP_PORT と APP_DATABASE__URL がきたいどおりにどうさします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/Environment::with_prefix(\"APP\").separator(\"__\")/Environment::with_prefix(\"APP\").prefix_separator(\"_\").separator(\"__\")/' src/settings.rs"
+        }
+      ]
+    },
+    {
+      "user": "あ、手元だけ config/local.toml で上書きしたい。gitignore するから無い環境もある",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。default の直後に local を足し、required(false) でファイルがなくても build が通るようにします。重ねる順番がそのまま優先順位なので、local は default より強く、環境変数より弱くなります。パスワードのような秘密は local にも置かず、環境変数で渡すのがベストプラクティスです。",
+          "reading": "しょうちしました。default のちょくごに local をたし、required(false) でふぁいるがなくても build がとおるようにします。かさねるじゅんばんがそのままゆうせんじゅんいなので、local は default よりつよく、かんきょうへんすうよりよわくなります。ぱすわーどのようなひみつは local にもおかず、かんきょうへんすうでわたすのがべすとぷらくてぃすです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/File::with_name(\"config\\/default\")/a\\\n        .add_source(File::with_name(\"config/local\").required(false))\n' src/settings.rs"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "id": "singleflight-go-en",
+  "title": "Hundreds of identical queries the moment a cache entry expires",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "go",
+  "summary": "Collapse a cache stampede with singleflight Group.Do. The first caller's ctx governs everyone, so detach it with DoChan and WithoutCancel. Errors are shared too.",
+  "files": [
+    {
+      "path": "internal/catalog/service.go",
+      "content": "package catalog\n\nimport (\n  \"context\"\n  \"time\"\n)\n\ntype Service struct {\n  cache Cache\n  store *Store\n}\n\nfunc (s *Service) Product(ctx context.Context, id string) (*Product, error) {\n  key := \"product:\" + id\n  if p, ok := s.cache.Get(key); ok {\n    return p, nil\n  }\n  p, err := s.store.Find(ctx, id)\n  if err != nil {\n    return nil, err\n  }\n  s.cache.Set(key, p, 5*time.Minute)\n  return p, nil\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "when the cache for a popular product expires, ~300 identical SELECTs hit at once and DB cpu pegs. every 5 min",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch! This is a cache stampede. Every request that arrives between the failed Get and the Set calls store.Find on its own. With Group.Do from golang.org/x/sync/singleflight, a caller that finds a call already running for the same key does not run the function. It waits for that result instead, so the DB sees one query per key. The zero value of Group is ready to use, so embedding it in Service is all the setup it needs."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "type Service struct {\n  cache Cache\n  store *Store\n  group singleflight.Group\n}\n\nfunc (s *Service) Product(ctx context.Context, id string) (*Product, error) {\n  key := \"product:\" + id\n  if p, ok := s.cache.Get(key); ok {\n    return p, nil\n  }\n  v, err, _ := s.group.Do(key, func() (any, error) {\n    p, err := s.store.Find(ctx, id)\n    if err != nil {\n      return nil, err\n    }\n    s.cache.Set(key, p, 5*time.Minute)\n    return p, nil\n  })\n  if err != nil {\n    return nil, err\n  }\n  return v.(*Product), nil\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "db is calm now. but sometimes everyone waiting gets context canceled and 500s. access log says the first client disconnected every time",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous code had a real flaw. The function used the caller's ctx as is. Only the first caller actually runs the function passed to Do, so that one caller's ctx governs everybody's query. When it disconnects, Find ends with context canceled and that error is handed to every waiter. Inside the function, detach from the caller's cancellation with context.WithoutCancel and give it a timeout of its own. The waiters switch to DoChan and select, so each one leaves on its own ctx alone. Leaving does not stop the query, so the result still lands in the cache."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (s *Service) Product(ctx context.Context, id string) (*Product, error) {\n  key := \"product:\" + id\n  if p, ok := s.cache.Get(key); ok {\n    return p, nil\n  }\n  ch := s.group.DoChan(key, func() (any, error) {\n    ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)\n    defer cancel()\n    p, err := s.store.Find(ctx, id)\n    if err != nil {\n      return nil, err\n    }\n    s.cache.Set(key, p, 5*time.Minute)\n    return p, nil\n  })\n  select {\n  case <-ctx.Done():\n    return nil, ctx.Err()\n  case res := <-ch:\n    if res.Err != nil {\n      return nil, res.Err\n    }\n    return res.Val.(*Product), nil\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "db stalled for a sec and timed out, and everyone waiting at that moment got a 500. is that expected? also 3s is too long, make it 500ms",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Expected, yes. singleflight hands the same error to everyone, not just the same result. If every waiter retried on its own, you would lose the whole point and send 300 queries to a DB that is already struggling. Errors are not cached, so the next request after this call finishes goes to the DB again. Note: the *Product in res.Val is one pointer shared by every caller, so do not modify it on the receiving side. The timeout is in one place, so sed swaps it."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/3\\*time.Second/500*time.Millisecond/' internal/catalog/service.go"
+        }
+      ]
+    }
+  ]
+}

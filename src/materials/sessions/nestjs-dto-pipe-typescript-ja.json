@@ -1,0 +1,71 @@
+{
+  "id": "nestjs-dto-pipe-typescript-ja",
+  "title": "DTO のデコレータが何も検証しない",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "typescript",
+  "summary": "class-validator を付けた DTO が素通りするのは ValidationPipe が無いから。whitelist が余計なフィールドを黙って消すだけだと知り、パスパラメータの型も transform で揃える。",
+  "files": [
+    {
+      "path": "src/main.ts",
+      "content": "import { NestFactory } from '@nestjs/core'\nimport { AppModule } from './app.module'\n\nasync function bootstrap() {\n  const app = await NestFactory.create(AppModule)\n  await app.listen(3000)\n}\nbootstrap()\n"
+    },
+    {
+      "path": "src/users/create-user.dto.ts",
+      "content": "import { IsEmail, IsInt, IsOptional, IsString, Min } from 'class-validator'\n\nexport class CreateUserDto {\n  @IsString()\n  name!: string\n\n  @IsEmail()\n  email!: string\n\n  @IsOptional()\n  @IsInt()\n  @Min(0)\n  age?: number\n}\n"
+    },
+    {
+      "path": "src/users/users.controller.ts",
+      "content": "import { Body, Controller, Get, Param, Post } from '@nestjs/common'\nimport { CreateUserDto } from './create-user.dto'\nimport { UsersService } from './users.service'\n\n@Controller('users')\nexport class UsersController {\n  constructor(private readonly users: UsersService) {}\n\n  @Post()\n  create(@Body() dto: CreateUserDto) {\n    return this.users.create(dto)\n  }\n\n  @Get(':id')\n  findOne(@Param('id') id: number) {\n    return this.users.findOne(id)\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "CreateUserDto に @IsEmail 付けてるのに email: \"nope\" で POST しても普通に 201 返ってくる。なんで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、デコレータを付けただけでは何も検証されません。class-validator のデコレータはクラスにメタデータを載せるだけで、それを読んで検証を走らせるのは ValidationPipe の仕事です。main.ts でグローバルに登録すれば、全ハンドラの @Body() が DTO のクラスで検証されます。ValidationPipe は class-transformer も使うので、両方入れます。whitelist: true も付けておきます。これで DTO にないフィールドは 400 で弾かれ、isAdmin のような値を勝手に送られても通らないことを保証します。",
+          "reading": "けつろんからいうと、でこれーたをつけただけではなにもけんしょうされません。class-validator のでこれーたはくらすにめたでーたをのせるだけで、それをよんでけんしょうをはしらせるのは ValidationPipe のしごとです。main.ts でぐろーばるにとうろくすれば、ぜんはんどらの @Body() が DTO のくらすでけんしょうされます。ValidationPipe は class-transformer もつかうので、りょうほういれます。whitelist: true もつけておきます。これで DTO にないふぃーるどは 400 ではじかれ、isAdmin のようなあたいをかってにおくられてもとおらないことをほしょうします。"
+        },
+        {
+          "kind": "command",
+          "body": "pnpm add class-validator class-transformer"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { ValidationPipe } from '@nestjs/common'\nimport { NestFactory } from '@nestjs/core'\nimport { AppModule } from './app.module'\n\nasync function bootstrap() {\n  const app = await NestFactory.create(AppModule)\n  app.useGlobalPipes(new ValidationPipe({ whitelist: true }))\n  await app.listen(3000)\n}\nbootstrap()\n"
+        }
+      ]
+    },
+    {
+      "user": "email は弾かれるようになった。けど isAdmin: true 付けたら 201。レスポンスからは消えてるけど、400 になるって言ってなかった？黙って消えるのは気持ち悪いからエラーにして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの説明は正確ではありませんでした。whitelist: true はデコレータの付いていないプロパティを黙って取り除くだけで、エラーにはしません。400 にするには forbidNonWhitelisted: true を足します。このオプションは whitelist と組み合わせたときだけ効きます。Note: デコレータを 1 つも付けていないプロパティも余計なフィールドとして扱われるので、検証の要らない項目には @Allow() を付けておきます。",
+          "reading": "もうしわけありません。さきほどのせつめいはせいかくではありませんでした。whitelist: true はでこれーたのついていないぷろぱてぃをだまってとりのぞくだけで、えらーにはしません。400 にするには forbidNonWhitelisted: true をたします。このおぷしょんは whitelist とくみあわせたときだけききます。Note: でこれーたを 1 つもつけていないぷろぱてぃもよけいなふぃーるどとしてあつかわれるので、けんしょうのいらないこうもくには @Allow() をつけておきます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/whitelist: true }/whitelist: true, forbidNonWhitelisted: true }/' src/main.ts"
+        }
+      ]
+    },
+    {
+      "user": "あと GET /users/:id、id: number って書いてるのに find(u => u.id === id) が絶対見つからない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "id: number は TypeScript の型注釈で、実行時には何も変換しません。パスパラメータは常に文字列なので、\"1\" === 1 が false になっています。ValidationPipe に transform: true を足すと、宣言された型を見て number に変換し、@Body() もプレーンなオブジェクトではなく CreateUserDto のインスタンスになります。ParseIntPipe を 1 つずつ付ける手もありますが、まとめると main.ts の 1 行で済ませるのがベストプラクティスです。",
+          "reading": "id: number は TypeScript のかたちゅうしゃくで、じっこうじにはなにもへんかんしません。ぱすぱらめーたはつねにもじれつなので、\"1\" === 1 が false になっています。ValidationPipe に transform: true をたすと、せんげんされたかたをみて number にへんかんし、@Body() もぷれーんなおぶじぇくとではなく CreateUserDto のいんすたんすになります。ParseIntPipe を 1 つずつつけるてもありますが、まとめると main.ts の 1 ぎょうですませるのがべすとぷらくてぃすです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/forbidNonWhitelisted: true }/forbidNonWhitelisted: true, transform: true }/' src/main.ts"
+        }
+      ]
+    }
+  ]
+}

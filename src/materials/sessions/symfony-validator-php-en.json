@@ -1,0 +1,75 @@
+{
+  "id": "symfony-validator-php-en",
+  "title": "Replace hand written JSON checks with MapRequestPayload",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "php",
+  "summary": "Swap json_decode and a wall of ifs for a DTO with constraint attributes and #[MapRequestPayload], then forget Assert\\Valid on the nested order lines.",
+  "files": [
+    {
+      "path": "src/Controller/OrderController.php",
+      "content": "<?php\n\nnamespace App\\Controller;\n\nuse App\\Service\\OrderPlacer;\nuse Symfony\\Bundle\\FrameworkBundle\\Controller\\AbstractController;\nuse Symfony\\Component\\HttpFoundation\\JsonResponse;\nuse Symfony\\Component\\HttpFoundation\\Request;\nuse Symfony\\Component\\Routing\\Attribute\\Route;\n\nclass OrderController extends AbstractController\n{\n    #[Route('/api/orders', name: 'api_order_create', methods: ['POST'])]\n    public function create(Request $request, OrderPlacer $placer): JsonResponse\n    {\n        $data = json_decode($request->getContent(), true);\n\n        if (!is_array($data)) {\n            return $this->json(['error' => 'Invalid JSON.'], 400);\n        }\n\n        if (!isset($data['email']) || !filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {\n            return $this->json(['error' => 'email is invalid.'], 400);\n        }\n\n        if (!isset($data['sku']) || !is_string($data['sku']) || $data['sku'] === '') {\n            return $this->json(['error' => 'sku is required.'], 400);\n        }\n\n        if (!isset($data['quantity']) || !is_int($data['quantity']) || $data['quantity'] < 1) {\n            return $this->json(['error' => 'quantity must be a positive integer.'], 400);\n        }\n\n        $order = $placer->place($data['email'], $data['sku'], $data['quantity']);\n\n        return $this->json(['id' => $order->getId()], 201);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "POST /api/orders does json_decode and a pile of ifs. want to move it to the Validator. theres MapRequestPayload since 6.3 right? also if the error status changes tell me, need to warn the frontend",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! Put the shape in a DTO with constraint attributes and mark the argument with #[MapRequestPayload]. Deserializing and validating then happen before the controller runs. The status does change. A constraint violation is a 422, with a violations list keyed by propertyPath in the body. JSON that does not parse is a 400. Note: the body is only JSON when the request sends Accept: application/json, otherwise you get the HTML error page. The validationFailedStatusCode argument can put it back to 400, but I would keep 422."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "<?php\n\nnamespace App\\Dto;\n\nuse Symfony\\Component\\Validator\\Constraints as Assert;\n\nfinal class PlaceOrderRequest\n{\n    public function __construct(\n        #[Assert\\NotBlank]\n        #[Assert\\Email]\n        public readonly string $email,\n\n        #[Assert\\NotBlank]\n        #[Assert\\Length(max: 64)]\n        public readonly string $sku,\n\n        #[Assert\\Positive]\n        public readonly int $quantity,\n    ) {\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use App\\Dto\\PlaceOrderRequest;\nuse Symfony\\Component\\HttpKernel\\Attribute\\MapRequestPayload;\n\n#[Route('/api/orders', name: 'api_order_create', methods: ['POST'])]\npublic function create(#[MapRequestPayload] PlaceOrderRequest $payload, OrderPlacer $placer): JsonResponse\n{\n    $order = $placer->place($payload->email, $payload->sku, $payload->quantity);\n\n    return $this->json(['id' => $order->getId()], 201);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "oh wait forgot, one order needs multiple products. want lines: [{sku, quantity}] as an array. email stays",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's split each line into OrderLineInput and give PlaceOrderRequest a lines array. For the Serializer to turn the array items into OrderLineInput it has to read the @param list<OrderLineInput> docblock, and that needs phpdocumentor/reflection-docblock. Without it lines arrives as plain arrays. The controller call becomes $placer->place($payload->email, $payload->lines). Every line is now validated against its constraints too."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "<?php\n\nnamespace App\\Dto;\n\nuse Symfony\\Component\\Validator\\Constraints as Assert;\n\nfinal class PlaceOrderRequest\n{\n    /**\n     * @param list<OrderLineInput> $lines\n     */\n    public function __construct(\n        #[Assert\\NotBlank]\n        #[Assert\\Email]\n        public readonly string $email,\n\n        #[Assert\\Count(min: 1, max: 50)]\n        public readonly array $lines,\n    ) {\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "<?php\n\nnamespace App\\Dto;\n\nuse Symfony\\Component\\Validator\\Constraints as Assert;\n\nfinal class OrderLineInput\n{\n    public function __construct(\n        #[Assert\\NotBlank]\n        #[Assert\\Length(max: 64)]\n        public readonly string $sku,\n\n        #[Assert\\Positive]\n        public readonly int $quantity,\n    ) {\n    }\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "composer require phpdocumentor/reflection-docblock"
+        }
+      ]
+    },
+    {
+      "user": "a line with quantity: 0 goes through with 201. empty email does give 422 though",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. The Validator does not walk into nested objects on its own, so Positive on OrderLineInput never ran. Count only looked at how many lines there were, not at what was in them. Adding Assert\\Valid to lines runs the constraints on every element."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/#\\[Assert\\\\Count(min: 1, max: 50)\\]/#[Assert\\\\Count(min: 1, max: 50), Assert\\\\Valid]/' src/Dto/PlaceOrderRequest.php"
+        },
+        {
+          "kind": "command",
+          "body": "curl -i -X POST http://localhost:8000/api/orders -H 'Content-Type: application/json' -H 'Accept: application/json' -d '{\"email\":\"a@example.com\",\"lines\":[{\"sku\":\"A-1\",\"quantity\":0}]}'"
+        }
+      ]
+    }
+  ]
+}

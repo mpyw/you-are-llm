@@ -1,0 +1,65 @@
+{
+  "id": "qt-sql-query-cpp-en",
+  "title": "Adding Bob's silently does nothing",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "cpp",
+  "summary": "QSqlQuery was handed concatenated SQL and exec() was never checked. Switch to prepare and bindValue, and catch failures with lastError(). A :word inside quotes is not a placeholder.",
+  "files": [
+    {
+      "path": "src/store/todostore.h",
+      "content": "#pragma once\n\n#include <QList>\n#include <QSqlDatabase>\n#include <QString>\n\nstruct Todo\n{\n    int id;\n    QString title;\n};\n\nclass TodoStore\n{\npublic:\n    explicit TodoStore(const QSqlDatabase &db);\n\n    bool add(const QString &title, int priority);\n    QList<Todo> search(const QString &word);\n\nprivate:\n    QSqlDatabase db_;\n};\n"
+    },
+    {
+      "path": "src/store/todostore.cpp",
+      "content": "#include \"todostore.h\"\n\n#include <QSqlQuery>\n#include <QVariant>\n\nTodoStore::TodoStore(const QSqlDatabase &db) : db_(db) {}\n\nbool TodoStore::add(const QString &title, int priority)\n{\n    QSqlQuery query(db_);\n    query.exec(\"INSERT INTO todos (title, priority) VALUES ('\" + title + \"', \"\n               + QString::number(priority) + \")\");\n    return true;\n}\n\nQList<Todo> TodoStore::search(const QString &word)\n{\n    QSqlQuery query(db_);\n    query.exec(\"SELECT id, title FROM todos WHERE title LIKE '%\" + word + \"%'\");\n    QList<Todo> result;\n    while (query.next())\n        result.append({query.value(0).toInt(), query.value(1).toString()});\n    return result;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "if I put Bob's in the title it never gets added. no error, add returns true",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! The ' in the title closes the SQL string early, so the INSERT is a syntax error. exec() returns false when it fails, but that result was thrown away and add returned true regardless, so nothing ever surfaced. prepare takes the SQL with placeholders, and bindValue passes each value separately. The values never become part of the SQL text, so a ' cannot break it. On failure the code now logs lastError().text() and returns false. Search gets the same treatment."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include \"todostore.h\"\n\n#include <QDebug>\n#include <QSqlError>\n#include <QSqlQuery>\n#include <QVariant>\n\nTodoStore::TodoStore(const QSqlDatabase &db) : db_(db) {}\n\nbool TodoStore::add(const QString &title, int priority)\n{\n    QSqlQuery query(db_);\n    query.prepare(\"INSERT INTO todos (title, priority) VALUES (:title, :priority)\");\n    query.bindValue(\":title\", title);\n    query.bindValue(\":priority\", priority);\n    if (!query.exec()) {\n        qWarning() << \"add failed:\" << query.lastError().text();\n        return false;\n    }\n    return true;\n}\n\nQList<Todo> TodoStore::search(const QString &word)\n{\n    QSqlQuery query(db_);\n    query.prepare(\"SELECT id, title FROM todos WHERE title LIKE '%:word%'\");\n    query.bindValue(\":word\", word);\n    QList<Todo> result;\n    if (!query.exec()) {\n        qWarning() << \"search failed:\" << query.lastError().text();\n        return result;\n    }\n    while (query.next())\n        result.append({query.value(0).toInt(), query.value(1).toString()});\n    return result;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "adding works now. but search returns 0 rows for everything. no warning either",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. A :word written inside quotes, as in '%:word%', is not a placeholder. It is plain text. The query was looking for titles that literally contain \":word\", which finds nothing without being an error. The % signs belong in the bound value, not in the SQL."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e \"s/LIKE '%:word%'/LIKE :word/\" -e 's/bindValue(\":word\", word)/bindValue(\":word\", \"%\" + word + \"%\")/' src/store/todostore.cpp"
+        }
+      ]
+    },
+    {
+      "user": "fixed. also can add return the id? want to select the new row in the UI",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the change: add returns the new row's id instead of a bool. Right after a successful exec(), lastInsertId() holds the id SQLite assigned. A failure returns -1, so callers can test for a negative value. The declaration in the header changes to match."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/bool add(/int add(/' src/store/todostore.h"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "int TodoStore::add(const QString &title, int priority)\n{\n    QSqlQuery query(db_);\n    query.prepare(\"INSERT INTO todos (title, priority) VALUES (:title, :priority)\");\n    query.bindValue(\":title\", title);\n    query.bindValue(\":priority\", priority);\n    if (!query.exec()) {\n        qWarning() << \"add failed:\" << query.lastError().text();\n        return -1;\n    }\n    return query.lastInsertId().toInt();\n}\n"
+        }
+      ]
+    }
+  ]
+}

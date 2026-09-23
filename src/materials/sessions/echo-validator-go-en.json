@@ -1,0 +1,66 @@
+{
+  "id": "echo-validator-go-en",
+  "title": "Echo c.Bind ignores validate tags",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "go",
+  "summary": "c.Bind does not validate, so register go-playground/validator as e.Validator and call c.Validate. Slice elements are not checked without dive. Errors come back per field under their json names.",
+  "files": [
+    {
+      "path": "internal/handler/order.go",
+      "content": "package handler\n\nimport (\n  \"net/http\"\n\n  \"github.com/labstack/echo/v4\"\n)\n\ntype OrderItem struct {\n  SKU      string `json:\"sku\" validate:\"required\"`\n  Quantity int    `json:\"quantity\" validate:\"gt=0\"`\n}\n\ntype CreateOrderRequest struct {\n  Email string      `json:\"email\" validate:\"required,email\"`\n  Items []OrderItem `json:\"items\" validate:\"required,min=1\"`\n}\n\ntype OrderHandler struct {\n  orders OrderStore\n}\n\nfunc (h *OrderHandler) Create(c echo.Context) error {\n  var req CreateOrderRequest\n  if err := c.Bind(&req); err != nil {\n    return err\n  }\n  o, err := h.orders.Create(c.Request().Context(), req)\n  if err != nil {\n    return err\n  }\n  return c.JSON(http.StatusCreated, o)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "I have validate tags but an empty email goes straight through. gin just did this for me",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "You're right that gin's ShouldBind validates through binding tags. Echo's c.Bind only fills the struct, and nothing reads the validate tags. All Echo gives you is the e.Validator interface, so wrap go-playground/validator in internal/handler/validator.go and register it in main with e.Validator = handler.NewValidator(). Wrap the error in a 400 HTTPError, or the default error handler turns it into a 500."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "package handler\n\nimport (\n  \"net/http\"\n\n  \"github.com/go-playground/validator/v10\"\n  \"github.com/labstack/echo/v4\"\n)\n\ntype CustomValidator struct {\n  validator *validator.Validate\n}\n\nfunc NewValidator() *CustomValidator {\n  return &CustomValidator{validator: validator.New(validator.WithRequiredStructEnabled())}\n}\n\nfunc (cv *CustomValidator) Validate(i any) error {\n  if err := cv.validator.Struct(i); err != nil {\n    return echo.NewHTTPError(http.StatusBadRequest, err.Error())\n  }\n  return nil\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "Here's the handler side. Call c.Validate right after Bind. Quantity inside Items is now checked against gt=0 as well."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (h *OrderHandler) Create(c echo.Context) error {\n  var req CreateOrderRequest\n  if err := c.Bind(&req); err != nil {\n    return err\n  }\n  if err := c.Validate(&req); err != nil {\n    return err\n  }\n  o, err := h.orders.Create(c.Request().Context(), req)\n  if err != nil {\n    return err\n  }\n  return c.JSON(http.StatusCreated, o)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "email gets rejected now. but items with quantity 0 still pass",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. validator descends into a field of struct type on its own, but not into the elements of a slice or map. Add dive to the slice tag and the tags to its right apply to each element. When the element is a struct, its own field tags are checked. required,min=1 stays to the left of dive and still checks the slice itself."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/validate:\"required,min=1\"/validate:\"required,min=1,dive\"/' internal/handler/order.go"
+        }
+      ]
+    },
+    {
+      "user": "also the error lands in message as a raw string, Key: 'CreateOrderRequest.Items[0].Quantity' Error:Field validation for... frontend can't parse that. give it per field with the json names",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. RegisterTagNameFunc makes validator use the json tag as the field name. Then take the ValidationErrors apart one by one into a map from path to the failed tag. Namespace starts with the struct type name, so cut that off. The json tag is now the single source of truth for both the request and its errors."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "package handler\n\nimport (\n  \"errors\"\n  \"net/http\"\n  \"reflect\"\n  \"strings\"\n\n  \"github.com/go-playground/validator/v10\"\n  \"github.com/labstack/echo/v4\"\n)\n\ntype CustomValidator struct {\n  validator *validator.Validate\n}\n\nfunc NewValidator() *CustomValidator {\n  v := validator.New(validator.WithRequiredStructEnabled())\n  v.RegisterTagNameFunc(func(f reflect.StructField) string {\n    name, _, _ := strings.Cut(f.Tag.Get(\"json\"), \",\")\n    if name == \"-\" {\n      return \"\"\n    }\n    return name\n  })\n  return &CustomValidator{validator: v}\n}\n\nfunc (cv *CustomValidator) Validate(i any) error {\n  err := cv.validator.Struct(i)\n  var verrs validator.ValidationErrors\n  if !errors.As(err, &verrs) {\n    return err\n  }\n  fields := make(map[string]string, len(verrs))\n  for _, fe := range verrs {\n    _, path, _ := strings.Cut(fe.Namespace(), \".\")\n    fields[path] = fe.Tag()\n  }\n  return echo.NewHTTPError(http.StatusBadRequest, map[string]any{\"fields\": fields})\n}\n"
+        }
+      ]
+    }
+  ]
+}

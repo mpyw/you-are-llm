@@ -1,0 +1,56 @@
+{
+  "id": "libpq-params-c-en",
+  "title": "Parameterize a libpq query",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "c",
+  "summary": "Replace SQL built by string formatting with PQexecParams, always call PQclear, and check a SELECT against PGRES_TUPLES_OK.",
+  "files": [
+    {
+      "path": "src/db/user.c",
+      "content": "#include <stdio.h>\n#include <stdlib.h>\n#include <libpq-fe.h>\n\nint find_user_id(PGconn *conn, const char *email) {\n  char sql[256];\n  snprintf(sql, sizeof sql, \"SELECT id FROM users WHERE email = '%s'\", email);\n  PGresult *res = PQexec(conn, sql);\n  if (PQntuples(res) == 0) return 0;\n  return atoi(PQgetvalue(res, 0, 0));\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "find_user_id breaks for users with a ' in their email. also memory seems to creep up when it runs for a long time",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch! There are two causes. First, email is pasted into the SQL with snprintf. A ' breaks the query syntax, and a hostile input turns it into SQL injection. PQexecParams sends the value separately from the $1 placeholder, so there is nothing to escape at all. Second, the PGresult from PQexec is never passed to PQclear. Once you are done reading a result, it has to be freed whether the query worked or not. I'm also adding a PQresultStatus check on the result."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#include <stdio.h>\n#include <stdlib.h>\n#include <libpq-fe.h>\n\nint find_user_id(PGconn *conn, const char *email) {\n  const char *params[1] = { email };\n  PGresult *res = PQexecParams(conn,\n      \"SELECT id FROM users WHERE email = $1\",\n      1, NULL, params, NULL, NULL, 0);\n  int id = -1;\n  if (PQresultStatus(res) == PGRES_COMMAND_OK) {\n    id = PQntuples(res) == 0 ? 0 : atoi(PQgetvalue(res, 0, 0));\n  } else {\n    fprintf(stderr, \"find_user_id: %s\", PQresultErrorMessage(res));\n  }\n  PQclear(res);\n  return id;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "the ' thing is fixed. but now it returns -1 even for users that exist. the log just says find_user_id: with nothing after it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous status check was wrong. PGRES_COMMAND_OK is what a command that returns no rows, like INSERT or UPDATE, gives back on success. A SELECT returns PGRES_TUPLES_OK, even when it finds zero rows. The query was succeeding, so it fell into the else branch with an empty error message. One comparison changes."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/== PGRES_COMMAND_OK/== PGRES_TUPLES_OK/' src/db/user.c"
+        }
+      ]
+    },
+    {
+      "user": "oh wait sorry, email is only unique per tenant. take tenant_id as an argument too and filter on it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the change: tenant_id becomes the first parameter and email moves to $2. paramTypes is NULL, so the server infers each type from the column. In other words, the caller can pass tenant_id as a plain string too. Note: nParams must match the number of placeholders."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/const char \\*email)/const char *tenant, const char *email)/; s/params\\[1\\] = { email }/params[2] = { tenant, email }/; s/WHERE email = \\$1/WHERE tenant_id = $1 AND email = $2/; s/1, NULL, params/2, NULL, params/' src/db/user.c"
+        }
+      ]
+    }
+  ]
+}

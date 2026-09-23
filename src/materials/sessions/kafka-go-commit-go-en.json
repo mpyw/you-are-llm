@@ -1,0 +1,57 @@
+{
+  "id": "kafka-go-commit-go-en",
+  "title": "kafka-go loses messages that failed to process",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "go",
+  "summary": "With a consumer group, ReadMessage commits as soon as it reads, so split it into FetchMessage and a CommitMessages after processing. Skipping a failure with continue lets the next commit overtake it. Delivery becomes at least once, so make the handler idempotent.",
+  "files": [
+    {
+      "path": "internal/consumer/orders.go",
+      "content": "package consumer\n\nimport (\n  \"context\"\n  \"log/slog\"\n\n  \"github.com/segmentio/kafka-go\"\n)\n\ntype Consumer struct {\n  reader *kafka.Reader\n  orders OrderService\n}\n\nfunc New(brokers []string, orders OrderService) *Consumer {\n  return &Consumer{\n    reader: kafka.NewReader(kafka.ReaderConfig{\n      Brokers: brokers,\n      GroupID: \"order-worker\",\n      Topic:   \"orders\",\n    }),\n    orders: orders,\n  }\n}\n\nfunc (c *Consumer) Run(ctx context.Context) error {\n  for {\n    m, err := c.reader.ReadMessage(ctx)\n    if err != nil {\n      return err\n    }\n    if err := c.orders.Handle(ctx, m.Value); err != nil {\n      slog.Error(\"handle order\", \"offset\", m.Offset, \"err\", err)\n    }\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "orders from the ~10 min the DB was down never got processed, even after it came back. handle order errors are in the log. they should still be in kafka so pick them up again",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: ReadMessage is the cause. When GroupID is set, kafka-go's ReadMessage commits the offset before it returns the message. By the time Handle fails, the group already counts it as done. Split it: take the message with FetchMessage and call CommitMessages only after Handle succeeds. With CommitInterval left at 0, CommitMessages waits for the broker to accept the commit. A failed message is never committed, so Kafka delivers it again."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (c *Consumer) Run(ctx context.Context) error {\n  for {\n    m, err := c.reader.FetchMessage(ctx)\n    if err != nil {\n      return err\n    }\n    if err := c.orders.Handle(ctx, m.Value); err != nil {\n      slog.Error(\"handle order\", \"partition\", m.Partition, \"offset\", m.Offset, \"err\", err)\n      continue\n    }\n    if err := c.reader.CommitMessages(ctx, m); err != nil {\n      return err\n    }\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "tried it on staging with the DB stopped. offset 41 failed and never comes back after restart. 42 onwards got processed",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. A Kafka commit is not a read flag per message. It is a position per partition that says everything before it is done. Skip 41 and commit 42, and the position moves to 43, which takes 41 along with it. Within the same process, FetchMessage keeps moving forward whatever you commit. So on failure, return from Run instead of continuing, let the process restart, and it reads again from the last committed position. A broken message that fails every time will stop the consumer there, so that kind needs to go to a separate topic."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/      continue/      return err/' internal/consumer/orders.go"
+        }
+      ]
+    },
+    {
+      "user": "ok it comes back now. but the other way round, if Handle succeeds and we crash before the commit, stock gets reserved twice right? cant have that",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great point! That is exactly right: this shape is at-least-once delivery. A crash between Handle succeeding and the commit delivers the same message again. Rather than forcing exactly once on the Kafka side, make Handle in internal/order/service.go idempotent. Insert the event ID into processed_events and commit it in the same transaction as the stock reservation, so the record and the reservation are atomic. If the ID is already there, RowsAffected is 0, so return success without doing anything and let the offset move on. event_id needs a primary key or a UNIQUE constraint."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (s *OrderService) Handle(ctx context.Context, value []byte) error {\n  var ev OrderEvent\n  if err := json.Unmarshal(value, &ev); err != nil {\n    return err\n  }\n  tx, err := s.db.BeginTx(ctx, nil)\n  if err != nil {\n    return err\n  }\n  defer tx.Rollback()\n\n  res, err := tx.ExecContext(ctx,\n    \"INSERT INTO processed_events (event_id) VALUES ($1) ON CONFLICT DO NOTHING\", ev.ID)\n  if err != nil {\n    return err\n  }\n  n, err := res.RowsAffected()\n  if err != nil {\n    return err\n  }\n  if n == 0 {\n    return nil\n  }\n  if err := s.reserveStock(ctx, tx, ev); err != nil {\n    return err\n  }\n  return tx.Commit()\n}\n"
+        }
+      ]
+    }
+  ]
+}

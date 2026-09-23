@@ -1,0 +1,77 @@
+{
+  "id": "octane-state-php-ja",
+  "title": "Octane でユーザー情報がリクエスト間で混ざる",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "起動時に解決された singleton が古いリクエストを握り続け、scoped に直すと今度は static のキャッシュが他人のプランを返す。",
+  "files": [
+    {
+      "path": "app/Support/CurrentAccount.php",
+      "content": "<?php\n\nnamespace App\\Support;\n\nuse App\\Models\\Plan;\nuse App\\Models\\User;\nuse Illuminate\\Http\\Request;\n\nclass CurrentAccount\n{\n    private static ?Plan $plan = null;\n\n    public function __construct(private Request $request)\n    {\n    }\n\n    public function user(): ?User\n    {\n        return $this->request->user();\n    }\n\n    public function plan(): ?Plan\n    {\n        return self::$plan ??= $this->user()?->plan;\n    }\n}\n"
+    },
+    {
+      "path": "app/Providers/AppServiceProvider.php",
+      "content": "<?php\n\nnamespace App\\Providers;\n\nuse App\\Support\\CurrentAccount;\nuse Illuminate\\Contracts\\Foundation\\Application;\nuse Illuminate\\Support\\Facades\\View;\nuse Illuminate\\Support\\ServiceProvider;\n\nclass AppServiceProvider extends ServiceProvider\n{\n    public function register(): void\n    {\n        $this->app->singleton(CurrentAccount::class, function (Application $app) {\n            return new CurrentAccount($app['request']);\n        });\n    }\n\n    public function boot(): void\n    {\n        View::share('account', $this->app->make(CurrentAccount::class));\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "Octane（FrankenPHP）入れたら、ヘッダのユーザー名が全員「ゲスト」になった。php artisan serve だと普通に出る。ログイン自体はできてる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、原因は AppServiceProvider の boot で CurrentAccount を作っている点です。Octane はワーカーの起動時に一度だけアプリを起動し、以降のリクエストでは boot を繰り返しません。そのとき作られた CurrentAccount は起動時のコンソール用のリクエストを握ったまま、全リクエストで使い回されます。そのリクエストにはログインしたユーザーがいないので、user() は常に null です。",
+          "reading": "Now、げんいんは AppServiceProvider の boot で CurrentAccount をつくっているてんです。Octane はワーカーのきどうじにいちどだけアプリをきどうし、いこうのリクエストでは boot をくりかえしません。そのときつくられた CurrentAccount はきどうじのコンソールようのリクエストをにぎったまま、ぜんリクエストでつかいまわされます。そのリクエストにはログインしたユーザーがいないので、user() はつねに null です。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function register(): void\n{\n    $this->app->scoped(CurrentAccount::class, function (Application $app) {\n        return new CurrentAccount($app['request']);\n    });\n}\n\npublic function boot(): void\n{\n    View::composer('layouts.app', function ($view) {\n        $view->with('account', app(CurrentAccount::class));\n    });\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "singleton を scoped に変えると、Octane が新しいリクエストを受けるたびにインスタンスが捨てられます。View::share も起動時に一度しか走らないので、ビューコンポーザに移して描画のたびに取り出します。これでリクエストをまたいで状態が残らないことを保証します。",
+          "reading": "singleton を scoped にかえると、Octane があたらしいリクエストをうけるたびにインスタンスがすてられます。View::share もきどうじにいちどしかはしらないので、ビューコンポーザにうつしてびょうがのたびにとりだします。これでリクエストをまたいでじょうたいがのこらないことをほしょうします。"
+        }
+      ]
+    },
+    {
+      "user": "ゲストは直った。けど今度は「他の人のプラン名が出てる」って問い合わせ来た…Free の人に Pro って出てるらしい。まずいやつ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません、見落としていました。CurrentAccount の $plan は static プロパティです。static はコンテナではなくワーカーのプロセスに属するので、scoped にしても消えません。ワーカーが最初に処理したユーザーのプランが、そのワーカーが終わるまで全員に返ります。先ほどの修正でゲスト表示が直ったことで、この問題が表に出てきました。インスタンスのプロパティに変えます。",
+          "reading": "もうしわけありません、みおとしていました。CurrentAccount の $plan は static プロパティです。static はコンテナではなくワーカーのプロセスにぞくするので、scoped にしてもきえません。ワーカーがさいしょにしょりしたユーザーのプランが、そのワーカーがおわるまでぜんいんにかえります。さきほどのしゅうせいでゲストひょうじがなおったことで、このもんだいがおもてにでてきました。インスタンスのプロパティにかえます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/private static ?Plan \\$plan/private ?Plan $plan/' -e 's/self::\\$plan/$this->plan/' app/Support/CurrentAccount.php"
+        },
+        {
+          "kind": "text",
+          "body": "CurrentAccount はもう scoped なので、インスタンスに持たせたキャッシュはリクエストの終わりに一緒に捨てられます。言い換えると、1 回のリクエストの中なら plan() を何度呼んでも問い合わせは 1 回です。",
+          "reading": "CurrentAccount はもう scoped なので、インスタンスにもたせたキャッシュはリクエストのおわりにいっしょにすてられます。いいかえると、1 かいのリクエストのなかなら plan() をなんどよんでもといあわせは 1 かいです。"
+        }
+      ]
+    },
+    {
+      "user": "こわ。他にも static で何か持ってるとこあるかもだから洗い出したい。あとデプロイ後ってなんかいる？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。app 以下で static なプロパティや変数を宣言している行を grep で拾います。static なメソッドは状態を持たないので対象外です。見つかった値がユーザーやリクエストごとに変わるものなら、scoped なサービスに移すことをお勧めします。デプロイ後は octane:reload でワーカーを入れ替えないと、古いコードを読み込んだワーカーが動き続けます。",
+          "reading": "しょうちしました。app いかで static なプロパティやへんすうをせんげんしているぎょうを grep でひろいます。static なメソッドはじょうたいをもたないのでたいしょうがいです。みつかったあたいがユーザーやリクエストごとにかわるものなら、scoped なサービスにうつすことをおすすめします。デプロイごは octane:reload でワーカーをいれかえないと、ふるいコードをよみこんだワーカーがうごきつづけます。"
+        },
+        {
+          "kind": "command",
+          "body": "grep -rnE 'static (\\??[A-Za-z]+ )?\\$' app/"
+        },
+        {
+          "kind": "command",
+          "body": "php artisan octane:reload"
+        }
+      ]
+    }
+  ]
+}

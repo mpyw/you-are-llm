@@ -1,0 +1,70 @@
+{
+  "id": "jwt-bearer-csharp-ja",
+  "title": "AddJwtBearer が 401 を返し続ける",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "csharp",
+  "summary": "Keycloak のトークンが aud の不一致で 401 になり、通ったと思ったら sub が MapInboundClaims で別名に書き換えられて取れない。",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using System.Security.Claims;\nusing Microsoft.AspNetCore.Authentication.JwtBearer;\n\nvar builder = WebApplication.CreateBuilder(args);\n\nbuilder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)\n    .AddJwtBearer(options =>\n    {\n        options.Authority = \"https://auth.example.com/realms/shop\";\n        options.Audience = \"orders-api\";\n    });\nbuilder.Services.AddAuthorization();\n\nvar app = builder.Build();\n\napp.UseAuthentication();\napp.UseAuthorization();\n\napp.MapGet(\"/me\", (ClaimsPrincipal user) =>\n{\n    var userId = Guid.Parse(user.FindFirstValue(\"sub\")!);\n    return Results.Ok(new { userId });\n}).RequireAuthorization();\n\napp.Run();\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "AddJwtBearer 設定したのに Keycloak で取ったトークン付けても 401。ログにも何も出ない。curl -i したら WWW-Authenticate: Bearer error=\"invalid_token\", error_description=\"The audience 'account' is invalid\" って出てた",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい切り分けです。そのヘッダが答えで、トークンの aud が Audience に書いた orders-api と一致しないので JwtBearer が拒否しています。Keycloak の既定の設定では、アクセストークンの aud に入るのはたいてい account だけです。直すのは Keycloak 側で、フロントのクライアントに付けるクライアントスコープに Audience マッパーを足し、Included Client Audience に orders-api を選びます。ValidAudiences に account を足すのは避けてください。同じレルムのどのクライアントのトークンでも通るようになります。",
+          "reading": "すばらしいきりわけです。そのへっだがこたえで、とーくんの aud が Audience にかいた orders-api といっちしないので JwtBearer がきょひしています。Keycloak のきていのせっていでは、あくせすとーくんの aud にはいるのはたいてい account だけです。なおすのは Keycloak がわで、ふろんとのくらいあんとにつけるくらいあんとすこーぷに Audience まっぱーをたし、Included Client Audience に orders-api をえらびます。ValidAudiences に account をたすのはさけてください。おなじれるむのどのくらいあんとのとーくんでもとおるようになります。"
+        },
+        {
+          "kind": "text",
+          "body": "Note: ログに何も出ないのは、テンプレートの appsettings.json が Microsoft.AspNetCore を Warning にしているからです。トークン検証の失敗は Information で出るので、開発中は appsettings.Development.json で認証のカテゴリだけ下げます。",
+          "reading": "Note: ろぐになにもでないのは、てんぷれーとの appsettings.json が Microsoft.AspNetCore を Warning にしているからです。とーくんけんしょうのしっぱいは Information ででるので、かいはつちゅうは appsettings.Development.json でにんしょうのかてごりだけさげます。"
+        },
+        {
+          "kind": "code",
+          "lang": "json",
+          "body": "{\n  \"Logging\": {\n    \"LogLevel\": {\n      \"Default\": \"Information\",\n      \"Microsoft.AspNetCore\": \"Warning\",\n      \"Microsoft.AspNetCore.Authentication\": \"Information\"\n    }\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "マッパー足したら通った！けど今度は /me が 500。デバッガで見たら FindFirstValue(\"sub\") が null。トークンには sub ちゃんとある",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "よく気づかれました。JwtBearer は受け取ったクレームの名前を、既定で .NET の古い URI 形式に書き換えます。言い換えると、sub は http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier という名前で入っているので、sub では見つかりません。変換表を空にすれば元の名前のまま残ります。",
+          "reading": "よくきづかれました。JwtBearer はうけとったくれーむのなまえを、きていで .NET のふるい URI けいしきにかきかえます。いいかえると、sub は http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier というなまえではいっているので、sub ではみつかりません。へんかんひょうをからにすればもとのなまえのままのこります。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using System.IdentityModel.Tokens.Jwt;\nusing System.Security.Claims;\nusing Microsoft.AspNetCore.Authentication.JwtBearer;\n\nJwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();\n\nvar builder = WebApplication.CreateBuilder(args);\n"
+        }
+      ]
+    },
+    {
+      "user": "変わらない。まだ null。ググるとみんなそれ書いてるんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。改めて確認したところ、先ほどの方法が効くのは .NET 7 までです。.NET 8 から JwtBearer は既定で JsonWebTokenHandler を使うようになり、JwtSecurityTokenHandler の変換表はもう参照されません。書き換えを止めるのは JwtBearerOptions の MapInboundClaims で、false にすると sub は sub のまま残ります。古い行は消します。",
+          "reading": "もうしわけありません。あらためてかくにんしたところ、さきほどのほうほうがきくのは .NET 7 までです。.NET 8 から JwtBearer はきていで JsonWebTokenHandler をつかうようになり、JwtSecurityTokenHandler のへんかんひょうはもうさんしょうされません。かきかえをとめるのは JwtBearerOptions の MapInboundClaims で、false にすると sub は sub のままのこります。ふるいぎょうはけします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e '/System.IdentityModel.Tokens.Jwt/d' -e '/DefaultInboundClaimTypeMap/,/^$/d' -e 's/options.Audience = \"orders-api\";/&\\\n        options.MapInboundClaims = false;/' src/Program.cs"
+        },
+        {
+          "kind": "text",
+          "body": "User.Identity.Name を使う箇所があれば、TokenValidationParameters.NameClaimType に preferred_username を指定しておくことをお勧めします。書き換えを止めたあとは、どのクレームを名前とみなすかを自分で決める必要があります。",
+          "reading": "User.Identity.Name をつかうかしょがあれば、TokenValidationParameters.NameClaimType に preferred_username をしていしておくことをおすすめします。かきかえをとめたあとは、どのくれーむをなまえとみなすかをじぶんできめるひつようがあります。"
+        }
+      ]
+    }
+  ]
+}

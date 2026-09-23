@@ -1,0 +1,70 @@
+{
+  "id": "libevent-bufferevent-c-en",
+  "title": "Read one line at a time from a libevent bufferevent",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "c",
+  "summary": "Swap chunk-by-chunk bufferevent_read for evbuffer_readln, and close the socket when the connection goes away.",
+  "files": [
+    {
+      "path": "src/net/server.c",
+      "content": "#include <stdlib.h>\n#include <string.h>\n#include <event2/buffer.h>\n#include <event2/bufferevent.h>\n#include <event2/listener.h>\n\nvoid handle_line(const char *line, size_t len);\n\nstatic void on_read(struct bufferevent *bev, void *ctx) {\n  char buf[512];\n  size_t n;\n  while ((n = bufferevent_read(bev, buf, sizeof(buf) - 1)) > 0) {\n    buf[n] = '\\0';\n    char *save = NULL;\n    for (char *line = strtok_r(buf, \"\\r\\n\", &save); line != NULL; line = strtok_r(NULL, \"\\r\\n\", &save)) {\n      handle_line(line, strlen(line));\n    }\n  }\n}\n\nstatic void on_event(struct bufferevent *bev, short events, void *ctx) {\n  if (events & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {\n    bufferevent_free(bev);\n  }\n}\n\nvoid on_accept(struct evconnlistener *listener, evutil_socket_t fd, struct sockaddr *addr, int socklen, void *ctx) {\n  struct event_base *base = evconnlistener_get_base(listener);\n  struct bufferevent *bev = bufferevent_socket_new(base, fd, 0);\n  bufferevent_setcb(bev, on_read, NULL, on_event, NULL);\n  bufferevent_enable(bev, EV_READ);\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "on_read is supposed to handle one command per line but sometimes a GET gets split into GE and T foo. only under load",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch! TCP is a stream of bytes with no idea where a line ends. bufferevent_read hands back whatever the input buffer holds at that moment, so a chunk boundary can land in the middle of a line. To read by line, take the evbuffer from bufferevent_get_input and pull lines out with evbuffer_readln. If no line ending has arrived yet it returns NULL, and the partial line stays in the buffer for the next callback. The line ending is EVBUFFER_EOL_CRLF_STRICT, which accepts both CRLF and a bare LF. Each line comes back malloc'd, so it is freed after use."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "static void on_read(struct bufferevent *bev, void *ctx) {\n  struct evbuffer *input = bufferevent_get_input(bev);\n  char *line;\n  size_t len;\n  while ((line = evbuffer_readln(input, &len, EVBUFFER_EOL_CRLF_STRICT)) != NULL) {\n    handle_line(line, len);\n    free(line);\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "typing into nc does nothing at all. telnet works",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. EVBUFFER_EOL_CRLF_STRICT accepts CRLF only. nc sends a bare LF on Enter, so no line ending was ever found. telnet sends CRLF, which is why it worked. The one that also takes a bare LF is EVBUFFER_EOL_CRLF."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/EVBUFFER_EOL_CRLF_STRICT/EVBUFFER_EOL_CRLF/' src/net/server.c"
+        }
+      ]
+    },
+    {
+      "user": "works. but after a day accept dies with Too many open files. im freeing on disconnect, pretty sure",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "bufferevent_free frees the bufferevent and nothing else. It does not close the socket. To have it closed as well, pass BEV_OPT_CLOSE_ON_FREE when creating it. The options are 0 right now, so every disconnect left one fd behind."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/bufferevent_socket_new(base, fd, 0)/bufferevent_socket_new(base, fd, BEV_OPT_CLOSE_ON_FREE)/' src/net/server.c"
+        }
+      ]
+    },
+    {
+      "user": "also what if someone just streams forever without a newline, cant they eat all the memory?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Exactly right. Until a line ending arrives, evbuffer_readln takes nothing out, so the input buffer grows without bound. After handling every complete line, check what is left with evbuffer_get_length and drop the connection past a limit. Note: libevent holds a reference to the bufferevent for the length of the callback, so calling bufferevent_free in here only frees it after the callback returns. With CLOSE_ON_FREE set, the socket closes along with it."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#define MAX_LINE 8192\n\nstatic void on_read(struct bufferevent *bev, void *ctx) {\n  struct evbuffer *input = bufferevent_get_input(bev);\n  char *line;\n  size_t len;\n  while ((line = evbuffer_readln(input, &len, EVBUFFER_EOL_CRLF)) != NULL) {\n    handle_line(line, len);\n    free(line);\n  }\n  if (evbuffer_get_length(input) > MAX_LINE) {\n    bufferevent_free(bev);\n  }\n}\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "id": "endpoint-filter-csharp-en",
+  "title": "Move the tenant check into an IEndpointFilter",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "csharp",
+  "summary": "The same tenant check is pasted at the top of every handler. Move it into an IEndpointFilter on a route group, then take the health check back out of that group.",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using Acme.Projects;\nusing Acme.Tenants;\nusing Microsoft.AspNetCore.Mvc;\n\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddScoped<ITenantDirectory, SqlTenantDirectory>();\nbuilder.Services.AddScoped<IProjectStore, SqlProjectStore>();\n\nvar app = builder.Build();\n\napp.MapGet(\"/healthz\", () => Results.Ok());\n\napp.MapGet(\"/projects\", async (\n    [FromHeader(Name = \"X-Tenant-Id\")] string tenant, ITenantDirectory tenants, IProjectStore store) =>\n{\n    if (!await tenants.IsActiveAsync(tenant))\n    {\n        return Results.StatusCode(StatusCodes.Status403Forbidden);\n    }\n    return Results.Ok(await store.ListAsync(tenant));\n});\n\napp.MapPost(\"/projects\", async (\n    [FromHeader(Name = \"X-Tenant-Id\")] string tenant, CreateProject body, ITenantDirectory tenants, IProjectStore store) =>\n{\n    if (!await tenants.IsActiveAsync(tenant))\n    {\n        return Results.StatusCode(StatusCodes.Status403Forbidden);\n    }\n    var id = await store.CreateAsync(tenant, body);\n    return Results.Created($\"/projects/{id}\", new { id });\n});\n\napp.MapDelete(\"/projects/{id:int}\", async (\n    int id, [FromHeader(Name = \"X-Tenant-Id\")] string tenant, ITenantDirectory tenants, IProjectStore store) =>\n{\n    if (!await tenants.IsActiveAsync(tenant))\n    {\n        return Results.StatusCode(StatusCodes.Status403Forbidden);\n    }\n    await store.DeleteAsync(tenant, id);\n    return Results.NoContent();\n});\n\napp.Run();\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "IsActiveAsync check is copy pasted into every handler. someone will forget it on the next endpoint. fix",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great idea. IEndpointFilter, added in .NET 7, runs before the handler, and AddEndpointFilter on a route group applies it to every endpoint in the group. The filter is created per request from RequestServices, so the scoped ITenantDirectory can come in through the constructor. Here's the filter and the new Program.cs."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "namespace Acme.Tenants;\n\npublic sealed class ActiveTenantFilter(ITenantDirectory tenants) : IEndpointFilter\n{\n    public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)\n    {\n        var tenant = context.HttpContext.Request.Headers[\"X-Tenant-Id\"].ToString();\n        if (!await tenants.IsActiveAsync(tenant))\n        {\n            return Results.StatusCode(StatusCodes.Status403Forbidden);\n        }\n        return await next(context);\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using Acme.Projects;\nusing Acme.Tenants;\nusing Microsoft.AspNetCore.Mvc;\n\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddScoped<ITenantDirectory, SqlTenantDirectory>();\nbuilder.Services.AddScoped<IProjectStore, SqlProjectStore>();\n\nvar app = builder.Build();\n\nvar api = app.MapGroup(\"\").AddEndpointFilter<ActiveTenantFilter>();\n\napi.MapGet(\"/healthz\", () => Results.Ok());\n\napi.MapGet(\"/projects\", async ([FromHeader(Name = \"X-Tenant-Id\")] string tenant, IProjectStore store) =>\n    Results.Ok(await store.ListAsync(tenant)));\n\napi.MapPost(\"/projects\", async ([FromHeader(Name = \"X-Tenant-Id\")] string tenant, CreateProject body, IProjectStore store) =>\n{\n    var id = await store.CreateAsync(tenant, body);\n    return Results.Created($\"/projects/{id}\", new { id });\n});\n\napi.MapDelete(\"/projects/{id:int}\", async (int id, [FromHeader(Name = \"X-Tenant-Id\")] string tenant, IProjectStore store) =>\n{\n    await store.DeleteAsync(tenant, id);\n    return Results.NoContent();\n});\n\napp.Run();\n"
+        }
+      ]
+    },
+    {
+      "user": "deployed, k8s liveness probe fails and pods are restart looping. healthz returns 403",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, that was my mistake. I put /healthz in the MapGroup(\"\") group too, so the probe, which sends no tenant header, gets rejected by the filter. Mapping the health check on app directly keeps it outside the group filter."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's|^api.MapGet(\"/healthz\"|app.MapGet(\"/healthz\"|' src/Program.cs"
+        }
+      ]
+    },
+    {
+      "user": "also inactive tenants should get 404 not 403. apparently we shouldnt reveal whether a tenant exists",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Perfect, that is now a one line change. The check lives in the filter alone, so every endpoint in the group picks it up."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/Results.StatusCode(StatusCodes.Status403Forbidden)/Results.NotFound()/' src/Tenants/ActiveTenantFilter.cs"
+        }
+      ]
+    }
+  ]
+}

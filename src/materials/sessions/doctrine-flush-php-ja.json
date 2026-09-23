@@ -1,0 +1,64 @@
+{
+  "id": "doctrine-flush-php-ja",
+  "title": "大量インポートを flush と clear で区切る",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "php",
+  "summary": "1 行ずつ flush する CSV 取り込みを一定件数ごとの flush() と clear() に変え、clear() で detached になった Category を掴んだまま落ちる。",
+  "files": [
+    {
+      "path": "src/Command/ImportProductsCommand.php",
+      "content": "<?php\n\nnamespace App\\Command;\n\nuse App\\Entity\\Product;\nuse App\\Repository\\CategoryRepository;\nuse Doctrine\\ORM\\EntityManagerInterface;\nuse Symfony\\Component\\Console\\Attribute\\AsCommand;\nuse Symfony\\Component\\Console\\Command\\Command;\nuse Symfony\\Component\\Console\\Input\\InputArgument;\nuse Symfony\\Component\\Console\\Input\\InputInterface;\nuse Symfony\\Component\\Console\\Output\\OutputInterface;\n\n#[AsCommand(name: 'app:import-products')]\nclass ImportProductsCommand extends Command\n{\n    public function __construct(\n        private readonly EntityManagerInterface $em,\n        private readonly CategoryRepository $categories,\n    ) {\n        parent::__construct();\n    }\n\n    protected function configure(): void\n    {\n        $this->addArgument('file', InputArgument::REQUIRED);\n    }\n\n    protected function execute(InputInterface $input, OutputInterface $output): int\n    {\n        $category = $this->categories->findOneBy(['name' => 'imported'])\n            ?? throw new \\RuntimeException('Category \"imported\" does not exist.');\n\n        $handle = fopen($input->getArgument('file'), 'r');\n        fgetcsv($handle, escape: '');\n\n        while (($row = fgetcsv($handle, escape: '')) !== false) {\n            [$sku, $name, $price] = $row;\n            $this->em->persist(new Product($sku, $name, (int) $price, $category));\n            $this->em->flush();\n        }\n\n        fclose($handle);\n\n        return Command::SUCCESS;\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "商品 CSV の取り込みコマンドが遅すぎる。10 万行で 1 時間近い。前に flush をループの外に出したら Allowed memory size で落ちたので、今は 1 行ずつ flush してる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。1 行ごとの flush は毎回トランザクションを張ってコミットするうえ、UnitOfWork がそれまでに persist した全エンティティを抱えたままなので、flush のたびに変更の計算対象が増えていきます。逆にループの外で 1 回だけ flush すると、10 万件ぶんのエンティティがメモリに残ります。一定件数ごとに flush() して clear() で UnitOfWork を空にするのがベストプラクティスです。",
+          "reading": "しょうちしました。1 ぎょうごとの flush はまいかいトランザクションをはってコミットするうえ、UnitOfWork がそれまでに persist したぜんエンティティをかかえたままなので、flush のたびにへんこうのけいさんたいしょうがふえていきます。ぎゃくにループのそとで 1 かいだけ flush すると、10 まんけんぶんのエンティティがメモリにのこります。いっていけんすうごとに flush() して clear() で UnitOfWork をからにするのがベストプラクティスです。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "$batchSize = 500;\n$count = 0;\n\nwhile (($row = fgetcsv($handle, escape: '')) !== false) {\n    [$sku, $name, $price] = $row;\n    $this->em->persist(new Product($sku, $name, (int) $price, $category));\n\n    if (++$count % $batchSize === 0) {\n        $this->em->flush();\n        $this->em->clear();\n        $output->writeln(sprintf('%d rows', $count));\n    }\n}\n\n$this->em->flush();\n$this->em->clear();\nfclose($handle);\n"
+        }
+      ]
+    },
+    {
+      "user": "501 件目で落ちた。A new entity was found through the relationship 'App\\Entity\\Product#category' that was not configured to cascade persist operations for entity: App\\Entity\\Category@327. 最初の 500 件は入ってる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "重要な訂正があります。clear() は UnitOfWork が管理しているエンティティをすべて切り離すので、ループの前に取得した $category も detached になります。Doctrine は管理外の Category を新しいエンティティとみなし、cascade persist が付いていないのでエラーにしています。ID だけを持っておき、行ごとに getReference() で取り直すことで、常に管理下の参照を渡すことを保証します。同じ ID ならバッチの中では同じインスタンスが返り、SELECT も発行されません。flush ごとにコミットされているので、再実行の前に入った 500 件を消してください。",
+          "reading": "じゅうようなていせいがあります。clear() は UnitOfWork がかんりしているエンティティをすべてきりはなすので、ループのまえにしゅとくした $category も detached になります。Doctrine はかんりがいの Category をあたらしいエンティティとみなし、cascade persist がついていないのでエラーにしています。ID だけをもっておき、ぎょうごとに getReference() でとりなおすことで、つねにかんりかのさんしょうをわたすことをほしょうします。おなじ ID ならバッチのなかではおなじインスタンスがかえり、SELECT もはっこうされません。flush ごとにコミットされているので、さいじっこうのまえにはいった 500 けんをけしてください。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use App\\Entity\\Category;\n\n$categoryId = $this->categories->findOneBy(['name' => 'imported'])?->getId()\n    ?? throw new \\RuntimeException('Category \"imported\" does not exist.');\n\n// ...\n\nwhile (($row = fgetcsv($handle, escape: '')) !== false) {\n    [$sku, $name, $price] = $row;\n    $category = $this->em->getReference(Category::class, $categoryId);\n    $this->em->persist(new Product($sku, $name, (int) $price, $category));\n"
+        }
+      ]
+    },
+    {
+      "user": "通った。けど今度は 15000 件くらいで Allowed memory size of 134217728 bytes exhausted。clear してるのに。あと 500 は細かすぎる気がするので 1000 にして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。dev 環境では kernel.debug が有効なので、DoctrineBundle がプロファイラ用に実行した SQL をバックトレースごと記録し続けます。これは UnitOfWork の外にあるため、clear() では解放されません。大量の取り込みは --no-debug を付けるか APP_ENV=prod で実行することをお勧めします。それならメモリ使用量はバッチをまたいでも横ばいになります。",
+          "reading": "するどいごしてきです。dev かんきょうでは kernel.debug がゆうこうなので、DoctrineBundle がプロファイラようにじっこうした SQL をバックトレースごときろくしつづけます。これは UnitOfWork のそとにあるため、clear() ではかいほうされません。たいりょうのとりこみは --no-debug をつけるか APP_ENV=prod でじっこうすることをおすすめします。それならメモリしようりょうはバッチをまたいでもよこばいになります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/\\$batchSize = 500;/$batchSize = 1000;/' src/Command/ImportProductsCommand.php"
+        },
+        {
+          "kind": "command",
+          "body": "php bin/console app:import-products var/products.csv --no-debug"
+        }
+      ]
+    }
+  ]
+}

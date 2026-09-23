@@ -1,0 +1,56 @@
+{
+  "id": "config-layers-rust-en",
+  "title": "Override config files with env vars in the config crate",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "rust",
+  "summary": "An Environment source with no separator never overrides nested keys, and separator(\"__\") quietly changes the prefix separator too. Fix it with prefix_separator and try_deserialize.",
+  "files": [
+    {
+      "path": "src/settings.rs",
+      "content": "use anyhow::Result;\nuse config::{Config, Environment, File};\n\npub struct Settings {\n    pub port: u16,\n    pub database_url: String,\n    pub max_connections: u32,\n}\n\npub fn load() -> Result<Settings> {\n    let config = Config::builder()\n        .add_source(File::with_name(\"config/default\"))\n        .add_source(Environment::with_prefix(\"APP\"))\n        .build()?;\n    Ok(Settings {\n        port: config.get_int(\"port\")? as u16,\n        database_url: config.get_string(\"database.url\")?,\n        max_connections: config.get_int(\"database.max_connections\")? as u32,\n    })\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "prod has APP_DATABASE_URL set and it still connects to localhost from default.toml. also the get_int pile is ugly, make it a struct",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: the Environment source has no separator. Without one, APP_DATABASE_URL becomes a flat key called database_url, which just sits next to database.url from the file instead of replacing it. With separator(\"__\"), APP_DATABASE__URL lands on database.url. A single _ would not work, because it would also split max_connections into max.connections. try_deserialize then pulls everything into Settings. Env values arrive as strings, and the conversion to u16 and u32 happens during deserialize."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use anyhow::Result;\nuse config::{Config, Environment, File};\nuse serde::Deserialize;\n\n#[derive(Debug, Deserialize)]\npub struct Database {\n    pub url: String,\n    pub max_connections: u32,\n}\n\n#[derive(Debug, Deserialize)]\npub struct Settings {\n    pub port: u16,\n    pub database: Database,\n}\n\npub fn load() -> Result<Settings> {\n    let settings = Config::builder()\n        .add_source(File::with_name(\"config/default\"))\n        .add_source(Environment::with_prefix(\"APP\").separator(\"__\"))\n        .build()?\n        .try_deserialize()?;\n    Ok(settings)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "changed it to APP_DATABASE__URL, still localhost. and now APP_PORT stopped working too??",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. When prefix_separator is not set, Environment reuses the separator after the prefix as well. So right now it only picks up APP__DATABASE__URL and APP__PORT. Adding prefix_separator(\"_\") puts a single _ back after the prefix, and APP_PORT and APP_DATABASE__URL both work."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/Environment::with_prefix(\"APP\").separator(\"__\")/Environment::with_prefix(\"APP\").prefix_separator(\"_\").separator(\"__\")/' src/settings.rs"
+        }
+      ]
+    },
+    {
+      "user": "oh and i want a config/local.toml for my machine only. its gitignored so it wont exist everywhere",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the extra layer, right after default. required(false) lets build succeed when the file is missing. Sources win in the order they are added, so local beats default and loses to the environment. Secrets such as passwords still belong in env vars, not in local."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/File::with_name(\"config\\/default\")/a\\\n        .add_source(File::with_name(\"config/local\").required(false))\n' src/settings.rs"
+        }
+      ]
+    }
+  ]
+}

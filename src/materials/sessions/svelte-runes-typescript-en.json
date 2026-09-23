@@ -1,0 +1,49 @@
+{
+  "id": "svelte-runes-typescript-en",
+  "title": "Move a Svelte 4 cart to runes",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "typescript",
+  "summary": "Replace let and $: in a Svelte 4 component with Svelte 5 $state and $derived, and see why push never reached the screen before.",
+  "files": [
+    {
+      "path": "src/lib/Cart.svelte",
+      "content": "<script lang=\"ts\">\n  type Item = { name: string; price: number; qty: number }\n\n  let items: Item[] = [\n    { name: 'Coffee', price: 480, qty: 1 },\n    { name: 'Bagel', price: 320, qty: 2 },\n  ]\n\n  $: total = items.reduce((sum, item) => sum + item.price * item.qty, 0)\n  $: freeShipping = total >= 3000\n\n  function add(index: number) {\n    items[index].qty += 1\n  }\n</script>\n\n<ul>\n  {#each items as item, index}\n    <li>\n      {item.name} x {item.qty}\n      <button on:click={() => add(index)}>+</button>\n    </li>\n  {/each}\n</ul>\n<p>Total: {total}</p>\n{#if freeShipping}<p>Free shipping</p>{/if}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "upgraded to svelte 5, want this cart in runes. $: is the old way now right",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! In Svelte 4 a top level let was reactive on its own, and the compiler read the dependencies of each $: line to know when to run it again. Svelte 5 runes make both explicit: state is $state, and a value computed from it is $derived. Note: $: is a compile error in runes mode, so one component cannot mix the two. on:click becomes the onclick attribute as well."
+        },
+        {
+          "kind": "code",
+          "lang": "svelte",
+          "body": "<script lang=\"ts\">\n  type Item = { name: string; price: number; qty: number }\n\n  let items = $state<Item[]>([\n    { name: 'Coffee', price: 480, qty: 1 },\n    { name: 'Bagel', price: 320, qty: 2 },\n  ])\n\n  const total = $derived(items.reduce((sum, item) => sum + item.price * item.qty, 0))\n  const freeShipping = $derived(total >= 3000)\n\n  function add(index: number) {\n    items[index].qty += 1\n  }\n</script>\n\n<ul>\n  {#each items as item, index}\n    <li>\n      {item.name} x {item.qty}\n      <button onclick={() => add(index)}>+</button>\n    </li>\n  {/each}\n</ul>\n<p>Total: {total}</p>\n{#if freeShipping}<p>Free shipping</p>{/if}\n"
+        }
+      ]
+    },
+    {
+      "user": "add an add-item button too. last time i did push the screen didnt change and i had to do items = [...items, x]",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great point. That was Svelte 4 behaviour: only an assignment was reactive, and push changes the array without assigning it. Svelte 5 wraps $state arrays in a deep proxy, so push shows up as it is, and total and freeShipping follow because they are $derived. In other words, the spread trick is no longer needed."
+        },
+        {
+          "kind": "code",
+          "lang": "ts",
+          "body": "function addItem(name: string, price: number) {\n  items.push({ name, price, qty: 1 })\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "svelte",
+          "body": "<button onclick={() => addItem('Muffin', 380)}>Add muffin</button>\n"
+        }
+      ]
+    }
+  ]
+}

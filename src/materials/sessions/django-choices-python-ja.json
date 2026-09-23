@@ -1,0 +1,58 @@
+{
+  "id": "django-choices-python-ja",
+  "title": "Django の状態文字列を TextChoices にまとめる",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "python",
+  "summary": "綴りが揺れた status を models.TextChoices と choices= で一か所に定義し、表示名は get_status_display() で返す。",
+  "files": [
+    {
+      "path": "orders/models.py",
+      "content": "from django.db import models\n\n\nclass Order(models.Model):\n    status = models.CharField(max_length=20, default=\"pending\")\n    total = models.PositiveIntegerField()\n    created_at = models.DateTimeField(auto_now_add=True)\n"
+    },
+    {
+      "path": "orders/views.py",
+      "content": "from django.http import JsonResponse\n\nfrom .models import Order\n\n\ndef order_summary(request):\n    recent = Order.objects.order_by(\"-created_at\")[:20]\n    return JsonResponse(\n        {\n            \"cancelled\": Order.objects.filter(status=\"canceled\").count(),\n            \"recent\": [{\"id\": o.id, \"status\": o.status} for o in recent],\n        }\n    )\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "注文の status 文字列で持ってるんだけど、canceled と cancelled が両方 DB に入ってて集計合わなかった。どうするのがいい？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、状態の一覧を models.TextChoices でモデルに定義し、choices= で CharField に渡します。値の綴りはこのクラスが唯一の情報源になり、コードからは Order.Status.CANCELLED で参照するので、綴りを間違えれば AttributeError で気づけます。ただし choices は save() では検証されず、フォームや full_clean() で弾かれるだけという点に注意することが重要です。既に入っている canceled は update で揃えます。",
+          "reading": "けつろんからいうと、じょうたいのいちらんを models.TextChoices でもでるにていぎし、choices= で CharField にわたします。あたいのつづりはこのくらすがゆいいつのじょうほうげんになり、こーどからは Order.Status.CANCELLED でさんしょうするので、つづりをまちがえれば AttributeError できづけます。ただし choices は save() ではけんしょうされず、ふぉーむや full_clean() ではじかれるだけというてんにちゅういすることがじゅうようです。すでにはいっている canceled は update でそろえます。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from django.db import models\n\n\nclass Order(models.Model):\n    class Status(models.TextChoices):\n        PENDING = \"pending\", \"Pending\"\n        PAID = \"paid\", \"Paid\"\n        SHIPPED = \"shipped\", \"Shipped\"\n        CANCELLED = \"cancelled\", \"Cancelled\"\n\n    status = models.CharField(\n        max_length=20,\n        choices=Status,\n        default=Status.PENDING,\n    )\n    total = models.PositiveIntegerField()\n    created_at = models.DateTimeField(auto_now_add=True)\n"
+        },
+        {
+          "kind": "command",
+          "body": "python manage.py makemigrations orders"
+        },
+        {
+          "kind": "command",
+          "body": "python manage.py shell -c \"from orders.models import Order; Order.objects.filter(status='canceled').update(status=Order.Status.CANCELLED)\""
+        }
+      ]
+    },
+    {
+      "user": "migrate した。ついでに API で status の表示名も返して。フロントで変換表持ってるのやめたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。choices を持つフィールドには、Django が get_status_display() を自動で生やします。保存された値に対応するラベルを返すので、変換表はモデルの 1 か所だけになります。集計の filter も文字列をやめて Order.Status.CANCELLED にします。",
+          "reading": "しょうちしました。choices をもつふぃーるどには、Django が get_status_display() をじどうではやします。ほぞんされたあたいにたいおうするらべるをかえすので、へんかんひょうはもでるの 1 かしょだけになります。しゅうけいの filter ももじれつをやめて Order.Status.CANCELLED にします。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from django.http import JsonResponse\n\nfrom .models import Order\n\n\ndef order_summary(request):\n    recent = Order.objects.order_by(\"-created_at\")[:20]\n    return JsonResponse(\n        {\n            \"cancelled\": Order.objects.filter(status=Order.Status.CANCELLED).count(),\n            \"recent\": [\n                {\n                    \"id\": o.id,\n                    \"status\": o.status,\n                    \"status_label\": o.get_status_display(),\n                }\n                for o in recent\n            ],\n        }\n    )\n"
+        }
+      ]
+    }
+  ]
+}

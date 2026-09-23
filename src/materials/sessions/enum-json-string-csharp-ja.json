@@ -1,0 +1,50 @@
+{
+  "id": "enum-json-string-csharp-ja",
+  "title": "配送ステータスが数字で返ってくる",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "csharp",
+  "summary": "System.Text.Json が enum を整数で書き出していたのを JsonStringEnumConverter で名前にし、ConfigureHttpJsonOptions で全体に効かせる。",
+  "files": [
+    {
+      "path": "src/Shipments/Shipment.cs",
+      "content": "namespace Acme.Shipments;\n\npublic enum ShipmentStatus\n{\n    Pending,\n    InTransit,\n    Delivered,\n    Returned,\n}\n\npublic enum Carrier\n{\n    Yamato,\n    Sagawa,\n    JapanPost,\n}\n\npublic sealed record Shipment(int Id, string TrackingNumber, ShipmentStatus Status, Carrier Carrier);\n"
+    },
+    {
+      "path": "src/Program.cs",
+      "content": "using Acme.Shipments;\n\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddSingleton<IShipmentRepository, InMemoryShipmentRepository>();\n\nvar app = builder.Build();\n\napp.MapGet(\"/shipments/{id:int}\", async (int id, IShipmentRepository shipments) =>\n    await shipments.FindAsync(id) is { } shipment\n        ? Results.Ok(shipment)\n        : Results.NotFound());\n\napp.Run();\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "フロントの人から status: 1 って何？って聞かれた。文字列で返せない？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。System.Text.Json は既定で enum を基になる整数のまま書き出すので、InTransit が 1 になります。Status に JsonStringEnumConverter を付けると名前で出力され、読み込みでも名前を受け付けます。record の位置パラメータなので、property: を付けて属性をプロパティ側に載せます。.NET 8 から入ったジェネリック版を使うと、ネイティブ AOT でも動きます。",
+          "reading": "しょうちしました。System.Text.Json はきていで enum をもとになるせいすうのままかきだすので、InTransit が 1 になります。Status に JsonStringEnumConverter をつけるとなまえでしゅつりょくされ、よみこみでもなまえをうけつけます。record のいちぱらめーたなので、property: をつけてぞくせいをぷろぱてぃがわにのせます。.NET 8 からはいったじぇねりっくばんをつかうと、ねいてぃぶ AOT でもうごきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using System.Text.Json.Serialization;\n\nnamespace Acme.Shipments;\n\npublic sealed record Shipment(\n    int Id,\n    string TrackingNumber,\n    [property: JsonConverter(typeof(JsonStringEnumConverter<ShipmentStatus>))] ShipmentStatus Status,\n    Carrier Carrier);\n"
+        }
+      ]
+    },
+    {
+      "user": "carrier も数字だったわ。もう enum は全部文字列でいい、いちいち付けたくない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、属性を外して、Minimal API のシリアライザ設定にまとめて登録します。すべての enum に効かせるので、ここは非ジェネリック版の JsonStringEnumConverter を使います。Note: ConfigureHttpJsonOptions が効くのは Minimal API と Results だけで、コントローラを併用するなら AddControllers().AddJsonOptions にも同じ登録が要る点に注意することが重要です。",
+          "reading": "Now、ぞくせいをはずして、Minimal API のしりあらいざせっていにまとめてとうろくします。すべての enum にきかせるので、ここはひじぇねりっくばんの JsonStringEnumConverter をつかいます。Note: ConfigureHttpJsonOptions がきくのは Minimal API と Results だけで、こんとろーらをへいようするなら AddControllers().AddJsonOptions にもおなじとうろくがいるてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "// src/Program.cs\nusing System.Text.Json.Serialization;\nusing Acme.Shipments;\n\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddSingleton<IShipmentRepository, InMemoryShipmentRepository>();\nbuilder.Services.ConfigureHttpJsonOptions(options =>\n    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));\n\n// src/Shipments/Shipment.cs\npublic sealed record Shipment(int Id, string TrackingNumber, ShipmentStatus Status, Carrier Carrier);\n"
+        }
+      ]
+    }
+  ]
+}

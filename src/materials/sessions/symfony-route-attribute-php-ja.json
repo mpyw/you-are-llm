@@ -1,0 +1,54 @@
+{
+  "id": "symfony-route-attribute-php-ja",
+  "title": "YAML のルートを #[Route] に寄せる",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "routes.yaml に残ったルートを #[Route] 属性に移し、メソッド順で /products/{id} が export を飲み込むのを requirements で数字に絞って防ぐ。",
+  "files": [
+    {
+      "path": "config/routes.yaml",
+      "content": "controllers:\n    resource:\n        path: ../src/Controller/\n        namespace: App\\Controller\n    type: attribute\n\nproduct_index:\n    path: /products\n    controller: App\\Controller\\ProductController::index\n    methods: [GET]\n\nproduct_export:\n    path: /products/export\n    controller: App\\Controller\\ProductController::export\n    methods: [GET]\n\nproduct_show:\n    path: /products/{id}\n    controller: App\\Controller\\ProductController::show\n    methods: [GET]\n"
+    },
+    {
+      "path": "src/Controller/ProductController.php",
+      "content": "<?php\n\nnamespace App\\Controller;\n\nuse App\\Repository\\ProductRepository;\nuse Symfony\\Bundle\\FrameworkBundle\\Controller\\AbstractController;\nuse Symfony\\Component\\HttpFoundation\\JsonResponse;\nuse Symfony\\Component\\HttpFoundation\\Response;\n\nclass ProductController extends AbstractController\n{\n    public function index(ProductRepository $products): JsonResponse\n    {\n        return $this->json($products->findAll());\n    }\n\n    public function show(int $id, ProductRepository $products): JsonResponse\n    {\n        $product = $products->find($id) ?? throw $this->createNotFoundException();\n\n        return $this->json($product);\n    }\n\n    public function export(ProductRepository $products): Response\n    {\n        $lines = ['sku,name,price'];\n        foreach ($products->findAll() as $product) {\n            $lines[] = sprintf('%s,%s,%d', $product->getSku(), $product->getName(), $product->getPrice());\n        }\n\n        return new Response(implode(\"\\n\", $lines).\"\\n\", headers: ['Content-Type' => 'text/csv']);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "config/routes.yaml に ProductController の分だけ手書きのルートが残ってる。他のコントローラは全部 #[Route] なので揃えたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。先頭の controllers が src/Controller を属性で読み込んでいるので、各メソッドに #[Route] を付ければ routes.yaml の 3 件は削除できます。ルート名は YAML のキーと同じにするので、path() や redirectToRoute() の呼び出し側は変更不要であることを保証します。",
+          "reading": "しょうちしました。せんとうの controllers が src/Controller をぞくせいでよみこんでいるので、かくメソッドに #[Route] をつければ routes.yaml の 3 けんはさくじょできます。ルートめいは YAML のキーとおなじにするので、path() や redirectToRoute() のよびだしがわはへんこうふようであることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Symfony\\Component\\Routing\\Attribute\\Route;\n\nclass ProductController extends AbstractController\n{\n    #[Route('/products', name: 'product_index', methods: ['GET'])]\n    public function index(ProductRepository $products): JsonResponse\n    {\n        // ...\n    }\n\n    #[Route('/products/{id}', name: 'product_show', methods: ['GET'])]\n    public function show(int $id, ProductRepository $products): JsonResponse\n    {\n        // ...\n    }\n\n    #[Route('/products/export', name: 'product_export', methods: ['GET'])]\n    public function export(ProductRepository $products): Response\n    {\n        // ...\n    }\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "php bin/console debug:router --show-controllers"
+        }
+      ]
+    },
+    {
+      "user": "/products/export 開いたら 500。Argument #1 ($id) must be of type int, string given だって。メソッドの順番入れ替えて直すのはナシで、また誰か踏むから",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "失礼しました。属性のルートはクラスの中のメソッドの順に登録されるので、show の /products/{id} が export より先に評価され、文字列の export が $id に渡っています。YAML では export を先に書いていたので表に出ていなかった、という点に注意することが重要です。requirements で id を数字に絞れば、/products/export は show に一致せず次のルートへ進みます。",
+          "reading": "しつれいしました。ぞくせいのルートはクラスのなかのメソッドのじゅんにとうろくされるので、show の /products/{id} が export よりさきにひょうかされ、もじれつの export が $id にわたっています。YAML では export をさきにかいていたのでおもてにでていなかった、というてんにちゅういすることがじゅうようです。requirements で id をすうじにしぼれば、/products/export は show にいっちせずつぎのルートへすすみます。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "#[Route('/products/{id}', name: 'product_show', requirements: ['id' => '\\d+'], methods: ['GET'])]\npublic function show(int $id, ProductRepository $products): JsonResponse\n"
+        }
+      ]
+    }
+  ]
+}

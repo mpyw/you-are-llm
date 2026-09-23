@@ -1,0 +1,77 @@
+{
+  "id": "golang-migrate-go-en",
+  "title": "golang-migrate stuck on Dirty database version 3",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "go",
+  "summary": "A migration that fails halfway leaves the version dirty. force runs no SQL and only rewrites the version, so give it the version the database is really at. Write down as up in reverse.",
+  "files": [
+    {
+      "path": "internal/db/migrate.go",
+      "content": "package db\n\nimport (\n  \"errors\"\n\n  \"github.com/golang-migrate/migrate/v4\"\n  _ \"github.com/golang-migrate/migrate/v4/database/postgres\"\n  _ \"github.com/golang-migrate/migrate/v4/source/file\"\n)\n\nfunc Migrate(dsn string) error {\n  m, err := migrate.New(\"file://migrations\", dsn)\n  if err != nil {\n    return err\n  }\n  defer m.Close()\n  if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {\n    return err\n  }\n  return nil\n}\n"
+    },
+    {
+      "path": "migrations/000003_add_users_email.up.sql",
+      "content": "ALTER TABLE users ADD COLUMN email text;\nUPDATE users SET email = lower(contact_email);\nCREATE UNIQUE INDEX users_email_key ON users (email);\n"
+    },
+    {
+      "path": "migrations/000003_add_users_email.down.sql",
+      "content": "DROP INDEX users_email_key;\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "api wont start after deploy. log says Dirty database version 3. Fix and force version. the deploy before that died creating the users_email_key unique index, something duplicated",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's go through it step by step. Before running any SQL, golang-migrate writes version 3 with dirty = true to schema_migrations, and clears dirty once the file succeeds. Version 3 failed partway, so dirty stayed set, and every Up since stops with ErrDirty. It is a safety net so nothing gets stacked on top of a broken state. The duplicates are contact_email values that differ only in case, so clean those first. Then force 3 clears dirty and migrations run again."
+        },
+        {
+          "kind": "command",
+          "body": "migrate -path migrations -database \"$DATABASE_URL\" force 3"
+        }
+      ]
+    },
+    {
+      "user": "deleted the dupes, did force 3 and up, it says no change. app starts but users has no email column",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. force runs no SQL at all. It only rewrites the version in schema_migrations and clears dirty. Saying 3 declared that 3 was already applied, so Up had nothing left to do. The postgres driver sends the whole file in a single Exec, so when 3 failed it was rolled back as a unit. The database is really still at 2. Always give force the version the schema is actually at. Set it back to 2 and run up again."
+        },
+        {
+          "kind": "command",
+          "body": "migrate -path migrations -database \"$DATABASE_URL\" force 2\nmigrate -path migrations -database \"$DATABASE_URL\" up"
+        }
+      ]
+    },
+    {
+      "user": "that worked. also review says the down file only does DROP INDEX. fix it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Good point. down should undo up in reverse order. up adds the column and then builds the index, so down drops the index and then the column. With IF EXISTS it also gets through when rolling back from a state where up only got partway."
+        },
+        {
+          "kind": "code",
+          "lang": "sql",
+          "body": "DROP INDEX IF EXISTS users_email_key;\nALTER TABLE users DROP COLUMN IF EXISTS email;\n"
+        }
+      ]
+    },
+    {
+      "user": "oh wait staging might have x-multi-statement=true in the DSN. it died at the same spot",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "That changes things. With x-multi-statement on, the file is split on ; and each statement runs on its own, so the ALTER TABLE may have gone through and left the email column behind. So up gets IF NOT EXISTS too, and becomes idempotent whether the leftovers are there or not. On staging, remove the duplicates, then force 2 and up the same way."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/ADD COLUMN email/ADD COLUMN IF NOT EXISTS email/' -e 's/UNIQUE INDEX users_email_key/UNIQUE INDEX IF NOT EXISTS users_email_key/' migrations/000003_add_users_email.up.sql"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "id": "pydantic-model-validator-python-en",
+  "title": "Compare start and end dates in a model_validator",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "python",
+  "summary": "A field_validator that reads info.data turns a bad start date into a KeyError and a 500. Move the check to an after model validator, then allow same-day bookings.",
+  "files": [
+    {
+      "path": "app/schemas.py",
+      "content": "from datetime import date\n\nfrom pydantic import BaseModel\n\n\nclass BookingIn(BaseModel):\n    room_id: int\n    start: date\n    end: date\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "booking api accepts end before start. reject it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. A field_validator that takes a ValidationInfo can read the fields validated so far from info.data. Fields are validated in the order they are declared, so it is important to note that start has to stay above end."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from datetime import date\n\nfrom pydantic import BaseModel, ValidationInfo, field_validator\n\n\nclass BookingIn(BaseModel):\n    room_id: int\n    start: date\n    end: date\n\n    @field_validator(\"end\")\n    @classmethod\n    def check_end(cls, value: date, info: ValidationInfo) -> date:\n        if value <= info.data[\"start\"]:\n            raise ValueError(\"end must be after start\")\n        return value\n"
+        }
+      ]
+    },
+    {
+      "user": "sending start=\"tomorrow\" gives a 500 instead of a 422. log says KeyError: 'start'",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous version ignored the case where start itself fails. A field that fails validation never makes it into info.data, so info.data[\"start\"] raises KeyError. Pydantic only turns ValueError or AssertionError into a 422, and a KeyError goes straight through as a 500. A check across two fields belongs in model_validator with mode=\"after\". It only runs once every field has passed, so self.start and self.end are always dates."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from datetime import date\nfrom typing import Self\n\nfrom pydantic import BaseModel, model_validator\n\n\nclass BookingIn(BaseModel):\n    room_id: int\n    start: date\n    end: date\n\n    @model_validator(mode=\"after\")\n    def check_dates(self) -> Self:\n        if self.end <= self.start:\n            raise ValueError(\"end must be after start\")\n        return self\n"
+        }
+      ]
+    },
+    {
+      "user": "oh wait, we have day trips. same start and end date is fine",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great, that is one character in the comparison, from <= to <, plus a message to match. Same-day bookings pass, and only an end before start is rejected."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/self.end <= self.start/self.end < self.start/' -e 's/end must be after start/end must not be before start/' app/schemas.py"
+        }
+      ]
+    }
+  ]
+}

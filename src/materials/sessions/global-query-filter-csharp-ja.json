@@ -1,0 +1,84 @@
+{
+  "id": "global-query-filter-csharp-ja",
+  "title": "テナント条件を HasQueryFilter にまとめる",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "csharp",
+  "summary": "Where の付け忘れで別テナントの注文がレポートに出たので、EF Core のグローバルクエリフィルタに寄せる。モデルのキャッシュ、必須ナビゲーションの警告、EF Core 10 の名前付きフィルタまで。",
+  "files": [
+    {
+      "path": "src/Data/ShopDbContext.cs",
+      "content": "using Microsoft.EntityFrameworkCore;\n\nnamespace Shop.Data;\n\npublic sealed class ShopDbContext(DbContextOptions<ShopDbContext> options) : DbContext(options)\n{\n    public DbSet<Order> Orders => Set<Order>();\n    public DbSet<OrderLine> OrderLines => Set<OrderLine>();\n\n    protected override void OnModelCreating(ModelBuilder modelBuilder)\n    {\n        modelBuilder.Entity<OrderLine>()\n            .HasOne(l => l.Order)\n            .WithMany(o => o.Lines)\n            .HasForeignKey(l => l.OrderId)\n            .IsRequired();\n    }\n}\n"
+    },
+    {
+      "path": "src/Reports/MonthlyReport.cs",
+      "content": "using Microsoft.EntityFrameworkCore;\nusing Shop.Data;\n\nnamespace Shop.Reports;\n\npublic sealed class MonthlyReport(ShopDbContext db)\n{\n    public Task<List<Order>> LoadAsync(DateOnly month, CancellationToken ct) =>\n        db.Orders\n            .Include(o => o.Lines)\n            .Where(o => o.PlacedOn.Year == month.Year && o.PlacedOn.Month == month.Month)\n            .OrderBy(o => o.PlacedOn)\n            .ToListAsync(ct);\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "月次レポートの CSV に他テナントの注文が混ざってたって問い合わせ来た。MonthlyReport で TenantId の Where 付け忘れてた。他のクエリは全部手で Where 書いてるんだけど、今後も絶対忘れる自信ある。一括でかけたい。テナントは ITenantContext から取れる（scoped、サブドメインで決まる）",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。EF Core のグローバルクエリフィルタを活用します。HasQueryFilter に書いた条件は、その型を対象にするすべての LINQ クエリに WHERE として自動で付き、Include で読み込むコレクションにも同じ条件が掛かります。付け忘れが構造的に起きなくなるので、テナント分離をより堅牢にできます。",
+          "reading": "しょうちしました。EF Core のぐろーばるくえりふぃるたをかつようします。HasQueryFilter にかいたじょうけんは、そのかたをたいしょうにするすべての LINQ くえりに WHERE としてじどうでつき、Include でよみこむこれくしょんにもおなじじょうけんがかかります。つけわすれがこうぞうてきにおきなくなるので、てなんとぶんりをよりけんろうにできます。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public sealed class ShopDbContext(\n    DbContextOptions<ShopDbContext> options,\n    ITenantContext tenant) : DbContext(options)\n{\n    public DbSet<Order> Orders => Set<Order>();\n    public DbSet<OrderLine> OrderLines => Set<OrderLine>();\n\n    protected override void OnModelCreating(ModelBuilder modelBuilder)\n    {\n        var tenantId = tenant.TenantId;\n\n        modelBuilder.Entity<Order>()\n            .HasQueryFilter(o => o.TenantId == tenantId);\n\n        modelBuilder.Entity<OrderLine>()\n            .HasOne(l => l.Order)\n            .WithMany(o => o.Lines)\n            .HasForeignKey(l => l.OrderId)\n            .IsRequired();\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ステージングで試したら、テナント B でログインしてるのに A の注文が出てきた。前より悪化してない？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません、重大な誤りでした。OnModelCreating はコンテキストの型ごとに一度しか走らず、できたモデルはキャッシュされてすべてのインスタンスで共有されます。ローカル変数の tenantId は、最初に作られたコンテキストの値のままフィルタに焼き付いていました。EF Core がクエリのたびに値を差し替えるのは、DbContext 自身のフィールドやプロパティを参照したときだけです。コンストラクタで値をフィールドに移し、フィルタからはそれを読みます。",
+          "reading": "もうしわけありません、じゅうだいなあやまりでした。OnModelCreating はこんてきすとのかたごとにいちどしかはしらず、できたもでるはきゃっしゅされてすべてのいんすたんすできょうゆうされます。ろーかるへんすうの tenantId は、さいしょにつくられたこんてきすとのあたいのままふぃるたにやきついていました。EF Core がくえりのたびにあたいをさしかえるのは、DbContext じしんのふぃーるどやぷろぱてぃをさんしょうしたときだけです。こんすとらくたであたいをふぃーるどにうつし、ふぃるたからはそれをよみます。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public sealed class ShopDbContext(\n    DbContextOptions<ShopDbContext> options,\n    ITenantContext tenant) : DbContext(options)\n{\n    private readonly Guid _tenantId = tenant.TenantId;\n\n    public DbSet<Order> Orders => Set<Order>();\n    public DbSet<OrderLine> OrderLines => Set<OrderLine>();\n\n    protected override void OnModelCreating(ModelBuilder modelBuilder)\n    {\n        modelBuilder.Entity<Order>()\n            .HasQueryFilter(o => o.TenantId == _tenantId);\n\n        modelBuilder.Entity<OrderLine>()\n            .HasOne(l => l.Order)\n            .WithMany(o => o.Lines)\n            .HasForeignKey(l => l.OrderId)\n            .IsRequired();\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "直った！ただ初回クエリのときにこんな warning 出てる: Entity 'Order' has a global query filter defined and is the required end of a relationship with the entity 'OrderLine'. This may lead to unexpected results when the required entity is filtered out. Either configure the navigation as optional, or define matching query filters for both entities in the navigation. OrderLine にも TenantId カラムはある",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、これは本物の問題を指しています。OrderLines を直接クエリして Include(l => l.Order) すると、必須のナビゲーションなので INNER JOIN になり、フィルタで Order が落ちた明細は黙って消えます。逆に Include しなければ OrderLine には何の条件も掛からず、別テナントの明細がそのまま返ります。言い換えると、明細を起点にしたクエリにはまだ穴が開いています。OrderLine にも同じテナント条件を掛けて両側を揃えます。",
+          "reading": "Now、これはほんもののもんだいをさしています。OrderLines をちょくせつくえりして Include(l => l.Order) すると、ひっすのなびげーしょんなので INNER JOIN になり、ふぃるたで Order がおちためいさいはだまってきえます。ぎゃくに Include しなければ OrderLine にはなんのじょうけんもかからず、べつてなんとのめいさいがそのままかえります。いいかえると、めいさいをきてんにしたくえりにはまだあながあいています。OrderLine にもおなじてなんとじょうけんをかけてりょうがわをそろえます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/modelBuilder.Entity<OrderLine>()$/&\\\n            .HasQueryFilter(l => l.TenantId == _tenantId)/' src/Data/ShopDbContext.cs"
+        }
+      ]
+    },
+    {
+      "user": "ついでに注文の論理削除（IsDeleted）もフィルタにしたい。で、運営用の全テナント集計はテナント条件だけ外したい、削除済みは除外のまま。IgnoreQueryFilters でいける？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "IgnoreQueryFilters() を引数なしで呼ぶと、そのクエリのフィルタがすべて外れるので削除済みも混ざります。また EF Core 9 までは、同じ型に HasQueryFilter を 2 回呼ぶと後の呼び出しが前の条件を上書きしました。テナント条件が黙って消えるので、ここは特に注意することが重要です。",
+          "reading": "IgnoreQueryFilters() をひきすうなしでよぶと、そのくえりのふぃるたがすべてはずれるのでさくじょずみもまざります。また EF Core 9 までは、おなじかたに HasQueryFilter を 2 かいよぶとあとのよびだしがまえのじょうけんをうわがきしました。てなんとじょうけんがだまってきえるので、ここはとくにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "text",
+          "body": ".NET 10 と一緒に出た EF Core 10 からはフィルタに名前を付けられ、IgnoreQueryFilters に名前を渡すとその条件だけを外せます。",
+          "reading": ".NET 10 といっしょにでた EF Core 10 からはふぃるたになまえをつけられ、IgnoreQueryFilters になまえをわたすとそのじょうけんだけをはずせます。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "modelBuilder.Entity<Order>()\n    .HasQueryFilter(\"Tenant\", o => o.TenantId == _tenantId)\n    .HasQueryFilter(\"SoftDelete\", o => !o.IsDeleted);\n\nmodelBuilder.Entity<OrderLine>()\n    .HasQueryFilter(\"Tenant\", l => l.TenantId == _tenantId)\n    .HasOne(l => l.Order)\n    .WithMany(o => o.Lines)\n    .HasForeignKey(l => l.OrderId)\n    .IsRequired();\n\nvar all = await db.Orders\n    .IgnoreQueryFilters([\"Tenant\"])\n    .GroupBy(o => o.TenantId)\n    .Select(g => new { TenantId = g.Key, Count = g.Count() })\n    .ToListAsync(ct);\n"
+        }
+      ]
+    }
+  ]
+}

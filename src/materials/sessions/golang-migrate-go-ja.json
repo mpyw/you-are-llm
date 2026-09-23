@@ -1,0 +1,81 @@
+{
+  "id": "golang-migrate-go-ja",
+  "title": "golang-migrate が Dirty database version 3 で止まったまま",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "go",
+  "summary": "途中で失敗したマイグレーションは dirty になる。force は SQL を実行せず版数を書き換えるだけなので、DB の実際の状態に合わせた版数を指定する。down は up の逆順で対にする。",
+  "files": [
+    {
+      "path": "internal/db/migrate.go",
+      "content": "package db\n\nimport (\n  \"errors\"\n\n  \"github.com/golang-migrate/migrate/v4\"\n  _ \"github.com/golang-migrate/migrate/v4/database/postgres\"\n  _ \"github.com/golang-migrate/migrate/v4/source/file\"\n)\n\nfunc Migrate(dsn string) error {\n  m, err := migrate.New(\"file://migrations\", dsn)\n  if err != nil {\n    return err\n  }\n  defer m.Close()\n  if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {\n    return err\n  }\n  return nil\n}\n"
+    },
+    {
+      "path": "migrations/000003_add_users_email.up.sql",
+      "content": "ALTER TABLE users ADD COLUMN email text;\nUPDATE users SET email = lower(contact_email);\nCREATE UNIQUE INDEX users_email_key ON users (email);\n"
+    },
+    {
+      "path": "migrations/000003_add_users_email.down.sql",
+      "content": "DROP INDEX users_email_key;\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "デプロイしたら API が起動しなくなった。ログに Dirty database version 3. Fix and force version. って出てる。その前のデプロイで users_email_key の unique index 作るとこで duplicated って落ちてた",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "順を追って説明します。golang-migrate は SQL を流す前に schema_migrations へ版数 3 と dirty = true を書き、成功したら dirty を外します。3 の途中で落ちたので dirty が残り、以後の Up はすべて ErrDirty で止まります。これは壊れた状態の上にさらにマイグレーションを積まないための堅牢な安全装置です。重複しているのは大文字小文字だけが違う contact_email なので、先にそれを片付けてください。そのうえで force 3 で dirty を外せば、また流れるようになります。",
+          "reading": "じゅんをおってせつめいします。golang-migrate は SQL をながすまえに schema_migrations へはんすう 3 と dirty = true をかき、せいこうしたら dirty をはずします。3 のとちゅうでおちたので dirty がのこり、いごの Up はすべて ErrDirty でとまります。これはこわれたじょうたいのうえにさらにマイグレーションをつまないためのけんろうなあんぜんそうちです。ちょうふくしているのはおおもじこもじだけがちがう contact_email なので、さきにそれをかたづけてください。そのうえで force 3 で dirty をはずせば、またながれるようになります。"
+        },
+        {
+          "kind": "command",
+          "body": "migrate -path migrations -database \"$DATABASE_URL\" force 3"
+        }
+      ]
+    },
+    {
+      "user": "重複消して force 3 して up したら no change って言われた。起動はするけど users に email 列ないんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの force 3 は誤りでした。force は SQL を 1 行も実行せず、schema_migrations の版数を書き換えて dirty を外すだけです。3 と指定したことで「3 は適用済み」と宣言してしまい、Up は何もしなくなりました。postgres ドライバはファイル全体を 1 回の Exec で送るので、3 は失敗した時点で丸ごと巻き戻っています。つまり DB の実体は 2 のままです。force には実体と同じ版数を渡すことが重要です。2 に戻してから up し直してください。",
+          "reading": "もうしわけありません。さきほどの force 3 はあやまりでした。force は SQL を 1 ぎょうもじっこうせず、schema_migrations のはんすうをかきかえて dirty をはずすだけです。3 としていしたことで「3 はてきようずみ」とせんげんしてしまい、Up はなにもしなくなりました。postgres ドライバはファイルぜんたいを 1 かいの Exec でおくるので、3 はしっぱいしたじてんでまるごとまきもどっています。つまり DB のじったいは 2 のままです。force にはじったいとおなじはんすうをわたすことがじゅうようです。2 にもどしてから up しなおしてください。"
+        },
+        {
+          "kind": "command",
+          "body": "migrate -path migrations -database \"$DATABASE_URL\" force 2\nmigrate -path migrations -database \"$DATABASE_URL\" up"
+        }
+      ]
+    },
+    {
+      "user": "通った。ついでに down 見たら DROP INDEX しかしてないってレビューで言われた。直して",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ご指摘のとおりです。down は up を逆順に打ち消すのが原則です。up は列を足してから索引を張っているので、down は索引を消してから列を消します。IF EXISTS を付けておくと、途中までしか進んでいない状態から戻すときも止まりません。言い換えると、down は up のどこで失敗していても通る形にしておきます。",
+          "reading": "ごしてきのとおりです。down は up をぎゃくじゅんにうちけすのがげんそくです。up はれつをたしてからさくいんをはっているので、down はさくいんをけしてかられつをけします。IF EXISTS をつけておくと、とちゅうまでしかすすんでいないじょうたいからもどすときもとまりません。いいかえると、down は up のどこでしっぱいしていてもとおるかたちにしておきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "sql",
+          "body": "DROP INDEX IF EXISTS users_email_key;\nALTER TABLE users DROP COLUMN IF EXISTS email;\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、ステージングは DSN に x-multi-statement=true 付いてたかも。あっちも同じとこで落ちてる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "それだと話が変わります。x-multi-statement を有効にすると、ファイルを ; ごとに分けて別々に実行するので、ALTER TABLE だけ通って email 列が残っている可能性があります。そこで up 側も IF NOT EXISTS にして、残骸があってもなくても通るべき等な形にします。ステージングは重複を消したあと、同じく force 2 から up してください。",
+          "reading": "それだとはなしがかわります。x-multi-statement をゆうこうにすると、ファイルを ; ごとにわけてべつべつにじっこうするので、ALTER TABLE だけとおって email れつがのこっているかのうせいがあります。そこで up がわも IF NOT EXISTS にして、ざんがいがあってもなくてもとおるべきとうなかたちにします。ステージングはちょうふくをけしたあと、おなじく force 2 から up してください。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/ADD COLUMN email/ADD COLUMN IF NOT EXISTS email/' -e 's/UNIQUE INDEX users_email_key/UNIQUE INDEX IF NOT EXISTS users_email_key/' migrations/000003_add_users_email.up.sql"
+        }
+      ]
+    }
+  ]
+}

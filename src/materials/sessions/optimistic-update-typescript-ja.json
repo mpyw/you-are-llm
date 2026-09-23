@@ -2,7 +2,7 @@
   "id": "optimistic-update-typescript-ja",
   "title": "useMutation で楽観的更新をする",
   "language": "ja",
-  "difficulty": "expert",
+  "difficulty": "hard",
   "codeLanguage": "typescript",
   "summary": "チェックの反映を待たずに画面を先に変え、失敗したら戻す。連打でチェックが戻るのは cancelQueries の入れ忘れ。",
   "files": [

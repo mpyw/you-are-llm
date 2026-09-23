@@ -1,0 +1,71 @@
+{
+  "id": "beast-http-client-cpp-en",
+  "title": "Pipelined requests hang on the second http::read",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "cpp",
+  "summary": "A synchronous Beast client. Keep one flat_buffer per connection, stop on need_eof() and end_of_stream, and let shutdown report not_connected. Raise the 8MB body cap with body_limit on a response_parser.",
+  "files": [
+    {
+      "path": "src/client/fetch.cpp",
+      "content": "#include <string>\n#include <vector>\n\n#include <boost/asio/connect.hpp>\n#include <boost/asio/ip/tcp.hpp>\n#include <boost/beast/core.hpp>\n#include <boost/beast/http.hpp>\n\nnamespace beast = boost::beast;\nnamespace http = beast::http;\nnamespace net = boost::asio;\nusing tcp = net::ip::tcp;\n\nstd::vector<std::string> fetch_all(const std::string& host, const std::string& port,\n                                   const std::vector<std::string>& targets) {\n  net::io_context ioc;\n  tcp::resolver resolver(ioc);\n  beast::tcp_stream stream(ioc);\n  stream.connect(resolver.resolve(host, port));\n\n  for (const auto& target : targets) {\n    http::request<http::empty_body> req{http::verb::get, target, 11};\n    req.set(http::field::host, host);\n    http::write(stream, req);\n  }\n\n  std::vector<std::string> bodies;\n  for (std::size_t i = 0; i < targets.size(); ++i) {\n    beast::flat_buffer buffer;\n    http::response<http::string_body> res;\n    http::read(stream, buffer, res);\n    bodies.push_back(res.body());\n  }\n\n  stream.socket().shutdown(tcp::socket::shutdown_both);\n  return bodies;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "the API is slow so I write all the requests first and then read them in order. works locally but in prod the second http::read sometimes just hangs forever",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's what is going on. http::read does not stop at one response. It puts whatever the socket had into the flat_buffer. With every request already sent, the next response can be waiting too, and the first read pulls its opening bytes into the buffer. The loop built a fresh buffer each time, so those bytes were thrown away, and the second read waited for data that was never coming again. Locally the responses arrived one at a time, which is why it never showed. In other words, the buffer lives as long as the connection, not the request. Build it once, outside the loop."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "  beast::flat_buffer buffer;\n  std::vector<std::string> bodies;\n  for (std::size_t i = 0; i < targets.size(); ++i) {\n    http::response<http::string_body> res;\n    http::read(stream, buffer, res);\n    bodies.push_back(res.body());\n  }\n"
+        }
+      ]
+    },
+    {
+      "user": "no more hangs. but when the server sends Connection: close partway through, the exception throws away everything. just give me whatever came back",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. The read switches to the overload that takes an error_code, so the end of the connection is not an exception. A response carrying Connection: close has need_eof() set, and after it the loop stops reading. If the server hangs up without saying so, read returns http::error::end_of_stream, and the loop stops there too. Any other error still throws. The shutdown at the end also takes an error_code, and it is checked."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "  beast::flat_buffer buffer;\n  std::vector<std::string> bodies;\n  for (std::size_t i = 0; i < targets.size(); ++i) {\n    http::response<http::string_body> res;\n    beast::error_code ec;\n    http::read(stream, buffer, res, ec);\n    if (ec == http::error::end_of_stream) break;\n    if (ec) throw beast::system_error{ec};\n    bodies.push_back(res.body());\n    if (res.need_eof()) break;\n  }\n\n  beast::error_code ec;\n  stream.socket().shutdown(tcp::socket::shutdown_both, ec);\n  if (ec) throw beast::system_error{ec};\n  return bodies;\n"
+        }
+      ]
+    },
+    {
+      "user": "crashed with Socket is not connected. the shutdown line",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. When the peer has already closed the connection, shutdown can report not_connected. The server closed right after its Connection: close response, which is exactly that case. The goal of the shutdown has already been met, so not_connected alone is ignored. The official Beast examples do the same."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^  if (ec) throw beast::system_error{ec};$/  if (ec \\&\\& ec != beast::errc::not_connected) throw beast::system_error{ec};/' src/client/fetch.cpp"
+        }
+      ]
+    },
+    {
+      "user": "ok. also /export is about 20MB and I get body limit exceeded. is that Beast?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: yes, that is Beast. Passing a response straight to http::read uses a parser with the default limits, and a response body is capped at 8MB. To change it, build a response_parser yourself, set body_limit, and pass the parser to read. Once it is done, release() hands back the response. This sets the cap to 64MB."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "  for (std::size_t i = 0; i < targets.size(); ++i) {\n    http::response_parser<http::string_body> parser;\n    parser.body_limit(64 * 1024 * 1024);\n    beast::error_code ec;\n    http::read(stream, buffer, parser, ec);\n    if (ec == http::error::end_of_stream) break;\n    if (ec) throw beast::system_error{ec};\n    auto res = parser.release();\n    bodies.push_back(std::move(res.body()));\n    if (res.need_eof()) break;\n  }\n"
+        }
+      ]
+    }
+  ]
+}

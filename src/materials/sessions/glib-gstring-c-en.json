@@ -1,0 +1,43 @@
+{
+  "id": "glib-gstring-c-en",
+  "title": "Build the tag string with GString",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "c",
+  "summary": "Replace a fixed 64 byte malloc and strcat with GString and g_string_append_printf, and return what g_string_free hands back.",
+  "files": [
+    {
+      "path": "src/log/tags.c",
+      "content": "#include <stdlib.h>\n#include <string.h>\n\nchar *join_tags(const char **tags, size_t n) {\n  char *out = malloc(64);\n  strcpy(out, \"tags:\");\n  for (size_t i = 0; i < n; i++) {\n    if (i > 0) strcat(out, \",\");\n    strcat(out, tags[i]);\n  }\n  return out;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "join_tags crashes when there are lots of tags. we already link glib so just use GString. also want the count up front, like tags=3:a,b,c",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! The buffer is a fixed malloc(64), and strcat keeps appending to it, so once the total passes 64 bytes it writes past the end. GString grows its buffer as you append, so nothing has to count lengths. The count goes in with g_string_append_printf, format string and all. The part to watch is g_string_free(s, FALSE) at the end. With FALSE it frees the GString wrapper and returns the character data to you. In other words, if that return value is dropped, the string leaks."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#include <glib.h>\n\ngchar *join_tags(const char **tags, size_t n) {\n  GString *s = g_string_new(NULL);\n  g_string_append_printf(s, \"tags=%zu:\", n);\n  for (size_t i = 0; i < n; i++) {\n    if (i > 0) g_string_append_c(s, ',');\n    g_string_append(s, tags[i]);\n  }\n  return g_string_free(s, FALSE);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "callers do free() on it, ok? and I want a space after the comma",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Callers should switch to g_free. Memory GLib allocated goes back through GLib's own free function. In current GLib g_free just calls free, but that is an implementation detail, not a promise. For the separator, g_string_append_c adds one character, so it becomes g_string_append with a string."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' \"s/g_string_append_c(s, ',')/g_string_append(s, \\\", \\\")/\" src/log/tags.c"
+        }
+      ]
+    }
+  ]
+}

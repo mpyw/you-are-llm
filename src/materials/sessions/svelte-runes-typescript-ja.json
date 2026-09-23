@@ -1,0 +1,51 @@
+{
+  "id": "svelte-runes-typescript-ja",
+  "title": "Svelte 4 のカートを runes に書き換える",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "typescript",
+  "summary": "let と $: で書いた Svelte 4 のコンポーネントを、Svelte 5 の $state と $derived に置き換える。push が画面に出なかった理由も片付く。",
+  "files": [
+    {
+      "path": "src/lib/Cart.svelte",
+      "content": "<script lang=\"ts\">\n  type Item = { name: string; price: number; qty: number }\n\n  let items: Item[] = [\n    { name: 'Coffee', price: 480, qty: 1 },\n    { name: 'Bagel', price: 320, qty: 2 },\n  ]\n\n  $: total = items.reduce((sum, item) => sum + item.price * item.qty, 0)\n  $: freeShipping = total >= 3000\n\n  function add(index: number) {\n    items[index].qty += 1\n  }\n</script>\n\n<ul>\n  {#each items as item, index}\n    <li>\n      {item.name} x {item.qty}\n      <button on:click={() => add(index)}>+</button>\n    </li>\n  {/each}\n</ul>\n<p>Total: {total}</p>\n{#if freeShipping}<p>Free shipping</p>{/if}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "svelte 5 に上げたのでこのカート runes で書き直したい。$: とかもう古いんでしょ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。Svelte 4 では let で宣言した変数がそのままリアクティブになり、$: の行はコンパイラが依存を読み取って再計算していました。Svelte 5 の runes では、状態は $state、そこから計算する値は $derived と明示的に書きます。$: は runes モードではコンパイルエラーになるので、1 つのコンポーネントの中で混ぜられないことに注意することが重要です。on:click も onclick 属性に変わります。",
+          "reading": "しょうちしました。Svelte 4 では let でせんげんしたへんすうがそのままりあくてぃぶになり、$: のぎょうはこんぱいらがいぞんをよみとってさいけいさんしていました。Svelte 5 の runes では、じょうたいは $state、そこからけいさんするあたいは $derived とめいじてきにかきます。$: は runes もーどではこんぱいるえらーになるので、1 つのこんぽーねんとのなかでまぜられないことにちゅういすることがじゅうようです。on:click も onclick ぞくせいにかわります。"
+        },
+        {
+          "kind": "code",
+          "lang": "svelte",
+          "body": "<script lang=\"ts\">\n  type Item = { name: string; price: number; qty: number }\n\n  let items = $state<Item[]>([\n    { name: 'Coffee', price: 480, qty: 1 },\n    { name: 'Bagel', price: 320, qty: 2 },\n  ])\n\n  const total = $derived(items.reduce((sum, item) => sum + item.price * item.qty, 0))\n  const freeShipping = $derived(total >= 3000)\n\n  function add(index: number) {\n    items[index].qty += 1\n  }\n</script>\n\n<ul>\n  {#each items as item, index}\n    <li>\n      {item.name} x {item.qty}\n      <button onclick={() => add(index)}>+</button>\n    </li>\n  {/each}\n</ul>\n<p>Total: {total}</p>\n{#if freeShipping}<p>Free shipping</p>{/if}\n"
+        }
+      ]
+    },
+    {
+      "user": "商品追加ボタンも。前に push で足したら画面変わらなくて items = [...items, x] に直した覚えある",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。それは Svelte 4 の仕様で、リアクティブになるのは代入だけでした。push は配列の中身を変えても代入ではないので、画面は更新されませんでした。Svelte 5 の $state は配列を深いプロキシで包むので、push もそのまま反映されます。total と freeShipping も $derived なので自動で追従します。言い換えると、スプレッドで作り直す書き方はもう要りません。",
+          "reading": "するどいごしてきです。それは Svelte 4 のしようで、りあくてぃぶになるのはだいにゅうだけでした。push ははいれつのなかみをかえてもだいにゅうではないので、がめんはこうしんされませんでした。Svelte 5 の $state ははいれつをふかいぷろきしでつつむので、push もそのままはんえいされます。total と freeShipping も $derived なのでじどうでついじゅうします。いいかえると、すぷれっどでつくりなおすかきかたはもういりません。"
+        },
+        {
+          "kind": "code",
+          "lang": "ts",
+          "body": "function addItem(name: string, price: number) {\n  items.push({ name, price, qty: 1 })\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "svelte",
+          "body": "<button onclick={() => addItem('Muffin', 380)}>Add muffin</button>\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "id": "jpa-enum-string-java-ja",
+  "title": "enum の ORDINAL 保存を STRING に移す",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "java",
+  "summary": "定数を途中に足すと既存の行の意味がずれるので、名前で保存するように切り替えてデータも移す。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/order/OrderStatus.java",
+      "content": "package com.example.order;\n\npublic enum OrderStatus {\n    PENDING,\n    PAID,\n    SHIPPED,\n    DELIVERED\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/order/Order.java",
+      "content": "package com.example.order;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.Table;\n\n@Entity\n@Table(name = \"orders\")\npublic class Order {\n    @Id\n    @GeneratedValue\n    private Long id;\n\n    private OrderStatus status;\n\n    protected Order() {\n    }\n\n    public OrderStatus getStatus() {\n        return status;\n    }\n}\n"
+    },
+    {
+      "path": "src/main/resources/application.yml",
+      "content": "spring:\n  datasource:\n    url: jdbc:postgresql://localhost:5432/shop\n  jpa:\n    hibernate:\n      ddl-auto: validate\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "OrderStatus に PAYMENT_FAILED 足したい。PENDING の次に入れたほうが読みやすいよね？ 一応見といて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。ただ、今のままで PENDING の次に挟むのは危険です。Order の status には @Enumerated が付いていないので、JPA の既定の EnumType.ORDINAL で、定数の並び順の番号が保存されています。PENDING の次に足すと PAID の番号が 1 から 2 にずれて、支払い済みの既存の注文が PAYMENT_FAILED として読まれます。例外も出ないので、気づくのはお客様からの問い合わせです。先に定数の名前を保存する EnumType.STRING に切り替え、既存の数値を名前に書き換えることをお勧めします。SQL の CASE に並べる番号は、定数を足す前の今の並び順です。",
+          "reading": "しょうちしました。ただ、いまのままで PENDING のつぎにはさむのはきけんです。Order の status には @Enumerated がついていないので、JPA のきていの EnumType.ORDINAL で、ていすうのならびじゅんのばんごうがほぞんされています。PENDING のつぎにたすと PAID のばんごうが 1 から 2 にずれて、しはらいずみのきそんのちゅうもんが PAYMENT_FAILED としてよまれます。れいがいもでないので、きづくのはおきゃくさまからのといあわせです。さきにていすうのなまえをほぞんする EnumType.STRING にきりかえ、きそんのすうちをなまえにかきかえることをおすすめします。SQL の CASE にならべるばんごうは、ていすうをたすまえのいまのならびじゅんです。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import jakarta.persistence.Column;\nimport jakarta.persistence.EnumType;\nimport jakarta.persistence.Enumerated;\n\n    @Enumerated(EnumType.STRING)\n    @Column(length = 32)\n    private OrderStatus status;\n"
+        },
+        {
+          "kind": "code",
+          "lang": "sql",
+          "body": "ALTER TABLE orders ALTER COLUMN status TYPE varchar(32)\n    USING CASE status\n        WHEN 0 THEN 'PENDING'\n        WHEN 1 THEN 'PAID'\n        WHEN 2 THEN 'SHIPPED'\n        WHEN 3 THEN 'DELIVERED'\n    END;\n"
+        }
+      ]
+    },
+    {
+      "user": "おけ。あとさ、PAID って名前微妙だから CAPTURED にしたいって話もあって。STRING にしたらそれはどうなんの",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "おっしゃるとおり、そこが STRING の弱点です。今度は並び順をいくら変えても平気ですが、名前がそのまま保存されるので、定数の名前を変えると既存の PAID の行が読み込みで例外になります。言い換えると、名前がデータの一部になります。リネームするときは、同じリリースで行も書き換えます。",
+          "reading": "おっしゃるとおり、そこが STRING のじゃくてんです。こんどはならびじゅんをいくらかえてもへいきですが、なまえがそのままほぞんされるので、ていすうのなまえをかえるときそんの PAID のぎょうがよみこみでれいがいになります。いいかえると、なまえがデータのいちぶになります。リネームするときは、おなじリリースでぎょうもかきかえます。"
+        },
+        {
+          "kind": "code",
+          "lang": "sql",
+          "body": "UPDATE orders SET status = 'CAPTURED' WHERE status = 'PAID';\n"
+        }
+      ]
+    }
+  ]
+}

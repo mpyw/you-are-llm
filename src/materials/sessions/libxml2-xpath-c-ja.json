@@ -1,0 +1,60 @@
+{
+  "id": "libxml2-xpath-c-ja",
+  "title": "libxml2 の XPath で RSS のタイトルを抜く",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "c",
+  "summary": "子要素を手で辿っていたループを xmlXPathEvalExpression に置き換え、結果の後始末を揃える。",
+  "files": [
+    {
+      "path": "src/feed/titles.c",
+      "content": "#include <stdio.h>\n#include <libxml/parser.h>\n#include <libxml/tree.h>\n\nint print_titles(const char *path) {\n  xmlDocPtr doc = xmlReadFile(path, NULL, XML_PARSE_NONET);\n  if (doc == NULL) return -1;\n  xmlNodePtr root = xmlDocGetRootElement(doc);\n  for (xmlNodePtr n = root->children; n != NULL; n = n->next) {\n    if (n->type == XML_ELEMENT_NODE && xmlStrEqual(n->name, BAD_CAST \"title\")) {\n      printf(\"%s\\n\", (const char *)xmlNodeGetContent(n));\n    }\n  }\n  xmlFreeDoc(doc);\n  return 0;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "print_titles が何も出さない。rss > channel > item > title なんだけど。XPath で書き直して、式は引数で渡したい。他のフィードでも使うから",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。今のループは root の直下しか見ていないので、channel で止まって item の中まで届いていません。XPath なら深さを気にせず //item/title と書けます。関数は式を受け取る print_nodes にします。ポイントは解放の順番で、作った順の逆に xmlXPathFreeObject、xmlXPathFreeContext、xmlFreeDoc と呼びます。ノード集合は文書の木を指しているので、文書は最後です。xmlNodeGetContent が返す文字列は呼び出し側の持ち物なので、使ったら xmlFree します。元のコードはここでリークしていました。",
+          "reading": "かしこまりました。いまのるーぷは root のちょっかしかみていないので、channel でとまって item のなかまでとどいていません。XPath ならふかさをきにせず //item/title とかけます。かんすうはしきをうけとる print_nodes にします。ぽいんとはかいほうのじゅんばんで、つくったじゅんのぎゃくに xmlXPathFreeObject、xmlXPathFreeContext、xmlFreeDoc とよびます。のーどしゅうごうはぶんしょのきをさしているので、ぶんしょはさいごです。xmlNodeGetContent がかえすもじれつはよびだしがわのもちものなので、つかったら xmlFree します。もとのこーどはここでりーくしていました。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#include <stdio.h>\n#include <libxml/parser.h>\n#include <libxml/xpath.h>\n\nint print_nodes(const char *path, const char *expr) {\n  xmlDocPtr doc = xmlReadFile(path, NULL, XML_PARSE_NONET);\n  if (doc == NULL) return -1;\n  xmlXPathContextPtr ctx = xmlXPathNewContext(doc);\n  if (ctx == NULL) {\n    xmlFreeDoc(doc);\n    return -1;\n  }\n  xmlXPathObjectPtr obj = xmlXPathEvalExpression(BAD_CAST expr, ctx);\n  if (obj == NULL) {\n    xmlXPathFreeContext(ctx);\n    xmlFreeDoc(doc);\n    return -1;\n  }\n  xmlNodeSetPtr nodes = obj->nodesetval;\n  for (int i = 0; i < nodes->nodeNr; i++) {\n    xmlChar *text = xmlNodeGetContent(nodes->nodeTab[i]);\n    if (text == NULL) continue;\n    printf(\"%s\\n\", (const char *)text);\n    xmlFree(text);\n  }\n  xmlXPathFreeObject(obj);\n  xmlXPathFreeContext(ctx);\n  xmlFreeDoc(doc);\n  return 0;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "設定ファイルにうっかり count(//item) って書いたら segfault した",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。nodesetval の NULL を見落としていました。count() や string() のように結果が数値や文字列になる式では、ノード集合は作られず、nodesetval は NULL のままです。それを nodeNr で読んで落ちていました。型が XPATH_NODESET でなければエラーとして返し、件数は NULL を 0 と数える xmlXPathNodeSetGetLength で取ります。言い換えると、ノード集合の型でも NULL があり得る前提で書いておくのが堅牢です。",
+          "reading": "もうしわけありません。nodesetval の NULL をみおとしていました。count() や string() のようにけっかがすうちやもじれつになるしきでは、のーどしゅうごうはつくられず、nodesetval は NULL のままです。それを nodeNr でよんでおちていました。かたが XPATH_NODESET でなければえらーとしてかえし、けんすうは NULL を 0 とかぞえる xmlXPathNodeSetGetLength でとります。いいかえると、のーどしゅうごうのかたでも NULL がありうるぜんていでかいておくのがけんろうです。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "  if (obj->type != XPATH_NODESET) {\n    xmlXPathFreeObject(obj);\n    xmlXPathFreeContext(ctx);\n    xmlFreeDoc(doc);\n    return -1;\n  }\n  xmlNodeSetPtr nodes = obj->nodesetval;\n  int count = xmlXPathNodeSetGetLength(nodes);\n  for (int i = 0; i < count; i++) {\n    xmlChar *text = xmlNodeGetContent(xmlXPathNodeSetItem(nodes, i));\n    if (text == NULL) continue;\n    printf(\"%s\\n\", (const char *)text);\n    xmlFree(text);\n  }\n"
+        }
+      ]
+    },
+    {
+      "user": "あと壊れたフィード食わせると parser error が stderr にドバドバ出る。ログ汚れるから黙らせて。-1 返ってくれば十分",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "まとめると、パーサのオプションに XML_PARSE_NOERROR と XML_PARSE_NOWARNING を足せば、エラーと警告の出力が止まります。戻り値は変わらないので、壊れた文書では今までどおり -1 が返ります。XML_PARSE_NONET は外部の DTD をネットワークから取りに行かせないためのものなので残します。",
+          "reading": "まとめると、ぱーさのおぷしょんに XML_PARSE_NOERROR と XML_PARSE_NOWARNING をたせば、えらーとけいこくのしゅつりょくがとまります。もどりちはかわらないので、こわれたぶんしょではいままでどおり -1 がかえります。XML_PARSE_NONET はがいぶの DTD をねっとわーくからとりにいかせないためのものなのでのこします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/XML_PARSE_NONET)/XML_PARSE_NONET | XML_PARSE_NOERROR | XML_PARSE_NOWARNING)/' src/feed/titles.c"
+        }
+      ]
+    }
+  ]
+}

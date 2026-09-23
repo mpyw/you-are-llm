@@ -1,0 +1,48 @@
+{
+  "id": "testify-suite-go-en",
+  "title": "The same setup pasted into three tests",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "go",
+  "summary": "Move the setup into a testify suite.Suite and redo it in SetupTest and TearDownTest. Open the DB only once with SetupSuite.",
+  "files": [
+    {
+      "path": "internal/order/service_test.go",
+      "content": "package order\n\nimport (\n  \"testing\"\n\n  \"github.com/stretchr/testify/require\"\n)\n\nfunc TestCreate(t *testing.T) {\n  db := openTestDB(t)\n  defer db.Close()\n  svc := NewService(NewRepo(db), fixedClock{})\n\n  id, err := svc.Create(\"alice\", 3)\n  require.NoError(t, err)\n  require.NotZero(t, id)\n}\n\nfunc TestCancel(t *testing.T) {\n  db := openTestDB(t)\n  defer db.Close()\n  svc := NewService(NewRepo(db), fixedClock{})\n\n  id, err := svc.Create(\"alice\", 3)\n  require.NoError(t, err)\n  require.NoError(t, svc.Cancel(id))\n}\n\nfunc TestCreateRejectsZero(t *testing.T) {\n  db := openTestDB(t)\n  defer db.Close()\n  svc := NewService(NewRepo(db), fixedClock{})\n\n  _, err := svc.Create(\"alice\", 0)\n  require.Error(t, err)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "order tests have the exact same setup copy pasted 3 times. we have testify, isnt there a thing for this",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! There is: the suite package. Embed suite.Suite in a struct that holds db and svc, build them in SetupTest and close them in TearDownTest. Both run around every method whose name starts with Test. go test only sees TestServiceSuite, and suite.Run runs each method inside it as a subtest. Assertions become methods like s.Require() and s.NoError, so you stop passing t around. To run a single one, narrow it with -testify.m."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "package order\n\nimport (\n  \"database/sql\"\n  \"testing\"\n\n  \"github.com/stretchr/testify/suite\"\n)\n\ntype ServiceSuite struct {\n  suite.Suite\n  db  *sql.DB\n  svc *Service\n}\n\nfunc (s *ServiceSuite) SetupTest() {\n  s.db = openTestDB(s.T())\n  s.svc = NewService(NewRepo(s.db), fixedClock{})\n}\n\nfunc (s *ServiceSuite) TearDownTest() {\n  s.db.Close()\n}\n\nfunc (s *ServiceSuite) TestCreate() {\n  id, err := s.svc.Create(\"alice\", 3)\n  s.Require().NoError(err)\n  s.NotZero(id)\n}\n\nfunc (s *ServiceSuite) TestCancel() {\n  id, err := s.svc.Create(\"alice\", 3)\n  s.Require().NoError(err)\n  s.NoError(s.svc.Cancel(id))\n}\n\nfunc (s *ServiceSuite) TestCreateRejectsZero() {\n  _, err := s.svc.Create(\"alice\", 0)\n  s.Error(err)\n}\n\nfunc TestServiceSuite(t *testing.T) {\n  suite.Run(t, new(ServiceSuite))\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "go test ./internal/order -run TestServiceSuite -testify.m TestCancel"
+        }
+      ]
+    },
+    {
+      "user": "hmm openTestDB takes like 2s each time. dont want to open it per test. still want empty tables every test tho",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the idea: the connection and the data live for different lengths of time. The connection only needs opening once for the whole suite, so it moves to SetupSuite and TearDownSuite. The data should be wiped per test, so SetupTest runs a TRUNCATE and then rebuilds svc. Delete TearDownTest, it has nothing left to do. Every test now starts from the same state whatever order they run in."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (s *ServiceSuite) SetupSuite() {\n  s.db = openTestDB(s.T())\n}\n\nfunc (s *ServiceSuite) TearDownSuite() {\n  s.db.Close()\n}\n\nfunc (s *ServiceSuite) SetupTest() {\n  _, err := s.db.Exec(\"TRUNCATE orders RESTART IDENTITY\")\n  s.Require().NoError(err)\n  s.svc = NewService(NewRepo(s.db), fixedClock{})\n}\n"
+        }
+      ]
+    }
+  ]
+}

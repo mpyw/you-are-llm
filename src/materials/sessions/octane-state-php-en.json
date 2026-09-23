@@ -1,0 +1,72 @@
+{
+  "id": "octane-state-php-en",
+  "title": "Octane mixes user data between requests",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "A singleton resolved at boot holds on to a stale request, and once it is scoped a static cache starts handing out another user's plan.",
+  "files": [
+    {
+      "path": "app/Support/CurrentAccount.php",
+      "content": "<?php\n\nnamespace App\\Support;\n\nuse App\\Models\\Plan;\nuse App\\Models\\User;\nuse Illuminate\\Http\\Request;\n\nclass CurrentAccount\n{\n    private static ?Plan $plan = null;\n\n    public function __construct(private Request $request)\n    {\n    }\n\n    public function user(): ?User\n    {\n        return $this->request->user();\n    }\n\n    public function plan(): ?Plan\n    {\n        return self::$plan ??= $this->user()?->plan;\n    }\n}\n"
+    },
+    {
+      "path": "app/Providers/AppServiceProvider.php",
+      "content": "<?php\n\nnamespace App\\Providers;\n\nuse App\\Support\\CurrentAccount;\nuse Illuminate\\Contracts\\Foundation\\Application;\nuse Illuminate\\Support\\Facades\\View;\nuse Illuminate\\Support\\ServiceProvider;\n\nclass AppServiceProvider extends ServiceProvider\n{\n    public function register(): void\n    {\n        $this->app->singleton(CurrentAccount::class, function (Application $app) {\n            return new CurrentAccount($app['request']);\n        });\n    }\n\n    public function boot(): void\n    {\n        View::share('account', $this->app->make(CurrentAccount::class));\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "switched to octane (frankenphp) and now the header says \"Guest\" for everyone. php artisan serve shows names fine. login itself works",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the cause: AppServiceProvider builds CurrentAccount in boot. Octane boots the application once when a worker starts and does not run boot again for later requests. The CurrentAccount made at that moment keeps the console request from worker start and is reused for every request. Nobody is logged in on that request, so user() is always null."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function register(): void\n{\n    $this->app->scoped(CurrentAccount::class, function (Application $app) {\n        return new CurrentAccount($app['request']);\n    });\n}\n\npublic function boot(): void\n{\n    View::composer('layouts.app', function ($view) {\n        $view->with('account', app(CurrentAccount::class));\n    });\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "With scoped instead of singleton, Octane throws the instance away each time a new request comes in. View::share also only runs once at boot, so it moves into a view composer that fetches the account on every render. This guarantees no state survives from one request to the next."
+        }
+      ]
+    },
+    {
+      "user": "guest is fixed. but now support says people are seeing someone elses plan name... a Free user sees Pro. this is bad",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, I missed this. $plan on CurrentAccount is a static property. A static belongs to the worker process, not to the container, so scoped does not clear it. The plan of the first user a worker serves is returned to everyone until that worker exits. The guest bug was hiding this one until my previous fix. It becomes an instance property."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/private static ?Plan \\$plan/private ?Plan $plan/' -e 's/self::\\$plan/$this->plan/' app/Support/CurrentAccount.php"
+        },
+        {
+          "kind": "text",
+          "body": "CurrentAccount is scoped now, so a cache on the instance is thrown away with it at the end of the request. In other words, plan() still queries only once per request however often it is called."
+        }
+      ]
+    },
+    {
+      "user": "yikes. there might be other statics holding stuff, want to find them all. anything to do after deploy?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. This greps app for lines that declare a static property or variable. Static methods hold no state, so they are left out. If a value it finds changes per user or per request, I'd recommend moving it into a scoped service. After a deploy, run octane:reload, or the workers that loaded the old code keep serving."
+        },
+        {
+          "kind": "command",
+          "body": "grep -rnE 'static (\\??[A-Za-z]+ )?\\$' app/"
+        },
+        {
+          "kind": "command",
+          "body": "php artisan octane:reload"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "id": "nestjs-scope-typescript-ja",
+  "title": "Scope.REQUEST で orders API が遅くなった",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "typescript",
+  "summary": "リクエストスコープの provider は注入する側まで伝播して、毎リクエスト全部を作り直す。nestjs-cls でシングルトンに戻すが、コンストラクタで値を読んで起動時の undefined を焼き付ける。",
+  "files": [
+    {
+      "path": "src/request-context.ts",
+      "content": "import { Inject, Injectable, Scope } from '@nestjs/common'\nimport { REQUEST } from '@nestjs/core'\nimport type { Request } from 'express'\nimport { randomUUID } from 'node:crypto'\n\n@Injectable({ scope: Scope.REQUEST })\nexport class RequestContext {\n  readonly requestId: string\n  readonly tenantId: string\n\n  constructor(@Inject(REQUEST) req: Request) {\n    this.requestId = req.header('x-request-id') ?? randomUUID()\n    this.tenantId = req.header('x-tenant-id') ?? 'public'\n  }\n}\n"
+    },
+    {
+      "path": "src/orders/orders.repository.ts",
+      "content": "import { Injectable } from '@nestjs/common'\nimport { Database } from '../database'\nimport { RequestContext } from '../request-context'\n\n@Injectable()\nexport class OrdersRepository {\n  constructor(\n    private readonly db: Database,\n    private readonly ctx: RequestContext,\n  ) {}\n\n  findAll() {\n    return this.db.query('select * from orders where tenant_id = $1', [this.ctx.tenantId])\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "テナント ID をリクエストごとに持ちたくて RequestContext を Scope.REQUEST にしたら、orders API の p99 が倍くらいになった。使ってるの OrdersRepository だけなのに",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。これはスコープの伝播です。Nest の公式ドキュメントにあるとおり、REQUEST スコープは注入の連鎖を上に伝わります。OrdersRepository が RequestContext に依存した時点でリポジトリもリクエストスコープになり、それを使う OrdersService と OrdersController も同じになります。言い換えると、リクエストのたびにこの連鎖のインスタンスが全部作り直されています。値だけをリクエストごとに持ち、プロバイダはシングルトンのまま保つために nestjs-cls を活用します。中身は Node の AsyncLocalStorage で、ミドルウェアが開いたコンテキストを await の先まで運びます。request-context.ts は消して、OrdersModule の providers からも外します。",
+          "reading": "するどいごしてきです。これはすこーぷのでんぱです。Nest のこうしきどきゅめんとにあるとおり、REQUEST すこーぷはちゅうにゅうのれんさをうえにつたわります。OrdersRepository が RequestContext にいぞんしたじてんでりぽじとりもりくえすとすこーぷになり、それをつかう OrdersService と OrdersController もおなじになります。いいかえると、りくえすとのたびにこのれんさのいんすたんすがぜんぶつくりなおされています。あたいだけをりくえすとごとにもち、ぷろばいだはしんぐるとんのままたもつために nestjs-cls をかつようします。なかみは Node の AsyncLocalStorage で、みどるうぇあがひらいたこんてきすとを await のさきまではこびます。request-context.ts はけして、OrdersModule の providers からもはずします。"
+        },
+        {
+          "kind": "command",
+          "body": "pnpm add nestjs-cls"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { Module } from '@nestjs/common'\nimport type { Request } from 'express'\nimport { ClsModule } from 'nestjs-cls'\nimport { OrdersModule } from './orders/orders.module'\n\n@Module({\n  imports: [\n    ClsModule.forRoot({\n      global: true,\n      middleware: {\n        mount: true,\n        setup: (cls, req: Request) => {\n          cls.set('tenantId', req.header('x-tenant-id') ?? 'public')\n        },\n      },\n    }),\n    OrdersModule,\n  ],\n})\nexport class AppModule {}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { Injectable } from '@nestjs/common'\nimport { ClsService } from 'nestjs-cls'\nimport { Database } from '../database'\n\n@Injectable()\nexport class OrdersRepository {\n  private readonly tenantId: string\n\n  constructor(\n    private readonly db: Database,\n    cls: ClsService,\n  ) {\n    this.tenantId = cls.get('tenantId')\n  }\n\n  findAll() {\n    return this.db.query('select * from orders where tenant_id = $1', [this.tenantId])\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "p99 は戻った。けど今度は全テナントで orders が空配列",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどのリポジトリに誤りがありました。シングルトンのコンストラクタは起動時に 1 回しか走らず、そのときはまだどのリクエストのコンテキストもありません。cls.get(\"tenantId\") は undefined を返し、それがフィールドに焼き付いたまま、すべてのクエリに渡っていました。RequestContext のコンストラクタで値を読んでいた書き方を、そのまま移したのが原因です。ポイントは、ClsService を注入するのは構わず、中身を読むのはメソッドが呼ばれた時点にすることです。",
+          "reading": "もうしわけありません。さきほどのりぽじとりにあやまりがありました。しんぐるとんのこんすとらくたはきどうじに 1 かいしかはしらず、そのときはまだどのりくえすとのこんてきすともありません。cls.get(\"tenantId\") は undefined をかえし、それがふぃーるどにやきついたまま、すべてのくえりにわたっていました。RequestContext のこんすとらくたであたいをよんでいたかきかたを、そのままうつしたのがげんいんです。ぽいんとは、ClsService をちゅうにゅうするのはかまわず、なかみをよむのはめそっどがよばれたじてんにすることです。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { Injectable } from '@nestjs/common'\nimport { ClsService } from 'nestjs-cls'\nimport { Database } from '../database'\n\n@Injectable()\nexport class OrdersRepository {\n  constructor(\n    private readonly db: Database,\n    private readonly cls: ClsService,\n  ) {}\n\n  findAll() {\n    const tenantId = this.cls.get<string>('tenantId')\n    return this.db.query('select * from orders where tenant_id = $1', [tenantId])\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ついでにログ用に request id も欲しい。x-request-id ヘッダ来てたらそれ、なければ生成で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。ClsModule のミドルウェアに generateId と idGenerator を足します。ID はリクエストの中ならどこからでも ClsService の getId() で読めます。Note: ミドルウェアは guard より先に走るので、mount: true のままなら guard からも同じ ID が見えます。",
+          "reading": "しょうちしました。ClsModule のみどるうぇあに generateId と idGenerator をたします。ID はりくえすとのなかならどこからでも ClsService の getId() でよめます。Note: みどるうぇあは guard よりさきにはしるので、mount: true のままなら guard からもおなじ ID がみえます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e \"/^import { Module }/a\\\\\nimport { randomUUID } from 'node:crypto'\n\" -e \"/mount: true,/a\\\\\n        generateId: true,\\\\\n        idGenerator: (req: Request) => req.header('x-request-id') ?? randomUUID(),\n\" src/app.module.ts"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "id": "tbb-parallel-for-cpp-en",
+  "title": "push_back inside parallel_for crashes now and then",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "cpp",
+  "summary": "Calling push_back on a std::vector from oneTBB parallel_for is a data race. concurrent_vector does not keep the order, so use parallel_reduce when order matters and combinable for a sum.",
+  "files": [
+    {
+      "path": "src/scan/scan.cpp",
+      "content": "#include <cstddef>\n#include <string>\n#include <vector>\n\n#include <tbb/blocked_range.h>\n#include <tbb/parallel_for.h>\n\nstruct Record {\n  std::string path;\n  std::size_t bytes;\n};\n\nstd::vector<Record> find_large(const std::vector<Record>& records, std::size_t threshold) {\n  std::vector<Record> hits;\n  tbb::parallel_for(tbb::blocked_range<std::size_t>(0, records.size()),\n      [&](const tbb::blocked_range<std::size_t>& r) {\n        for (std::size_t i = r.begin(); i != r.end(); ++i) {\n          if (records[i].bytes >= threshold) hits.push_back(records[i]);\n        }\n      });\n  return hits;\n}\n\nstd::size_t total_bytes(const std::vector<Record>& records) {\n  std::size_t sum = 0;\n  for (const auto& rec : records) sum += rec.bytes;\n  return sum;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "find_large segfaults sometimes. never with small inputs. pretty sure it started with parallel_for",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch. tbb::parallel_for splits the range and runs the pieces on several threads at once. std::vector::push_back is not thread safe. When the capacity runs out it reallocates, and another thread writes into the old buffer in the middle of that. Small inputs rarely reallocate, which is why they looked fine. tbb::concurrent_vector allows concurrent push_back, and the elements stay in the order of records."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include <tbb/concurrent_vector.h>\n\nstd::vector<Record> find_large(const std::vector<Record>& records, std::size_t threshold) {\n  tbb::concurrent_vector<Record> hits;\n  tbb::parallel_for(tbb::blocked_range<std::size_t>(0, records.size()),\n      [&](const tbb::blocked_range<std::size_t>& r) {\n        for (std::size_t i = r.begin(); i != r.end(); ++i) {\n          if (records[i].bytes >= threshold) hits.push_back(records[i]);\n        }\n      });\n  return std::vector<Record>(hits.begin(), hits.end());\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "no more crashes. but the test fails because the order changes every run. it used to be in records order",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. concurrent_vector keeps the order in which push_back calls arrive, and which thread arrives first changes from run to run. To keep records order, use tbb::parallel_reduce: build a result per subrange, then append the right one to the left one. TBB always joins left with right, so the order is deterministic even though appending is not commutative."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include <tbb/parallel_reduce.h>\n\nstd::vector<Record> find_large(const std::vector<Record>& records, std::size_t threshold) {\n  return tbb::parallel_reduce(\n      tbb::blocked_range<std::size_t>(0, records.size()), std::vector<Record>{},\n      [&](const tbb::blocked_range<std::size_t>& r, std::vector<Record> acc) {\n        for (std::size_t i = r.begin(); i != r.end(); ++i) {\n          if (records[i].bytes >= threshold) acc.push_back(records[i]);\n        }\n        return acc;\n      },\n      [](std::vector<Record> left, const std::vector<Record>& right) {\n        left.insert(left.end(), right.begin(), right.end());\n        return left;\n      });\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "tests pass. records is a few million rows and each one is tiny, isn't it splitting too fine? do chunks of like 1024",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "The third argument of blocked_range is the grainsize. Ranges smaller than that are not split further."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/blocked_range<std::size_t>(0, records\\.size())/blocked_range<std::size_t>(0, records.size(), 1024)/' src/scan/scan.cpp"
+        }
+      ]
+    },
+    {
+      "user": "while at it make total_bytes parallel too. sum += would be the same bug right. just make it atomic?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "std::atomic would be correct, but every thread would fight over one cache line, and with a loop this light that tends to be slower than running it serially. Let's keep a subtotal per thread in tbb::combinable and add them up with combine at the end. local() returns the value that belongs to the calling thread, so the loop needs no atomic operations."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include <functional>\n\n#include <tbb/combinable.h>\n\nstd::size_t total_bytes(const std::vector<Record>& records) {\n  tbb::combinable<std::size_t> partial([] { return std::size_t{0}; });\n  tbb::parallel_for(tbb::blocked_range<std::size_t>(0, records.size(), 1024),\n      [&](const tbb::blocked_range<std::size_t>& r) {\n        std::size_t& local = partial.local();\n        for (std::size_t i = r.begin(); i != r.end(); ++i) local += records[i].bytes;\n      });\n  return partial.combine(std::plus<>{});\n}\n"
+        }
+      ]
+    }
+  ]
+}

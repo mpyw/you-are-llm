@@ -1,0 +1,41 @@
+{
+  "id": "sqlite-reset-c-ja",
+  "title": "prepare をループの外に出す",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "c",
+  "summary": "1 行ごとに作り直していたステートメントを sqlite3_reset と sqlite3_clear_bindings で使い回す。",
+  "files": [
+    {
+      "path": "src/db/tags.c",
+      "content": "#include <stddef.h>\n#include <sqlite3.h>\n\nstruct tag {\n  const char *name;\n  const char *note;\n};\n\nint add_tags(sqlite3 *db, int post_id, const struct tag *tags, int n) {\n  for (int i = 0; i < n; i++) {\n    sqlite3_stmt *stmt = NULL;\n    int rc = sqlite3_prepare_v2(db, \"INSERT INTO post_tags (post_id, name, note) VALUES (?, ?, ?)\", -1, &stmt, NULL);\n    if (rc != SQLITE_OK) return rc;\n    sqlite3_bind_int(stmt, 1, post_id);\n    sqlite3_bind_text(stmt, 2, tags[i].name, -1, SQLITE_TRANSIENT);\n    if (tags[i].note != NULL) {\n      sqlite3_bind_text(stmt, 3, tags[i].note, -1, SQLITE_TRANSIENT);\n    }\n    rc = sqlite3_step(stmt);\n    sqlite3_finalize(stmt);\n    if (rc != SQLITE_DONE) return rc;\n  }\n  return SQLITE_OK;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "add_tags 遅い。プロファイラ見たら prepare_v2 がほぼ半分食ってた。タグ数百個とか普通にある",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。毎回 prepare_v2 を呼ぶと、同じ SQL を毎回構文解析してバイトコードに変換し直すことになります。ステートメントはループの外で一度だけ作り、1 行ごとに sqlite3_reset で実行前の状態に戻して使い回します。ここで、reset がバインドした値を消さないという点に注意することが重要です。note が NULL の行は 3 番目を bind しないので、そのままだと前の行の note が入ってしまいます。sqlite3_clear_bindings で全部 NULL に戻します。post_id も一緒に消えるので、ループの中で毎回 bind し直します。",
+          "reading": "しょうちしました。まいかい prepare_v2 をよぶと、おなじ SQL をまいかいこうぶんかいせきしてばいとこーどにへんかんしなおすことになります。すてーとめんとはるーぷのそとでいちどだけつくり、1 ぎょうごとに sqlite3_reset でじっこうまえのじょうたいにもどしてつかいまわします。ここで、reset がばいんどしたあたいをけさないというてんにちゅういすることがじゅうようです。note が NULL のぎょうは 3 ばんめを bind しないので、そのままだとまえのぎょうの note がはいってしまいます。sqlite3_clear_bindings でぜんぶ NULL にもどします。post_id もいっしょにきえるので、るーぷのなかでまいかい bind しなおします。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "int add_tags(sqlite3 *db, int post_id, const struct tag *tags, int n) {\n  sqlite3_stmt *stmt = NULL;\n  int rc = sqlite3_prepare_v2(db, \"INSERT INTO post_tags (post_id, name, note) VALUES (?, ?, ?)\", -1, &stmt, NULL);\n  if (rc != SQLITE_OK) return rc;\n  for (int i = 0; i < n; i++) {\n    sqlite3_bind_int(stmt, 1, post_id);\n    sqlite3_bind_text(stmt, 2, tags[i].name, -1, SQLITE_TRANSIENT);\n    if (tags[i].note != NULL) {\n      sqlite3_bind_text(stmt, 3, tags[i].note, -1, SQLITE_TRANSIENT);\n    }\n    rc = sqlite3_step(stmt);\n    if (rc != SQLITE_DONE) break;\n    sqlite3_reset(stmt);\n    sqlite3_clear_bindings(stmt);\n  }\n  sqlite3_finalize(stmt);\n  return rc == SQLITE_DONE ? SQLITE_OK : rc;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "reset の戻り値見てないけどいいの？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "良い質問です。sqlite3_reset は、直前の sqlite3_step が失敗していた場合に同じエラーコードを返します。このループでは step の結果を先に見て、SQLITE_DONE 以外なら break しているので、reset に届く時点の step は必ず成功しています。言い換えると、ここで reset が返すのは常に SQLITE_OK です。sqlite3_clear_bindings も SQLITE_OK しか返さないので、どちらも捨てて構いません。",
+          "reading": "よいしつもんです。sqlite3_reset は、ちょくぜんの sqlite3_step がしっぱいしていたばあいにおなじえらーこーどをかえします。このるーぷでは step のけっかをさきにみて、SQLITE_DONE いがいなら break しているので、reset にとどくじてんの step はかならずせいこうしています。いいかえると、ここで reset がかえすのはつねに SQLITE_OK です。sqlite3_clear_bindings も SQLITE_OK しかかえさないので、どちらもすててかまいません。"
+        }
+      ]
+    }
+  ]
+}

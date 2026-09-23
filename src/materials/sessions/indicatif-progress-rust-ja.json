@@ -1,0 +1,46 @@
+{
+  "id": "indicatif-progress-rust-ja",
+  "title": "移行スクリプトに indicatif の進捗バーを出す",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "rust",
+  "summary": "黙って 10 分走る移行ループに ProgressBar を付け、{msg} のないテンプレートで消える完了メッセージと、バーを崩すログを直す。",
+  "files": [
+    {
+      "path": "src/migrate.rs",
+      "content": "use anyhow::Result;\n\npub struct Row {\n    pub id: u64,\n    pub email: String,\n}\n\nfn copy_row(row: &Row) -> Result<()> {\n    if !row.email.contains('@') {\n        anyhow::bail!(\"row {} has no valid email\", row.id);\n    }\n    std::thread::sleep(std::time::Duration::from_millis(5));\n    Ok(())\n}\n\npub fn migrate(rows: &[Row]) -> Result<usize> {\n    let mut copied = 0;\n    for row in rows {\n        copy_row(row)?;\n        copied += 1;\n    }\n    Ok(copied)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "migrate 走らせると10分くらい無言でさ、止まってんのか動いてんのか分からん。indicatif 入れたからバー出して",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。件数が先に分かっているので、ProgressBar::new に rows.len() を渡します。見た目は ProgressStyle::with_template で決めます。テンプレートの書き間違いは実行時に TemplateError で返るので、? でそのまま呼び出し側に渡します。1 行終わるたびに inc(1) を呼び、最後に finish_with_message でバーを止めてメッセージを残します。{eta} は残り時間の見積もりで、これにより待ち時間の見通しが可能になります。",
+          "reading": "しょうちしました。けんすうがさきにわかっているので、ProgressBar::new に rows.len() をわたします。みためは ProgressStyle::with_template できめます。てんぷれーとのかきまちがいはじっこうじに TemplateError でかえるので、? でそのままよびだしがわにわたします。1 ぎょうおわるたびに inc(1) をよび、さいごに finish_with_message でばーをとめてめっせーじをのこします。{eta} はのこりじかんのみつもりで、これによりまちじかんのみとおしがかのうになります。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use indicatif::{ProgressBar, ProgressStyle};\n\npub fn migrate(rows: &[Row]) -> Result<usize> {\n    let bar = ProgressBar::new(rows.len() as u64);\n    bar.set_style(\n        ProgressStyle::with_template(\"{elapsed_precise} [{bar:40.cyan/blue}] {pos}/{len} ({eta})\")?\n            .progress_chars(\"=> \"),\n    );\n    let mut copied = 0;\n    for row in rows {\n        copy_row(row)?;\n        copied += 1;\n        bar.inc(1);\n    }\n    bar.finish_with_message(format!(\"copied {copied} rows\"));\n    Ok(copied)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "バー出た。けど最後の copied なんとか が出てない。あと1行メール壊れてるだけで全部止まるのやだ、飛ばしてどれ飛ばしたか出して",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "失礼しました。先ほどのテンプレートに {msg} がありませんでした。finish_with_message はメッセージを入れ替えてバーを止めるだけなので、置き場所がないと何も出ません。壊れた行は match で受けて、数えずに進みます。Note: ここで eprintln! を直接呼ぶと、バーの途中に文字が割り込んで表示が崩れます。bar.println も、端末でないときは何も出さないという点に注意することが重要です。bar.suspend でバーを一度消してから書き出せば、どちらの場合も残ります。",
+          "reading": "しつれいしました。さきほどのてんぷれーとに {msg} がありませんでした。finish_with_message はめっせーじをいれかえてばーをとめるだけなので、おきばしょがないとなにもでません。こわれたぎょうは match でうけて、かぞえずにすすみます。Note: ここで eprintln! をちょくせつよぶと、ばーのとちゅうにもじがわりこんでひょうじがくずれます。bar.println も、たんまつでないときはなにもださないというてんにちゅういすることがじゅうようです。bar.suspend でばーをいちどけしてからかきだせば、どちらのばあいものこります。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "pub fn migrate(rows: &[Row]) -> Result<usize> {\n    let bar = ProgressBar::new(rows.len() as u64);\n    bar.set_style(\n        ProgressStyle::with_template(\"{elapsed_precise} [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}\")?\n            .progress_chars(\"=> \"),\n    );\n    let mut copied = 0;\n    for row in rows {\n        match copy_row(row) {\n            Ok(()) => copied += 1,\n            Err(err) => bar.suspend(|| eprintln!(\"skipped: {err}\")),\n        }\n        bar.inc(1);\n    }\n    bar.finish_with_message(format!(\"copied {copied} rows\"));\n    Ok(copied)\n}\n"
+        }
+      ]
+    }
+  ]
+}

@@ -2,7 +2,7 @@
   "id": "qt-move-to-thread-cpp-en",
   "title": "Moving a QThread subclass import to moveToThread",
   "language": "en",
-  "difficulty": "expert",
+  "difficulty": "hard",
   "codeLanguage": "cpp",
   "summary": "Split a QThread that overrides run() into a worker object and moveToThread it. An object with a parent cannot be moved.",
   "files": [

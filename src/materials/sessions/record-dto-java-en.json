@@ -2,7 +2,7 @@
   "id": "record-dto-java-en",
   "title": "Map an entity-returning controller onto a record DTO",
   "language": "en",
-  "difficulty": "normal",
+  "difficulty": "easy",
   "codeLanguage": "java",
   "summary": "GET /users fails on a lazy collection and was leaking passwordHash, so it returns a record instead.",
   "files": [

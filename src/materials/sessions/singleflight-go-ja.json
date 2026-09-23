@@ -1,0 +1,60 @@
+{
+  "id": "singleflight-go-ja",
+  "title": "キャッシュが切れた瞬間に同じ問い合わせが数百本走る",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "go",
+  "summary": "キャッシュスタンピードを singleflight の Group.Do でまとめる。先頭の呼び出しの ctx が全員に効くので DoChan と WithoutCancel で切り離す。エラーも全員に共有される。",
+  "files": [
+    {
+      "path": "internal/catalog/service.go",
+      "content": "package catalog\n\nimport (\n  \"context\"\n  \"time\"\n)\n\ntype Service struct {\n  cache Cache\n  store *Store\n}\n\nfunc (s *Service) Product(ctx context.Context, id string) (*Product, error) {\n  key := \"product:\" + id\n  if p, ok := s.cache.Get(key); ok {\n    return p, nil\n  }\n  p, err := s.store.Find(ctx, id)\n  if err != nil {\n    return nil, err\n  }\n  s.cache.Set(key, p, 5*time.Minute)\n  return p, nil\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "人気商品のキャッシュが切れた瞬間に同じ SELECT が 300 本くらい同時に飛んで DB の CPU が張り付く。5 分ごとにこれ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。これはキャッシュスタンピードと呼ばれる現象です。Get が外れてから Set されるまでの間に来たリクエストが、全員そろって store.Find を呼んでいます。golang.org/x/sync/singleflight の Group.Do を活用します。同じキーで実行中の呼び出しがあれば、後から来た側は関数を実行せずにその結果を待ちます。DB に届くのはキーごとに 1 本だけになります。Group はゼロ値で使えるので、Service に埋めるだけで初期化は要りません。",
+          "reading": "するどいごしてきです。これはキャッシュスタンピードとよばれるげんしょうです。Get がはずれてから Set されるまでのあいだにきたリクエストが、ぜんいんそろって store.Find をよんでいます。golang.org/x/sync/singleflight の Group.Do をかつようします。おなじキーでじっこうちゅうのよびだしがあれば、あとからきたがわはかんすうをじっこうせずにそのけっかをまちます。DB にとどくのはキーごとに 1 ぽんだけになります。Group はゼロちでつかえるので、Service にうめるだけでしょきかはいりません。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "type Service struct {\n  cache Cache\n  store *Store\n  group singleflight.Group\n}\n\nfunc (s *Service) Product(ctx context.Context, id string) (*Product, error) {\n  key := \"product:\" + id\n  if p, ok := s.cache.Get(key); ok {\n    return p, nil\n  }\n  v, err, _ := s.group.Do(key, func() (any, error) {\n    p, err := s.store.Find(ctx, id)\n    if err != nil {\n      return nil, err\n    }\n    s.cache.Set(key, p, 5*time.Minute)\n    return p, nil\n  })\n  if err != nil {\n    return nil, err\n  }\n  return v.(*Product), nil\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "DB は落ち着いた。けどたまに待ってた全員が context canceled で 500 になる。アクセスログ見ると毎回最初のリクエストのクライアントが切断してる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "重要な訂正があります。先ほどのコードは、関数の中で呼び出し元の ctx をそのまま使っていました。Do の関数を実際に走らせるのは最初に来た 1 人だけなので、その人の ctx が全員の問い合わせに効きます。その人が切断すると Find が context canceled で終わり、そのエラーが待っていた全員に配られます。関数の中では context.WithoutCancel で呼び出し元のキャンセルを切り離し、独自のタイムアウトを付けます。待つ側は DoChan に替えて select し、自分の ctx が切れたら自分だけ抜けます。抜けても問い合わせ自体は続くので、結果はキャッシュに入ります。",
+          "reading": "じゅうようなていせいがあります。さきほどのコードは、かんすうのなかでよびだしもとの ctx をそのままつかっていました。Do のかんすうをじっさいにはしらせるのはさいしょにきた 1 にんだけなので、そのひとの ctx がぜんいんのといあわせにききます。そのひとがせつだんすると Find が context canceled でおわり、そのエラーがまっていたぜんいんにくばられます。かんすうのなかでは context.WithoutCancel でよびだしもとのキャンセルをきりはなし、どくじのタイムアウトをつけます。まつがわは DoChan にかえて select し、じぶんの ctx がきれたらじぶんだけぬけます。ぬけてもといあわせじたいはつづくので、けっかはキャッシュにはいります。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (s *Service) Product(ctx context.Context, id string) (*Product, error) {\n  key := \"product:\" + id\n  if p, ok := s.cache.Get(key); ok {\n    return p, nil\n  }\n  ch := s.group.DoChan(key, func() (any, error) {\n    ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)\n    defer cancel()\n    p, err := s.store.Find(ctx, id)\n    if err != nil {\n      return nil, err\n    }\n    s.cache.Set(key, p, 5*time.Minute)\n    return p, nil\n  })\n  select {\n  case <-ctx.Done():\n    return nil, ctx.Err()\n  case res := <-ch:\n    if res.Err != nil {\n      return nil, res.Err\n    }\n    return res.Val.(*Product), nil\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "DB が一瞬詰まってタイムアウトしたら、そのとき待ってた全員 500 だった。これも仕様？ あと 3 秒は長い、500ms で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "仕様です。singleflight は結果だけでなくエラーも全員に同じものを返します。ここで全員が個別にリトライすると、まとめた意味がなくなり、詰まっている DB にまた 300 本飛ぶことになります。言い換えると、エラーはキャッシュされないので、この呼び出しが終わった次のリクエストからは改めて DB に行きます。もう一つ、res.Val の *Product は全員で同じポインタを共有している点に注意することが重要です。受け取った側で書き換えないでください。タイムアウトは 1 箇所なので sed で置き換えます。",
+          "reading": "しようです。singleflight はけっかだけでなくエラーもぜんいんにおなじものをかえします。ここでぜんいんがこべつにリトライすると、まとめたいみがなくなり、つまっている DB にまた 300 ぽんとぶことになります。いいかえると、エラーはキャッシュされないので、このよびだしがおわったつぎのリクエストからはあらためて DB にいきます。もうひとつ、res.Val の *Product はぜんいんでおなじポインタをきょうゆうしているてんにちゅういすることがじゅうようです。うけとったがわでかきかえないでください。タイムアウトは 1 かしょなので sed でおきかえます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/3\\*time.Second/500*time.Millisecond/' internal/catalog/service.go"
+        }
+      ]
+    }
+  ]
+}

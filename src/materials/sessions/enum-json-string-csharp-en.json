@@ -1,0 +1,48 @@
+{
+  "id": "enum-json-string-csharp-en",
+  "title": "Shipment status comes back as a number",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "csharp",
+  "summary": "System.Text.Json writes enums as integers. Put JsonStringEnumConverter on one property, then register it for every enum with ConfigureHttpJsonOptions.",
+  "files": [
+    {
+      "path": "src/Shipments/Shipment.cs",
+      "content": "namespace Acme.Shipments;\n\npublic enum ShipmentStatus\n{\n    Pending,\n    InTransit,\n    Delivered,\n    Returned,\n}\n\npublic enum Carrier\n{\n    Yamato,\n    Sagawa,\n    JapanPost,\n}\n\npublic sealed record Shipment(int Id, string TrackingNumber, ShipmentStatus Status, Carrier Carrier);\n"
+    },
+    {
+      "path": "src/Program.cs",
+      "content": "using Acme.Shipments;\n\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddSingleton<IShipmentRepository, InMemoryShipmentRepository>();\n\nvar app = builder.Build();\n\napp.MapGet(\"/shipments/{id:int}\", async (int id, IShipmentRepository shipments) =>\n    await shipments.FindAsync(id) is { } shipment\n        ? Results.Ok(shipment)\n        : Results.NotFound());\n\napp.Run();\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "frontend asked what status: 1 means. can it be a string",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! By default System.Text.Json writes an enum as its underlying integer, so InTransit becomes 1. Putting JsonStringEnumConverter on Status writes the name instead, and reading accepts the name too. Status is a positional record parameter, so the property: target is what moves the attribute onto the property. The generic version, new in .NET 8, also works under Native AOT."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using System.Text.Json.Serialization;\n\nnamespace Acme.Shipments;\n\npublic sealed record Shipment(\n    int Id,\n    string TrackingNumber,\n    [property: JsonConverter(typeof(JsonStringEnumConverter<ShipmentStatus>))] ShipmentStatus Status,\n    Carrier Carrier);\n"
+        }
+      ]
+    },
+    {
+      "user": "carrier is a number too. just make every enum a string, not doing this per property",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the global version. Drop the attribute and register the converter once in the Minimal API serializer options. It has to cover every enum, so this one is the non-generic JsonStringEnumConverter. Note: ConfigureHttpJsonOptions only reaches Minimal APIs and Results. If you also have controllers, they need the same converter in AddControllers().AddJsonOptions."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "// src/Program.cs\nusing System.Text.Json.Serialization;\nusing Acme.Shipments;\n\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddSingleton<IShipmentRepository, InMemoryShipmentRepository>();\nbuilder.Services.ConfigureHttpJsonOptions(options =>\n    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));\n\n// src/Shipments/Shipment.cs\npublic sealed record Shipment(int Id, string TrackingNumber, ShipmentStatus Status, Carrier Carrier);\n"
+        }
+      ]
+    }
+  ]
+}

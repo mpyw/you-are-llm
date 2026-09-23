@@ -1,0 +1,43 @@
+{
+  "id": "go-embed-go-en",
+  "title": "Templates not found when started from another directory",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "go",
+  "summary": "Templates and static files were read by relative path at run time. Put them in the binary with //go:embed and serve them through fs.Sub and http.FS. A directory starting with _ gets dropped, so pick it up with all:.",
+  "files": [
+    {
+      "path": "main.go",
+      "content": "package main\n\nimport (\n  \"html/template\"\n  \"log\"\n  \"net/http\"\n)\n\nvar tmpl = template.Must(template.ParseGlob(\"templates/*.html\"))\n\nfunc main() {\n  mux := http.NewServeMux()\n  mux.Handle(\"/static/\", http.StripPrefix(\"/static/\", http.FileServer(http.Dir(\"static\"))))\n  mux.HandleFunc(\"/\", func(w http.ResponseWriter, r *http.Request) {\n    if err := tmpl.ExecuteTemplate(w, \"index.html\", nil); err != nil {\n      http.Error(w, err.Error(), http.StatusInternalServerError)\n    }\n  })\n  log.Fatal(http.ListenAndServe(\":8080\", mux))\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "works with go run . but under systemd as /usr/local/bin/web it dies right away with panic: html/template: pattern matches no files: `templates/*.html`. the files ARE on the server",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. ParseGlob and http.Dir both resolve a relative path from the working directory of the process, not from where the binary lives. go run . runs in the repository root, so it finds them. A systemd service starts in / by default. With //go:embed the files go into the binary, which guarantees the same content wherever it starts. Inside the embedded static the path is static/app.css, so strip one level with fs.Sub before handing it to http.FS."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "package main\n\nimport (\n  \"embed\"\n  \"html/template\"\n  \"io/fs\"\n  \"log\"\n  \"net/http\"\n)\n\n//go:embed templates/*.html\nvar templateFS embed.FS\n\n//go:embed static\nvar staticFS embed.FS\n\nvar tmpl = template.Must(template.ParseFS(templateFS, \"templates/*.html\"))\n\nfunc main() {\n  static, err := fs.Sub(staticFS, \"static\")\n  if err != nil {\n    log.Fatal(err)\n  }\n  mux := http.NewServeMux()\n  mux.Handle(\"/static/\", http.StripPrefix(\"/static/\", http.FileServer(http.FS(static))))\n  mux.HandleFunc(\"/\", func(w http.ResponseWriter, r *http.Request) {\n    if err := tmpl.ExecuteTemplate(w, \"index.html\", nil); err != nil {\n      http.Error(w, err.Error(), http.StatusInternalServerError)\n    }\n  })\n  log.Fatal(http.ListenAndServe(\":8080\", mux))\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "it starts now. but everything under static/_app/ is 404. its the frontend build output as is",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch! When //go:embed names a directory, it silently leaves out files and directories whose names start with . or _. The _app that SvelteKit writes is exactly that. Prefix the pattern with all: and nothing is left out. Note: hidden files such as .DS_Store get in too after this."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's|//go:embed static|//go:embed all:static|' main.go"
+        }
+      ]
+    }
+  ]
+}

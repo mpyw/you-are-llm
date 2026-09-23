@@ -1,0 +1,45 @@
+{
+  "id": "glib-gstring-c-ja",
+  "title": "strcat の連結を GString にする",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "c",
+  "summary": "64 バイト決め打ちの malloc と strcat をやめ、GString と g_string_append_printf で組み立てて g_string_free の戻り値を返す。",
+  "files": [
+    {
+      "path": "src/log/tags.c",
+      "content": "#include <stdlib.h>\n#include <string.h>\n\nchar *join_tags(const char **tags, size_t n) {\n  char *out = malloc(64);\n  strcpy(out, \"tags:\");\n  for (size_t i = 0; i < n; i++) {\n    if (i > 0) strcat(out, \",\");\n    strcat(out, tags[i]);\n  }\n  return out;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "join_tags、タグ多いと落ちる。glib はもうリンクしてるから GString でいいよ。あと先頭に件数も出したい tags=3:a,b,c みたいな",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。malloc(64) の固定長に strcat で足していくため、合計が 64 バイトを超えた時点で確保した領域の外に書き込んでいます。GString は追記のたびに必要なだけ領域を伸ばすので、長さを数える必要がありません。件数は g_string_append_printf で書式付きのまま追記します。ポイントは最後の g_string_free(s, FALSE) です。FALSE を渡すと GString の器だけを解放し、中身の文字列を戻り値として返します。言い換えると、この戻り値を捨てると文字列がリークします。",
+          "reading": "かしこまりました。malloc(64) のこていちょうに strcat でたしていくため、ごうけいが 64 ばいとをこえたじてんでかくほしたりょういきのそとにかきこんでいます。GString はついきのたびにひつようなだけりょういきをのばすので、ながさをかぞえるひつようがありません。けんすうは g_string_append_printf でしょしきつきのままついきします。ぽいんとはさいごの g_string_free(s, FALSE) です。FALSE をわたすと GString のうつわだけをかいほうし、なかみのもじれつをもどりちとしてかえします。いいかえると、このもどりちをすてるともじれつがりーくします。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#include <glib.h>\n\ngchar *join_tags(const char **tags, size_t n) {\n  GString *s = g_string_new(NULL);\n  g_string_append_printf(s, \"tags=%zu:\", n);\n  for (size_t i = 0; i < n; i++) {\n    if (i > 0) g_string_append_c(s, ',');\n    g_string_append(s, tags[i]);\n  }\n  return g_string_free(s, FALSE);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "呼ぶ側 free() してるけどそのままでいい？ あと , のあとにスペースほしい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "呼び出し側は g_free に変えてください。GLib が確保したメモリは GLib の解放関数で返すのが堅牢です。今の GLib では g_free は free を呼ぶだけですが、それは実装の詳細であって約束ではありません。区切りは 1 文字を足す g_string_append_c から、文字列を足す g_string_append に替えます。",
+          "reading": "よびだしがわは g_free にかえてください。GLib がかくほしためもりは GLib のかいほうかんすうでかえすのがけんろうです。いまの GLib では g_free は free をよぶだけですが、それはじっそうのしょうさいであってやくそくではありません。くぎりは 1 もじをたす g_string_append_c から、もじれつをたす g_string_append にかえます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' \"s/g_string_append_c(s, ',')/g_string_append(s, \\\", \\\")/\" src/log/tags.c"
+        }
+      ]
+    }
+  ]
+}
