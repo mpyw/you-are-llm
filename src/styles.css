@@ -800,13 +800,16 @@ h2 {
 .typing-target .space[data-eol]::after {
   content: '';
   position: absolute;
-  inset-inline: 0.08em;
-  inset-block-end: 0.2em;
-  block-size: 0.3em;
-  min-inline-size: 0.2em;
-  border: 1.5px solid var(--accent);
+  /* Kept off the letter before it, so the box reads as its own thing. A space
+     that is narrower than the gap lets the box run past it, which is harmless
+     at the end of a line. */
+  inset-inline-start: 0.22em;
+  inset-block-end: 0.22em;
+  inline-size: 0.34em;
+  block-size: 0.28em;
+  border: 1px solid var(--accent);
   border-block-start: none;
-  opacity: 0.8;
+  opacity: 0.75;
 }
 
 .typing-target .is-done .newline::before,
