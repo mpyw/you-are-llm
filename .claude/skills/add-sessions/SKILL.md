@@ -105,13 +105,14 @@ Then grade the new sessions, which is measured rather than chosen.
 node scripts/typing-load.mjs --apply
 ```
 
-Then update the total, which lives in three places by hand. `pnpm material:report` prints them.
+Then update the total, which lives in four places by hand. `pnpm material:report` prints them.
 
 | Place | What to change |
 | --- | --- |
 | `scripts/og.html` | The count in the footer strip |
 | `index.html` | `og:description` and `twitter:description` |
 | `README.md` | The Status section |
+| The GitHub description | `gh repo edit --description "..."`, which is outside the repository |
 
 Render both preview images again, per `docs/social-preview.md`. Then commit, push, and confirm the
 deploy finished before saying it is live.

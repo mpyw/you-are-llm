@@ -59,6 +59,7 @@ function main() {
   console.log(`  scripts/og.html          <b>${sessions.length}</b> sessions`)
   console.log(`  index.html               og:description and twitter:description`)
   console.log(`  README.md                the Status section`)
+  console.log(`  GitHub description       gh repo edit --description "..."`)
   console.log('\nThen render both preview images again, per docs/social-preview.md.')
 }
 
