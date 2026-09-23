@@ -1,0 +1,43 @@
+{
+  "id": "sqlite-column-text-c-en",
+  "title": "Stop keeping sqlite3_column_text pointers",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "c",
+  "summary": "Copy each sqlite3_column_text result with strdup before the next sqlite3_step invalidates it.",
+  "files": [
+    {
+      "path": "src/db/tags.c",
+      "content": "#include <stdlib.h>\n#include <sqlite3.h>\n\nint load_tags(sqlite3 *db, const char **tags, int max) {\n  sqlite3_stmt *stmt = NULL;\n  int n = 0;\n  if (sqlite3_prepare_v2(db, \"SELECT name FROM tags ORDER BY name\", -1, &stmt, NULL) != SQLITE_OK) {\n    return -1;\n  }\n  while (n < max && sqlite3_step(stmt) == SQLITE_ROW) {\n    tags[n++] = (const char *)sqlite3_column_text(stmt, 0);\n  }\n  sqlite3_finalize(stmt);\n  return n;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "the tag list from load_tags prints garbage, or the same string over and over. the db itself is fine",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch! The pointer from sqlite3_column_text points into a buffer SQLite owns, and it is only valid until the next sqlite3_step or sqlite3_finalize. The loop stores that pointer and moves to the next row, so the entry gets overwritten or ends up pointing at freed memory. TL;DR: strdup each row, and the caller releases the copies with free_tags. This guarantees the strings no longer depend on the statement's lifetime."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#include <stdlib.h>\n#include <string.h>\n#include <sqlite3.h>\n\nint load_tags(sqlite3 *db, char **tags, int max) {\n  sqlite3_stmt *stmt = NULL;\n  int n = 0;\n  if (sqlite3_prepare_v2(db, \"SELECT name FROM tags ORDER BY name\", -1, &stmt, NULL) != SQLITE_OK) {\n    return -1;\n  }\n  while (n < max && sqlite3_step(stmt) == SQLITE_ROW) {\n    const char *name = (const char *)sqlite3_column_text(stmt, 0);\n    char *copy = strdup(name);\n    if (copy == NULL) break;\n    tags[n++] = copy;\n  }\n  sqlite3_finalize(stmt);\n  return n;\n}\n\nvoid free_tags(char **tags, int n) {\n  for (int i = 0; i < n; i++) free(tags[i]);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "fixed. but rows where name is NULL crash it now. just skip those",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "For a NULL column sqlite3_column_text returns NULL, and strdup(NULL) is undefined behavior. Since skipping is fine, filtering in the SQL is simpler than adding a defensive branch in C."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/FROM tags ORDER BY/FROM tags WHERE name IS NOT NULL ORDER BY/' src/db/tags.c"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,87 @@
+{
+  "id": "qt-concurrent-cpp-ja",
+  "title": "スキャン中にウィンドウが応答なしになる",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "cpp",
+  "summary": "重い処理を QtConcurrent::run でスレッドプールに出し、結果は QFutureWatcher で GUI スレッドに受け取る。watcher はスタックに置かず、ワーカーからウィジェットは触らない。",
+  "files": [
+    {
+      "path": "src/ui/mainwindow.h",
+      "content": "#pragma once\n\n#include <QLabel>\n#include <QLineEdit>\n#include <QMainWindow>\n#include <QPushButton>\n\nclass MainWindow : public QMainWindow\n{\n    Q_OBJECT\npublic:\n    explicit MainWindow(QWidget *parent = nullptr);\n\nprivate:\n    void onScanClicked();\n\n    QLineEdit *m_pathEdit;\n    QPushButton *m_scanButton;\n    QLabel *m_statusLabel;\n};\n"
+    },
+    {
+      "path": "src/ui/mainwindow.cpp",
+      "content": "#include \"mainwindow.h\"\n\n#include \"scan/scanner.h\"\n\nvoid MainWindow::onScanClicked()\n{\n    const QString dir = m_pathEdit->text();\n    m_statusLabel->setText(tr(\"Scanning...\"));\n    const ScanResult result = scanDirectory(dir);\n    m_statusLabel->setText(tr(\"%1 files, %2 duplicates\").arg(result.files).arg(result.duplicates));\n}\n"
+    },
+    {
+      "path": "src/scan/scanner.h",
+      "content": "#pragma once\n\n#include <QString>\n\nstruct ScanResult {\n    int files = 0;\n    int duplicates = 0;\n};\n\nScanResult scanDirectory(const QString &dir);\n"
+    },
+    {
+      "path": "src/scan/scanner.cpp",
+      "content": "#include \"scanner.h\"\n\n#include <QCryptographicHash>\n#include <QDirIterator>\n#include <QFile>\n#include <QSet>\n\nScanResult scanDirectory(const QString &dir)\n{\n    QSet<QByteArray> seen;\n    ScanResult result;\n    QDirIterator it(dir, QDir::Files, QDirIterator::Subdirectories);\n    while (it.hasNext()) {\n        QFile file(it.next());\n        if (!file.open(QIODevice::ReadOnly))\n            continue;\n        QCryptographicHash hash(QCryptographicHash::Sha256);\n        hash.addData(&file);\n        const QByteArray digest = hash.result();\n        ++result.files;\n        if (seen.contains(digest))\n            ++result.duplicates;\n        else\n            seen.insert(digest);\n    }\n    return result;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "フォルダ内の重複ファイル探すやつ、スキャン押すと数十秒「応答なし」になる。Scanning... すら出ない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。onScanClicked は GUI スレッドで呼ばれ、scanDirectory が終わるまで戻りません。その間はイベントループが止まるので、setText で頼んだ再描画もクリックも処理されません。Scanning... が出ないのも同じ理由で、描画は関数から戻ったあとに行われ、その時点で文字列はもう結果に置き換わっています。重い処理は QtConcurrent::run でスレッドプールに渡し、QFutureWatcher の finished を GUI スレッドで受け取るのがベストプラクティスです。dir は値でキャプチャし、finished を connect してから setFuture を呼びます。",
+          "reading": "しょうちしました。onScanClicked は GUI すれっどでよばれ、scanDirectory がおわるまでもどりません。そのあいだはいべんとるーぷがとまるので、setText でたのんださいびょうがもくりっくもしょりされません。Scanning... がでないのもおなじりゆうで、びょうがはかんすうからもどったあとにおこなわれ、そのじてんでもじれつはもうけっかにおきかわっています。おもいしょりは QtConcurrent::run ですれっどぷーるにわたし、QFutureWatcher の finished を GUI すれっどでうけとるのがべすとぷらくてぃすです。dir はあたいできゃぷちゃし、finished を connect してから setFuture をよびます。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include \"mainwindow.h\"\n\n#include <QFutureWatcher>\n#include <QtConcurrent/QtConcurrentRun>\n\n#include \"scan/scanner.h\"\n\nvoid MainWindow::onScanClicked()\n{\n    const QString dir = m_pathEdit->text();\n    m_scanButton->setEnabled(false);\n    m_statusLabel->setText(tr(\"Scanning...\"));\n\n    QFutureWatcher<ScanResult> watcher;\n    connect(&watcher, &QFutureWatcherBase::finished, this, [this, &watcher] {\n        const ScanResult result = watcher.result();\n        m_statusLabel->setText(tr(\"%1 files, %2 duplicates\").arg(result.files).arg(result.duplicates));\n        m_scanButton->setEnabled(true);\n    });\n    watcher.setFuture(QtConcurrent::run([dir] { return scanDirectory(dir); }));\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "固まらなくはなった。けど Scanning... のまま永遠に終わらん。ボタンも押せないまま",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどのコードで watcher をスタック上のローカル変数にしていました。onScanClicked を抜けた時点で watcher は破棄され、そのデストラクタは future を待ちません。スキャン自体はスレッドプールで最後まで走りますが、受け取る側がもう居ないので、finished はどこにも届きません。言い換えると、lambda が捕まえた &watcher も、仮に呼ばれていたら破棄済みのオブジェクトを指していました。watcher はヒープに作って this を親にし、finished の最後で deleteLater します。",
+          "reading": "もうしわけありません。さきほどのこーどで watcher をすたっくじょうのろーかるへんすうにしていました。onScanClicked をぬけたじてんで watcher ははきされ、そのですとらくたは future をまちません。すきゃんじたいはすれっどぷーるでさいごまではしりますが、うけとるがわがもういないので、finished はどこにもとどきません。いいかえると、lambda がつかまえた &watcher も、かりによばれていたらはきずみのおぶじぇくとをさしていました。watcher はひーぷにつくって this をおやにし、finished のさいごで deleteLater します。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^    QFutureWatcher<ScanResult> watcher;$/    auto *watcher = new QFutureWatcher<ScanResult>(this);/; s/&watcher/watcher/g; s/watcher\\./watcher->/g; s/^        m_scanButton->setEnabled(true);$/&\\\n        watcher->deleteLater();/' src/ui/mainwindow.cpp"
+        }
+      ]
+    },
+    {
+      "user": "結果出た。プログレスバーとキャンセルボタン置いた（m_progressBar と m_cancelButton）。進捗は scanDirectory の中で m_progressBar->setValue 呼べばいいよね？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: ワーカーからウィジェットを直接触るのは避けてください。QWidget とその派生は GUI スレッドでしか使えず、別のスレッドから setValue を呼ぶと、たまにしか再現しない種類のクラッシュになります。代わりに Qt 6 の QPromise を使います。関数の最初の引数を QPromise<ScanResult> & にすると、QtConcurrent::run が promise を渡してくれるので、進捗はそこへ報告し、isCanceled() でキャンセルを確かめます。scanner.h も #include <QPromise> を足して、宣言を同じ形に変えてください。",
+          "reading": "Note: わーかーからうぃじぇっとをちょくせつさわるのはさけてください。QWidget とそのはせいは GUI すれっどでしかつかえず、べつのすれっどから setValue をよぶと、たまにしかさいげんしないしゅるいのくらっしゅになります。かわりに Qt 6 の QPromise をつかいます。かんすうのさいしょのひきすうを QPromise<ScanResult> & にすると、QtConcurrent::run が promise をわたしてくれるので、しんちょくはそこへほうこくし、isCanceled() できゃんせるをたしかめます。scanner.h も #include <QPromise> をたして、せんげんをおなじかたちにかえてください。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "void scanDirectory(QPromise<ScanResult> &promise, const QString &dir)\n{\n    QStringList paths;\n    QDirIterator it(dir, QDir::Files, QDirIterator::Subdirectories);\n    while (it.hasNext())\n        paths << it.next();\n    promise.setProgressRange(0, int(paths.size()));\n\n    QSet<QByteArray> seen;\n    ScanResult result;\n    for (qsizetype i = 0; i < paths.size(); ++i) {\n        if (promise.isCanceled())\n            return;\n        promise.setProgressValue(int(i + 1));\n\n        QFile file(paths[i]);\n        if (!file.open(QIODevice::ReadOnly))\n            continue;\n        QCryptographicHash hash(QCryptographicHash::Sha256);\n        hash.addData(&file);\n        const QByteArray digest = hash.result();\n        ++result.files;\n        if (seen.contains(digest))\n            ++result.duplicates;\n        else\n            seen.insert(digest);\n    }\n    promise.addResult(result);\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "Here's 呼び出し側です。watcher は GUI スレッドに住んでいるので、progressValueChanged も GUI スレッドで届き、QProgressBar::setValue に直接つなげます。キャンセルボタンは watcher を受け手にして cancel につなぐので、watcher が消えれば接続も一緒に切れます。キャンセルされた future には結果が無いので、result() を読む前に isCanceled() を確かめます。",
+          "reading": "Here's よびだしがわです。watcher は GUI すれっどにすんでいるので、progressValueChanged も GUI すれっどでとどき、QProgressBar::setValue にちょくせつつなげます。きゃんせるぼたんは watcher をうけてにして cancel につなぐので、watcher がきえればせつぞくもいっしょにきれます。きゃんせるされた future にはけっかがないので、result() をよむまえに isCanceled() をたしかめます。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "void MainWindow::onScanClicked()\n{\n    const QString dir = m_pathEdit->text();\n    m_scanButton->setEnabled(false);\n    m_cancelButton->setEnabled(true);\n    m_statusLabel->setText(tr(\"Scanning...\"));\n\n    auto *watcher = new QFutureWatcher<ScanResult>(this);\n    connect(watcher, &QFutureWatcherBase::progressRangeChanged, m_progressBar, &QProgressBar::setRange);\n    connect(watcher, &QFutureWatcherBase::progressValueChanged, m_progressBar, &QProgressBar::setValue);\n    connect(m_cancelButton, &QPushButton::clicked, watcher, &QFutureWatcherBase::cancel);\n    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher] {\n        if (watcher->isCanceled()) {\n            m_statusLabel->setText(tr(\"Canceled\"));\n        } else {\n            const ScanResult result = watcher->result();\n            m_statusLabel->setText(tr(\"%1 files, %2 duplicates\").arg(result.files).arg(result.duplicates));\n        }\n        m_scanButton->setEnabled(true);\n        m_cancelButton->setEnabled(false);\n        watcher->deleteLater();\n    });\n    watcher->setFuture(QtConcurrent::run(scanDirectory, dir));\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "まとめると、setProgressValue の通知は Qt の側で間引かれるので、ファイルごとに呼んでもシグナルが溢れることはありません。",
+          "reading": "まとめると、setProgressValue のつうちは Qt のがわでまびかれるので、ふぁいるごとによんでもしぐなるがあふれることはありません。"
+        }
+      ]
+    }
+  ]
+}

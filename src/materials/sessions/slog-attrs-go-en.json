@@ -3,7 +3,7 @@
   "title": "From log.Printf to structured slog",
   "language": "en",
   "codeLanguage": "go",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "files": [
     {
       "path": "internal/worker/worker.go",

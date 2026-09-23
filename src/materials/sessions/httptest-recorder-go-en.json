@@ -1,0 +1,48 @@
+{
+  "id": "httptest-recorder-go-en",
+  "title": "Stop starting a real server in handler tests",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "go",
+  "summary": "Replace a test server started with ListenAndServe and Sleep by httptest.NewRecorder and NewRequest, then go back through the router.",
+  "files": [
+    {
+      "path": "internal/api/router.go",
+      "content": "package api\n\nimport (\n  \"encoding/json\"\n  \"net/http\"\n)\n\nfunc NewRouter() http.Handler {\n  mux := http.NewServeMux()\n  mux.HandleFunc(\"GET /healthz\", Health)\n  return mux\n}\n\nfunc Health(w http.ResponseWriter, r *http.Request) {\n  w.Header().Set(\"Content-Type\", \"application/json\")\n  json.NewEncoder(w).Encode(map[string]string{\"status\": \"ok\"})\n}\n"
+    },
+    {
+      "path": "internal/api/health_test.go",
+      "content": "package api\n\nimport (\n  \"io\"\n  \"net/http\"\n  \"testing\"\n  \"time\"\n)\n\nfunc TestHealth(t *testing.T) {\n  go http.ListenAndServe(\":8080\", NewRouter())\n  time.Sleep(100 * time.Millisecond)\n\n  resp, err := http.Get(\"http://localhost:8080/healthz\")\n  if err != nil {\n    t.Fatal(err)\n  }\n  defer resp.Body.Close()\n\n  if resp.StatusCode != http.StatusOK {\n    t.Fatalf(\"status = %d\", resp.StatusCode)\n  }\n  body, _ := io.ReadAll(resp.Body)\n  if string(body) != `{\"status\":\"ok\"}`+\"\\n\" {\n    t.Fatalf(\"body = %q\", body)\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "health test flakes on CI sometimes. pretty sure something else is on 8080. can i test this without a server",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! httptest.NewRecorder is an http.ResponseWriter that keeps whatever the handler writes: the status, the headers and the body. Build a request with httptest.NewRequest, hand both to the handler, and there is no port and no Sleep. Nothing goes over the network, so the result is deterministic even when tests run in parallel."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "package api\n\nimport (\n  \"net/http\"\n  \"net/http/httptest\"\n  \"testing\"\n)\n\nfunc TestHealth(t *testing.T) {\n  req := httptest.NewRequest(http.MethodGet, \"/healthz\", nil)\n  rec := httptest.NewRecorder()\n\n  Health(rec, req)\n\n  if rec.Code != http.StatusOK {\n    t.Fatalf(\"status = %d\", rec.Code)\n  }\n  if got := rec.Body.String(); got != `{\"status\":\"ok\"}`+\"\\n\" {\n    t.Fatalf(\"body = %q\", got)\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "passes. but the old one went through NewRouter right? now a wrong path would still pass. also want to check POST gets a 405",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Good catch. My previous version called Health directly, so it skipped routing entirely. Pass rec and req to ServeHTTP on the http.Handler that NewRouter() returns, and the path and method matching are tested too. Since Go 1.22 the ServeMux pattern GET /healthz also checks the method, so a POST gets a 405."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func TestHealth(t *testing.T) {\n  req := httptest.NewRequest(http.MethodGet, \"/healthz\", nil)\n  rec := httptest.NewRecorder()\n\n  NewRouter().ServeHTTP(rec, req)\n\n  if rec.Code != http.StatusOK {\n    t.Fatalf(\"status = %d\", rec.Code)\n  }\n  if got := rec.Body.String(); got != `{\"status\":\"ok\"}`+\"\\n\" {\n    t.Fatalf(\"body = %q\", got)\n  }\n}\n\nfunc TestHealthRejectsPost(t *testing.T) {\n  req := httptest.NewRequest(http.MethodPost, \"/healthz\", nil)\n  rec := httptest.NewRecorder()\n\n  NewRouter().ServeHTTP(rec, req)\n\n  if rec.Code != http.StatusMethodNotAllowed {\n    t.Fatalf(\"status = %d\", rec.Code)\n  }\n}\n"
+        }
+      ]
+    }
+  ]
+}

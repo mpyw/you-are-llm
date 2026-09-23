@@ -1,0 +1,60 @@
+{
+  "id": "clap-subcommands-rust-ja",
+  "title": "文字列の action を clap の Subcommand に分ける",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "rust",
+  "summary": "match で文字列を振り分けていた CLI を Subcommand の enum にし、--db が後ろに書けないのを global = true で直す。",
+  "files": [
+    {
+      "path": "src/main.rs",
+      "content": "use clap::Parser;\n\n#[derive(Parser)]\nstruct Cli {\n    action: String,\n    title: Option<String>,\n    #[arg(long)]\n    id: Option<u32>,\n    #[arg(long)]\n    all: bool,\n}\n\nfn add(title: &str) {\n    println!(\"added: {title}\");\n}\n\nfn list(all: bool) {\n    println!(\"listing (all = {all})\");\n}\n\nfn done(id: u32) {\n    println!(\"done: {id}\");\n}\n\nfn main() {\n    let cli = Cli::parse();\n    match cli.action.as_str() {\n        \"add\" => add(&cli.title.expect(\"title is required\")),\n        \"list\" => list(cli.all),\n        \"done\" => done(cli.id.expect(\"--id is required\")),\n        other => eprintln!(\"unknown action: {other}\"),\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "todo の CLI、action を文字列で受けて match してるんだけど、add なのに --id 受け付けちゃうし help も何が何だか。サブコマンドにしたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。サブコマンドごとの引数は enum の variant に閉じ込めるのがベストプラクティスです。 Cli には #[command(subcommand)] を付けたフィールドを一つだけ置き、#[derive(Subcommand)] の enum に Add、List、Done を並べます。add に --id を渡せばその場でエラーになり、doc コメントは help の説明文になります。match も網羅的にチェックされるので、unknown action の分岐は要りません。Done の id は --id ではなく位置引数にしています。",
+          "reading": "かしこまりました。さぶこまんどごとのひきすうは enum の variant にとじこめるのがべすとぷらくてぃすです。 Cli には #[command(subcommand)] をつけたふぃーるどをひとつだけおき、#[derive(Subcommand)] の enum に Add、List、Done をならべます。add に --id をわたせばそのばでえらーになり、doc こめんとは help のせつめいぶんになります。match ももうらてきにちぇっくされるので、unknown action のぶんきはいりません。Done の id は --id ではなくいちひきすうにしています。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use clap::{Parser, Subcommand};\n\n#[derive(Parser)]\n#[command(version, about)]\nstruct Cli {\n    #[command(subcommand)]\n    command: Command,\n}\n\n#[derive(Subcommand)]\nenum Command {\n    /// Add a new task\n    Add { title: String },\n    /// List tasks\n    List {\n        #[arg(long)]\n        all: bool,\n    },\n    /// Mark a task as done\n    Done { id: u32 },\n}\n\nfn main() {\n    let cli = Cli::parse();\n    match cli.command {\n        Command::Add { title } => add(&title),\n        Command::List { all } => list(all),\n        Command::Done { id } => done(id),\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "いいね。あとタスクのファイルの場所を --db で変えられるようにして。デフォは todo.json",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Cli に --db を足し、各関数へパスを渡します。Cli に置いたオプションはすべてのサブコマンドで共通なので、--db はサブコマンドの前にも後ろにも書けることを保証します。",
+          "reading": "Cli に --db をたし、かくかんすうへぱすをわたします。Cli においたおぷしょんはすべてのさぶこまんどできょうつうなので、--db はさぶこまんどのまえにもうしろにもかけることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::path::{Path, PathBuf};\n\nuse clap::{Parser, Subcommand};\n\n#[derive(Parser)]\n#[command(version, about)]\nstruct Cli {\n    /// Path to the task file\n    #[arg(long, default_value = \"todo.json\")]\n    db: PathBuf,\n    #[command(subcommand)]\n    command: Command,\n}\n\nfn add(db: &Path, title: &str) {\n    println!(\"added to {}: {title}\", db.display());\n}\n\nfn list(db: &Path, all: bool) {\n    println!(\"listing {} (all = {all})\", db.display());\n}\n\nfn done(db: &Path, id: u32) {\n    println!(\"done in {}: {id}\", db.display());\n}\n\nfn main() {\n    let cli = Cli::parse();\n    match cli.command {\n        Command::Add { title } => add(&cli.db, &title),\n        Command::List { all } => list(&cli.db, all),\n        Command::Done { id } => done(&cli.db, id),\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "todo list --db x.json で error: unexpected argument '--db' found って出た",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの説明は正確ではありませんでした。Cli に置いたオプションは、既定ではサブコマンド名より前にしか書けません。list の後ろはもう List の引数として解析されるので、--db は知らない引数になります。#[arg] に global = true を足すと、すべてのサブコマンドに伝播し、どこに書いても cli.db に入ります。",
+          "reading": "もうしわけありません。さきほどのせつめいはせいかくではありませんでした。Cli においたおぷしょんは、きていではさぶこまんどめいよりまえにしかかけません。list のうしろはもう List のひきすうとしてかいせきされるので、--db はしらないひきすうになります。#[arg] に global = true をたすと、すべてのさぶこまんどにでんぱし、どこにかいても cli.db にはいります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/#\\[arg(long, default_value = \"todo.json\")\\]/#[arg(long, global = true, default_value = \"todo.json\")]/' src/main.rs"
+        }
+      ]
+    }
+  ]
+}

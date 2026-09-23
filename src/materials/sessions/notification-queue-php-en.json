@@ -1,0 +1,78 @@
+{
+  "id": "notification-queue-php-en",
+  "title": "Queue the shipping notification",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "php",
+  "summary": "Make a synchronous Notification ShouldQueue and split mail and database in via(), then fix the locale the worker loses and a cancel check that via() runs too early for.",
+  "files": [
+    {
+      "path": "app/Notifications/OrderShipped.php",
+      "content": "<?php\n\nnamespace App\\Notifications;\n\nuse App\\Models\\Order;\nuse Illuminate\\Bus\\Queueable;\nuse Illuminate\\Notifications\\Messages\\MailMessage;\nuse Illuminate\\Notifications\\Notification;\n\nclass OrderShipped extends Notification\n{\n    use Queueable;\n\n    public function __construct(public Order $order)\n    {\n    }\n\n    public function via(object $notifiable): array\n    {\n        return ['mail', 'database'];\n    }\n\n    public function toMail(object $notifiable): MailMessage\n    {\n        return (new MailMessage)\n            ->subject(__('Your order has shipped'))\n            ->line(__('Order #:number is on its way.', ['number' => $this->order->number]))\n            ->action(__('Track package'), $this->order->tracking_url);\n    }\n\n    public function toArray(object $notifiable): array\n    {\n        return [\n            'order_id' => $this->order->id,\n            'tracking_number' => $this->order->tracking_number,\n        ];\n    }\n}\n"
+    },
+    {
+      "path": "app/Http/Controllers/ShipmentController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse App\\Http\\Requests\\ShipOrderRequest;\nuse App\\Models\\Order;\nuse App\\Notifications\\OrderShipped;\n\nclass ShipmentController extends Controller\n{\n    public function store(ShipOrderRequest $request, Order $order)\n    {\n        $order->update([\n            'status' => 'shipped',\n            'tracking_number' => $request->validated('tracking_number'),\n            'tracking_url' => $request->validated('tracking_url'),\n            'shipped_at' => now(),\n        ]);\n\n        $order->user->notify(new OrderShipped($order));\n\n        return back()->with('status', 'shipped');\n    }\n}\n"
+    },
+    {
+      "path": "app/Http/Middleware/SetLocale.php",
+      "content": "<?php\n\nnamespace App\\Http\\Middleware;\n\nuse Closure;\nuse Illuminate\\Http\\Request;\nuse Illuminate\\Support\\Facades\\App;\n\nclass SetLocale\n{\n    public function handle(Request $request, Closure $next)\n    {\n        if ($user = $request->user()) {\n            App::setLocale($user->locale);\n        }\n\n        return $next($request);\n    }\n}\n"
+    },
+    {
+      "path": "app/Models/User.php",
+      "content": "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Factories\\HasFactory;\nuse Illuminate\\Foundation\\Auth\\User as Authenticatable;\nuse Illuminate\\Notifications\\Notifiable;\n\nclass User extends Authenticatable\n{\n    use HasFactory, Notifiable;\n\n    protected $fillable = ['name', 'email', 'password', 'locale', 'mail_opt_out'];\n\n    protected $hidden = ['password', 'remember_token'];\n\n    protected function casts(): array\n    {\n        return [\n            'email_verified_at' => 'datetime',\n            'password' => 'hashed',\n            'mail_opt_out' => 'boolean',\n        ];\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "clicking 'mark shipped' takes like 3s to come back. OrderShipped goes out synchronously and waits on SMTP. queue it. also people with mail turned off (users.mail_opt_out) should only get the in-app one",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question. Once a Notification implements ShouldQueue, notify() stops sending on the spot and only pushes jobs. The class already uses Queueable, so all it needs is the interface and a branch in via()."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Illuminate\\Contracts\\Queue\\ShouldQueue;\n\nclass OrderShipped extends Notification implements ShouldQueue\n{\n    use Queueable;\n\n    // ...\n\n    public function via(object $notifiable): array\n    {\n        return $notifiable->mail_opt_out ? ['database'] : ['mail', 'database'];\n    }\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "One job is queued per channel. In other words, if mail is retried after an SMTP error, the database notification is not written twice. The wording, the language and the rest of the existing behavior stay exactly as they were, and the controller does not change."
+        }
+      ]
+    },
+    {
+      "user": "since queueing, users set to japanese are getting english mail. SetLocale middleware reads users.locale and calls App::setLocale",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect about the language. The locale SetLocale sets lives only inside that request, and the worker builds toMail with app.locale from config. With HasLocalePreference on User, the worker switches to preferredLocale() for each notifiable before it sends."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^class User extends Authenticatable$/class User extends Authenticatable implements HasLocalePreference/' app/Models/User.php"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Illuminate\\Contracts\\Translation\\HasLocalePreference;\n\npublic function preferredLocale(): string\n{\n    return $this->locale;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "also if an order gets cancelled while the queue is backed up, don't send the shipped mail. in-app one can stay. just check status in via?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "via() is too early. It runs when notify() is called, inside the request, and its result decides how many jobs are queued. The hook the worker calls right before sending is shouldSend(), and by then SerializesModels has loaded the Order again, so it sees the current status. This checks the mail channel only and lets database through, which is the robust option."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function shouldSend(object $notifiable, string $channel): bool\n{\n    return $channel !== 'mail' || $this->order->status === 'shipped';\n}\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "id": "click-options-python-en",
+  "title": "Replace hand parsed sys.argv with Click",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "python",
+  "summary": "A script that writes a file called -v when the flag comes first moves to Click arguments and options, then IntRange bounds the limit.",
+  "files": [
+    {
+      "path": "export.py",
+      "content": "import csv\nimport sys\n\n\ndef fetch_users(limit):\n    return [(i, f\"user{i}\") for i in range(limit)]\n\n\ndef main():\n    args = sys.argv[1:]\n    if not args:\n        print(\"usage: export.py OUTPUT [--limit N] [--verbose]\")\n        sys.exit(1)\n    output = args[0]\n    limit = 100\n    if \"--limit\" in args:\n        limit = int(args[args.index(\"--limit\") + 1])\n    verbose = \"--verbose\" in args or \"-v\" in args\n    rows = fetch_users(limit)\n    with open(output, \"w\", newline=\"\") as f:\n        csv.writer(f).writerows(rows)\n    if verbose:\n        print(f\"wrote {len(rows)} rows to {output}\")\n\n\nif __name__ == \"__main__\":\n    main()\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "the arg parsing in export.py is hand rolled and painful. put -v first and you get a file named -v lol. switch it to click",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great call! The current code hard codes args[0] as the output path, so a leading -v becomes the file name. With Click you declare the positional with @click.argument and the flags with @click.option, and the order on the command line stops mattering. default=100 makes Click infer int, so a value that is not a number is rejected for you. --help is generated too, so the hand written usage line is just boilerplate and can go."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "import csv\n\nimport click\n\n\ndef fetch_users(limit):\n    return [(i, f\"user{i}\") for i in range(limit)]\n\n\n@click.command()\n@click.argument(\"output\", type=click.Path(dir_okay=False))\n@click.option(\"--limit\", default=100, show_default=True, help=\"Rows to export.\")\n@click.option(\"--verbose\", \"-v\", is_flag=True, help=\"Print a summary.\")\ndef main(output, limit, verbose):\n    rows = fetch_users(limit)\n    with open(output, \"w\", newline=\"\") as f:\n        csv.writer(f).writerows(rows)\n    if verbose:\n        click.echo(f\"wrote {len(rows)} rows to {output}\")\n\n\nif __name__ == \"__main__\":\n    main()\n"
+        }
+      ]
+    },
+    {
+      "user": "nice. let me write -n too. also --limit 0 or negative numbers get through, block those",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Pass click.IntRange(min=1) as the type and Click reports anything below 1 as out of range. The short name is one more string, \"-n\", on the same option. In other words, the validation and the help text both live in the one declaration."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/@click.option(\"--limit\", default=100,/@click.option(\"--limit\", \"-n\", type=click.IntRange(min=1), default=100,/' export.py"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "id": "tower-http-layers-rust-en",
+  "title": "Get preflight through tower-http CorsLayer",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "rust",
+  "summary": "CorsLayer and TraceLayer go in, Any plus allow_credentials panics at startup, so the origins are named and listed.",
+  "files": [
+    {
+      "path": "src/main.rs",
+      "content": "use axum::routing::get;\nuse axum::{Json, Router};\nuse serde::{Deserialize, Serialize};\n\n#[derive(Clone, Serialize, Deserialize)]\nstruct Item {\n    name: String,\n}\n\nasync fn list_items() -> Json<Vec<Item>> {\n    Json(Vec::new())\n}\n\nasync fn create_item(Json(item): Json<Item>) -> Json<Item> {\n    Json(item)\n}\n\n#[tokio::main]\nasync fn main() {\n    let app = Router::new().route(\"/api/items\", get(list_items).post(create_item));\n    let listener = tokio::net::TcpListener::bind(\"0.0.0.0:3000\").await.unwrap();\n    axum::serve(listener, app).await.unwrap();\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "frontend on localhost:5173 dies on CORS. we have tower-http now, add CorsLayer. auth is cookies so it sends credentials: 'include'. also want access logs, TraceLayer",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great setup! CorsLayer answers the preflight and TraceLayer opens a span per request. A Content-Type of application/json is not one of the headers CORS treats as safe, so allow_headers names it. Cookies are sent, so allow_credentials(true) goes on as well. TraceLayer writes at DEBUG, so the subscriber has to allow DEBUG or you will see nothing."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use axum::http::{header, Method};\nuse axum::routing::get;\nuse axum::{Json, Router};\nuse serde::{Deserialize, Serialize};\nuse tower_http::cors::{Any, CorsLayer};\nuse tower_http::trace::TraceLayer;\n\n#[tokio::main]\nasync fn main() {\n    tracing_subscriber::fmt()\n        .with_max_level(tracing::Level::DEBUG)\n        .init();\n\n    let cors = CorsLayer::new()\n        .allow_origin(Any)\n        .allow_methods([Method::GET, Method::POST])\n        .allow_headers([header::CONTENT_TYPE])\n        .allow_credentials(true);\n\n    let app = Router::new()\n        .route(\"/api/items\", get(list_items).post(create_item))\n        .layer(TraceLayer::new_for_http())\n        .layer(cors);\n    let listener = tokio::net::TcpListener::bind(\"0.0.0.0:3000\").await.unwrap();\n    axum::serve(listener, app).await.unwrap();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "panics the moment it starts\nInvalid CORS configuration: Cannot combine `Access-Control-Allow-Credentials: true` with `Access-Control-Allow-Origin: *`",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. Any and allow_credentials(true) cannot be combined. A browser refuses Access-Control-Allow-Origin: * on a request with credentials, so tower-http panics while building the layer to tell you early. In other words, if cookies are allowed, origins have to be named. Replacing Any with an explicit HeaderValue."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/use axum::http::{header, Method};/use axum::http::{header, HeaderValue, Method};/' -e 's/use tower_http::cors::{Any, CorsLayer};/use tower_http::cors::CorsLayer;/' -e 's|\\.allow_origin(Any)|.allow_origin(HeaderValue::from_static(\"http://localhost:5173\"))|' src/main.rs"
+        }
+      ]
+    },
+    {
+      "user": "let staging (https://staging.example.com) call it too",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. allow_origin also takes an array of HeaderValue, so both go in. Only a matching origin is echoed back, and CorsLayer adds Vary: origin itself. Any origin not on the list gets no allow header, and the browser blocks it."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's|\\.allow_origin(HeaderValue::from_static(\"http://localhost:5173\"))|.allow_origin([HeaderValue::from_static(\"http://localhost:5173\"), HeaderValue::from_static(\"https://staging.example.com\")])|' src/main.rs"
+        }
+      ]
+    }
+  ]
+}

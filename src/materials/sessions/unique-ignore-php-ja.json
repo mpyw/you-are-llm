@@ -1,0 +1,50 @@
+{
+  "id": "unique-ignore-php-ja",
+  "title": "自分のメールアドレスで unique に弾かれる",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "php",
+  "summary": "プロフィール更新で自分の行まで重複扱いする unique:users を Rule::unique()->ignore() に替え、管理画面ではルートの user を除外する。",
+  "files": [
+    {
+      "path": "app/Http/Requests/UpdateProfileRequest.php",
+      "content": "<?php\n\nnamespace App\\Http\\Requests;\n\nuse Illuminate\\Foundation\\Http\\FormRequest;\n\nclass UpdateProfileRequest extends FormRequest\n{\n    public function rules(): array\n    {\n        return [\n            'name' => ['required', 'string', 'max:255'],\n            'email' => ['required', 'email', 'max:255', 'unique:users'],\n        ];\n    }\n}\n"
+    },
+    {
+      "path": "app/Http/Controllers/ProfileController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse App\\Http\\Requests\\UpdateProfileRequest;\n\nclass ProfileController extends Controller\n{\n    public function update(UpdateProfileRequest $request)\n    {\n        $request->user()->update($request->validated());\n\n        return back()->with('status', 'profile-updated');\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "プロフィール画面で名前だけ変えて保存すると「email はすでに使用されています」で弾かれる。メアドは自分のなんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。unique:users は自分自身の行も数えるので、メールアドレスを変えていなくても重複と判定されます。Rule::unique('users')->ignore($this->user()) にすると、ログイン中のユーザーの行を除外して判定することを保証します。",
+          "reading": "しょうちしました。unique:users はじぶんじしんのぎょうもかぞえるので、メールアドレスをかえていなくてもちょうふくとはんていされます。Rule::unique('users')->ignore($this->user()) にすると、ログインちゅうのユーザーのぎょうをじょがいしてはんていすることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Illuminate\\Validation\\Rule;\n\npublic function rules(): array\n{\n    return [\n        'name' => ['required', 'string', 'max:255'],\n        'email' => [\n            'required',\n            'email',\n            'max:255',\n            Rule::unique('users')->ignore($this->user()),\n        ],\n    ];\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あー管理画面の /admin/users/{user} の更新でもこの Request 使い回してた。そっちだと管理者自身が除外されちゃうよね",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。管理画面ではルートの {user} が編集対象なので、ルートモデルバインディング済みの $this->route('user') を優先し、なければログイン中のユーザーにフォールバックします。ignore() はモデルを渡すと主キーを取り出すので、ID を自分で引く必要はありません。",
+          "reading": "するどいごしてきです。かんりがめんではルートの {user} がへんしゅうたいしょうなので、ルートモデルバインディングずみの $this->route('user') をゆうせんし、なければログインちゅうのユーザーにフォールバックします。ignore() はモデルをわたすとしゅキーをとりだすので、ID をじぶんでひくひつようはありません。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "Rule::unique('users')->ignore($this->route('user') ?? $this->user()),\n"
+        }
+      ]
+    }
+  ]
+}

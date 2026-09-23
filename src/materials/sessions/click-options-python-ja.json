@@ -1,0 +1,45 @@
+{
+  "id": "click-options-python-ja",
+  "title": "sys.argv の手書き解析を Click にする",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "python",
+  "summary": "-v を先に書くと -v という名前のファイルができるスクリプトを Click の argument と option に置き換え、IntRange で範囲を絞る。",
+  "files": [
+    {
+      "path": "export.py",
+      "content": "import csv\nimport sys\n\n\ndef fetch_users(limit):\n    return [(i, f\"user{i}\") for i in range(limit)]\n\n\ndef main():\n    args = sys.argv[1:]\n    if not args:\n        print(\"usage: export.py OUTPUT [--limit N] [--verbose]\")\n        sys.exit(1)\n    output = args[0]\n    limit = 100\n    if \"--limit\" in args:\n        limit = int(args[args.index(\"--limit\") + 1])\n    verbose = \"--verbose\" in args or \"-v\" in args\n    rows = fetch_users(limit)\n    with open(output, \"w\", newline=\"\") as f:\n        csv.writer(f).writerows(rows)\n    if verbose:\n        print(f\"wrote {len(rows)} rows to {output}\")\n\n\nif __name__ == \"__main__\":\n    main()\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "export.py の引数処理が手書きでつらい。-v を先に書いたら -v っていうファイルができた笑　click にして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。いまの実装は args[0] を出力先と決め打ちしているので、-v を先に書くとそれがファイル名になります。Click なら位置引数は @click.argument、オプションは @click.option で宣言するだけで、書く順番はどこでも構いません。default=100 から型が int だと推論されるので、数字でない値は Click がエラーにしてくれます。--help も自動で生成されるので、手書きの usage はボイラープレートとして消せます。",
+          "reading": "しょうちしました。いまのじっそうは args[0] をしゅつりょくさきときめうちしているので、-v をさきにかくとそれがふぁいるめいになります。Click ならいちひきすうは @click.argument、おぷしょんは @click.option でせんげんするだけで、かくじゅんばんはどこでもかまいません。default=100 からかたが int だとすいろんされるので、すうじでないあたいは Click がえらーにしてくれます。--help もじどうでせいせいされるので、てがきの usage はぼいらーぷれーととしてけせます。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "import csv\n\nimport click\n\n\ndef fetch_users(limit):\n    return [(i, f\"user{i}\") for i in range(limit)]\n\n\n@click.command()\n@click.argument(\"output\", type=click.Path(dir_okay=False))\n@click.option(\"--limit\", default=100, show_default=True, help=\"Rows to export.\")\n@click.option(\"--verbose\", \"-v\", is_flag=True, help=\"Print a summary.\")\ndef main(output, limit, verbose):\n    rows = fetch_users(limit)\n    with open(output, \"w\", newline=\"\") as f:\n        csv.writer(f).writerows(rows)\n    if verbose:\n        click.echo(f\"wrote {len(rows)} rows to {output}\")\n\n\nif __name__ == \"__main__\":\n    main()\n"
+        }
+      ]
+    },
+    {
+      "user": "いいね。-n でも書けるようにして。あと --limit 0 とかマイナスが通っちゃうのも弾いといて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "型に click.IntRange(min=1) を渡せば、0 以下は Click が範囲外としてエラーにします。短い名前は同じ option に \"-n\" を足すだけです。言い換えると、検証もヘルプの表示も宣言の 1 行に集まります。",
+          "reading": "かたに click.IntRange(min=1) をわたせば、0 いかは Click がはんいがいとしてえらーにします。みじかいなまえはおなじ option に \"-n\" をたすだけです。いいかえると、けんしょうもへるぷのひょうじもせんげんの 1 ぎょうにあつまります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/@click.option(\"--limit\", default=100,/@click.option(\"--limit\", \"-n\", type=click.IntRange(min=1), default=100,/' export.py"
+        }
+      ]
+    }
+  ]
+}

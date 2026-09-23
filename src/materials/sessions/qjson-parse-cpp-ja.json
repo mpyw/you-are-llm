@@ -2,7 +2,7 @@
   "id": "qjson-parse-cpp-ja",
   "title": "設定ファイルが壊れていても黙って起動する",
   "language": "ja",
-  "difficulty": "expert",
+  "difficulty": "hard",
   "codeLanguage": "cpp",
   "summary": "QJsonDocument::fromJson の失敗は空のオブジェクトに化ける。QJsonParseError と isObject() で止め、toInt のデフォルトが型違いも飲み込む点に気を付ける。",
   "files": [

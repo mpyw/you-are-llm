@@ -2,7 +2,7 @@
   "id": "tokio-mpsc-rust-ja",
   "title": "無制限チャネルをやめて mpsc::channel で背圧をかける",
   "language": "ja",
-  "difficulty": "expert",
+  "difficulty": "hard",
   "codeLanguage": "rust",
   "summary": "unbounded_channel で膨らむメモリを有界チャネルで抑え、clone 元の tx を drop し忘れて受信ループが終わらない。",
   "files": [

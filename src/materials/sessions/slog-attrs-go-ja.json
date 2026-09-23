@@ -3,7 +3,7 @@
   "title": "log.Printf を slog の構造化ログにする",
   "language": "ja",
   "codeLanguage": "go",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "files": [
     {
       "path": "internal/worker/worker.go",

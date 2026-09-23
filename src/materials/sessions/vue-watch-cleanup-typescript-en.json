@@ -1,0 +1,66 @@
+{
+  "id": "vue-watch-cleanup-typescript-en",
+  "title": "A search watch lets old results overwrite new ones",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "typescript",
+  "summary": "A watch that fetches on every keystroke gets overwritten by a slow old response. onWatcherCleanup aborts it, until it is registered after an await.",
+  "files": [
+    {
+      "path": "src/pages/SearchPage.vue",
+      "content": "<script setup lang=\"ts\">\nimport { ref, watch } from 'vue'\n\ntype Hit = { id: string; title: string }\n\nconst query = ref('')\nconst hits = ref<Hit[]>([])\n\nwatch(query, async (q) => {\n  const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`)\n  hits.value = await res.json()\n})\n</script>\n\n<template>\n  <input v-model=\"query\" type=\"search\" placeholder=\"Search\" />\n  <ul>\n    <li v-for=\"hit in hits\" :key=\"hit.id\">{{ hit.title }}</li>\n  </ul>\n</template>\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "search box, if you type fast it sometimes shows results for something in the middle instead of the last thing typed. sometimes",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "You're right, that is a race. watch runs the callback every time the value changes, but it neither waits for nor stops the previous fetch. When a slow request comes back late, it overwrites the new results with old ones. Let's use onWatcherCleanup from Vue 3.5 to abort the previous AbortController just before the callback runs again. An aborted fetch rejects with AbortError, so that one error gets swallowed. The template stays as it is."
+        },
+        {
+          "kind": "code",
+          "lang": "vue",
+          "body": "<script setup lang=\"ts\">\nimport { onWatcherCleanup, ref, watch } from 'vue'\n\ntype Hit = { id: string; title: string }\n\nconst query = ref('')\nconst hits = ref<Hit[]>([])\n\nwatch(query, async (q) => {\n  const controller = new AbortController()\n  onWatcherCleanup(() => controller.abort())\n  try {\n    const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`, {\n      signal: controller.signal,\n    })\n    hits.value = await res.json()\n  } catch (error) {\n    if (!(error instanceof DOMException && error.name === 'AbortError')) throw error\n  }\n})\n</script>\n"
+        }
+      ]
+    },
+    {
+      "user": "works. while you're at it stop hitting it on every character, wait 300ms first. and show the list for an empty query when the page opens",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. The callback waits 300ms at the top, and immediate: true runs it once on the first render. Only the watch changes. No more request per keystroke, and it works as expected."
+        },
+        {
+          "kind": "code",
+          "lang": "ts",
+          "body": "watch(\n  query,\n  async (q) => {\n    await new Promise((resolve) => setTimeout(resolve, 300))\n    const controller = new AbortController()\n    onWatcherCleanup(() => controller.abort())\n    try {\n      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`, {\n        signal: controller.signal,\n      })\n      hits.value = await res.json()\n    } catch (error) {\n      if (!(error instanceof DOMException && error.name === 'AbortError')) throw error\n    }\n  },\n  { immediate: true },\n)\n"
+        }
+      ]
+    },
+    {
+      "user": "getting [Vue warn] onWatcherCleanup() was called when there was no active watcher to associate with. and the old results are back too",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Important correction. onWatcherCleanup only knows the current watcher while the callback runs synchronously. My previous code called it after the 300ms await, so there was nothing to register with and abort was never called. Registration moves above the await, and if the next input arrives during the wait, the callback returns without fetching. That cancels the wait along with the request. Note: the onCleanup passed as the third argument is bound to the watcher, so it does not warn after an await, but the later it is registered, the longer an old request runs alongside the new one."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e '/await new Promise/d' -e '/onWatcherCleanup(() =>/a\\\n    await new Promise((resolve) => setTimeout(resolve, 300))\\\n    if (controller.signal.aborted) return\n' src/pages/SearchPage.vue"
+        }
+      ]
+    },
+    {
+      "user": "wouldn't watchEffect be cleaner? no passing query, no immediate",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Good question. watchEffect runs once up front, so immediate goes away. But it also collects dependencies only while it runs synchronously. Swap q for query.value and the read happens after the 300ms await, so query is never tracked and the effect never runs again after the first time. To move over, you would have to read query.value before the await. I would keep watch, where the argument shows what it reacts to."
+        }
+      ]
+    }
+  ]
+}

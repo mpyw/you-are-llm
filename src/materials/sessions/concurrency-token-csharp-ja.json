@@ -2,7 +2,7 @@
   "id": "concurrency-token-csharp-ja",
   "title": "同時編集の後勝ち上書きを防ぐ",
   "language": "ja",
-  "difficulty": "expert",
+  "difficulty": "hard",
   "codeLanguage": "csharp",
   "summary": "記事を同時に編集すると後から保存した側が黙って上書きしていたのを、[Timestamp] の行バージョンで検出し、DbUpdateConcurrencyException を 409 にする。",
   "files": [

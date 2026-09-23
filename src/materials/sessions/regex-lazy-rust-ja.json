@@ -1,0 +1,46 @@
+{
+  "id": "regex-lazy-rust-ja",
+  "title": "ループの中の Regex::new を LazyLock に出す",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "rust",
+  "summary": "1 行ごとにコンパイルし直していた正規表現を std::sync::LazyLock の static にし、unwrap はテストで先に踏む。",
+  "files": [
+    {
+      "path": "src/log.rs",
+      "content": "use regex::Regex;\n\npub struct Entry {\n    pub level: String,\n    pub message: String,\n}\n\npub fn parse_lines(lines: &[&str]) -> Vec<Entry> {\n    let mut entries = Vec::new();\n    for line in lines {\n        let re = Regex::new(r\"^\\[(\\w+)\\] (.+)$\").unwrap();\n        if let Some(caps) = re.captures(line) {\n            entries.push(Entry {\n                level: caps[1].to_string(),\n                message: caps[2].to_string(),\n            });\n        }\n    }\n    entries\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "ログ解析のバッチ遅い。プロファイラ見たら Regex::new が上位にいる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。Regex::new はパターンをオートマトンにコンパイルする重い処理で、今はそれを 1 行ごとにやり直しています。std::sync::LazyLock の static に置けば、最初に使われたときに一度だけコンパイルされ、以降はすべてのスレッドで同じ Regex を共有します。Rust 1.80 からは標準ライブラリだけで書けるので、once_cell も lazy_static も要りません。",
+          "reading": "しょうちしました。Regex::new はぱたーんをおーとまとんにこんぱいるするおもいしょりで、いまはそれを 1 ぎょうごとにやりなおしています。std::sync::LazyLock の static におけば、さいしょにつかわれたときにいちどだけこんぱいるされ、いこうはすべてのすれっどでおなじ Regex をきょうゆうします。Rust 1.80 からはひょうじゅんらいぶらりだけでかけるので、once_cell も lazy_static もいりません。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::sync::LazyLock;\n\nuse regex::Regex;\n\nstatic LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r\"^\\[(\\w+)\\] (.+)$\").unwrap());\n\npub struct Entry {\n    pub level: String,\n    pub message: String,\n}\n\npub fn parse_lines(lines: &[&str]) -> Vec<Entry> {\n    lines\n        .iter()\n        .filter_map(|line| LINE.captures(line))\n        .map(|caps| Entry {\n            level: caps[1].to_string(),\n            message: caps[2].to_string(),\n        })\n        .collect()\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "static の中で unwrap してるけど、本番で panic したら嫌なんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "良い質問ですね！ パターンは固定の文字列なので、壊れていれば毎回同じ場所で必ず panic する、決定論的な失敗です。テストで LazyLock::force を呼び、本番で最初に使われたときと同じコンパイルを先に走らせておくことをお勧めします。",
+          "reading": "よいしつもんですね！ ぱたーんはこていのもじれつなので、こわれていればまいかいおなじばしょでかならず panic する、けっていろんてきなしっぱいです。てすとで LazyLock::force をよび、ほんばんでさいしょにつかわれたときとおなじこんぱいるをさきにはしらせておくことをおすすめします。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn line_pattern_compiles() {\n        LazyLock::force(&LINE);\n    }\n}\n"
+        }
+      ]
+    }
+  ]
+}

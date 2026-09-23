@@ -1,0 +1,57 @@
+{
+  "id": "redis-cache-aside-go-en",
+  "title": "Stop answering 500 for redis.Nil in go-redis",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "go",
+  "summary": "A missing key came back as redis.Nil and went out as a 500. Split it off with errors.Is, load from the DB and write it back with a TTL. Passing the struct straight to Set fails.",
+  "files": [
+    {
+      "path": "internal/product/handler.go",
+      "content": "package product\n\nimport (\n  \"net/http\"\n\n  \"github.com/redis/go-redis/v9\"\n)\n\ntype Handler struct {\n  rdb   *redis.Client\n  store *Store\n}\n\nfunc (h *Handler) Get(w http.ResponseWriter, r *http.Request) {\n  key := \"product:\" + r.PathValue(\"id\")\n  cached, err := h.rdb.Get(r.Context(), key).Bytes()\n  if err != nil {\n    http.Error(w, err.Error(), http.StatusInternalServerError)\n    return\n  }\n  writeJSON(w, cached)\n}\n\nfunc writeJSON(w http.ResponseWriter, body []byte) {\n  w.Header().Set(\"Content-Type\", \"application/json\")\n  w.Write(body)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "product api returns 500 with \"redis: nil\" when the cache is empty. if its not there just get it from the db and cache it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch! In go-redis a missing key also comes back as an error, redis.Nil. So the handler is treating a plain cache miss as an outage. errors.Is(err, redis.Nil) picks out the miss, and every other error still gets a 500. On a miss it loads from the Store and writes the value back with a 10 minute TTL. That is the classic cache aside pattern."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {\n  ctx := r.Context()\n  id := r.PathValue(\"id\")\n  key := \"product:\" + id\n\n  cached, err := h.rdb.Get(ctx, key).Bytes()\n  if err == nil {\n    writeJSON(w, cached)\n    return\n  }\n  if !errors.Is(err, redis.Nil) {\n    http.Error(w, err.Error(), http.StatusInternalServerError)\n    return\n  }\n\n  p, err := h.store.Find(ctx, id)\n  if err != nil {\n    http.Error(w, err.Error(), http.StatusInternalServerError)\n    return\n  }\n  if err := h.rdb.Set(ctx, key, p, 10*time.Minute).Err(); err != nil {\n    http.Error(w, err.Error(), http.StatusInternalServerError)\n    return\n  }\n  body, _ := json.Marshal(p)\n  writeJSON(w, body)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "still 500. now its redis: can't marshal *product.Product (implement encoding.BinaryMarshaler)",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer passed *Product straight to Set. go-redis does not turn a struct into JSON for you, and it cannot write a value that does not implement encoding.BinaryMarshaler. The handler now calls json.Marshal first, hands those bytes to Set, and sends the same bytes as the response. A failed write back is logged instead of failing the request, so the product from the DB still goes out when Redis is having a bad day."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "  p, err := h.store.Find(ctx, id)\n  if err != nil {\n    http.Error(w, err.Error(), http.StatusInternalServerError)\n    return\n  }\n  body, err := json.Marshal(p)\n  if err != nil {\n    http.Error(w, err.Error(), http.StatusInternalServerError)\n    return\n  }\n  if err := h.rdb.Set(ctx, key, body, 10*time.Minute).Err(); err != nil {\n    slog.Warn(\"cache set failed\", \"key\", key, \"err\", err)\n  }\n  writeJSON(w, body)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ppl say price drops take too long to show up with 10 min. make it 1",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. The TTL only lives in the one Set call, so that is the line to change."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/10\\*time\\.Minute/time.Minute/' internal/product/handler.go"
+        }
+      ]
+    }
+  ]
+}

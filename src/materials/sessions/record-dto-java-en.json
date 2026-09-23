@@ -1,0 +1,57 @@
+{
+  "id": "record-dto-java-en",
+  "title": "Map an entity-returning controller onto a record DTO",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "java",
+  "summary": "GET /users fails on a lazy collection and was leaking passwordHash, so it returns a record instead.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/user/UserController.java",
+      "content": "package com.example.user;\n\nimport java.util.List;\nimport org.springframework.web.bind.annotation.GetMapping;\nimport org.springframework.web.bind.annotation.RestController;\n\n@RestController\npublic class UserController {\n    private final UserRepository users;\n\n    public UserController(UserRepository users) {\n        this.users = users;\n    }\n\n    @GetMapping(\"/users\")\n    public List<User> list() {\n        return users.findAll();\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/user/User.java",
+      "content": "package com.example.user;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.GenerationType;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.OneToMany;\nimport jakarta.persistence.Table;\nimport java.time.Instant;\nimport java.util.ArrayList;\nimport java.util.List;\n\n@Entity\n@Table(name = \"users\")\npublic class User {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n\n    private String name;\n\n    private String email;\n\n    private String passwordHash;\n\n    private Instant createdAt;\n\n    @OneToMany(mappedBy = \"user\")\n    private List<Order> orders = new ArrayList<>();\n\n    public Long getId() {\n        return id;\n    }\n\n    public String getName() {\n        return name;\n    }\n\n    public String getEmail() {\n        return email;\n    }\n\n    public String getPasswordHash() {\n        return passwordHash;\n    }\n\n    public Instant getCreatedAt() {\n        return createdAt;\n    }\n\n    public List<Order> getOrders() {\n        return orders;\n    }\n}\n"
+    },
+    {
+      "path": "src/main/resources/application.yml",
+      "content": "spring:\n  jpa:\n    open-in-view: false\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "turned off open-in-view and now GET /users is a 500. failed to lazily initialize a collection of role: com.example.user.User.orders ... no Session. also just noticed the old response had passwordHash in it. yikes",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch on the password. Both problems have one cause: the controller returns the entity itself, so Jackson calls every getter it can find. That includes getOrders(), a lazy collection, and with open-in-view off the session is already closed by then. Every field with a getter also ends up in the JSON, passwordHash included. A record holding only the fields the API should expose fixes both, and keeps the shape of the API separate from the shape of the table."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.user;\n\npublic record UserResponse(Long id, String name, String email) {\n    public static UserResponse from(User user) {\n        return new UserResponse(user.getId(), user.getName(), user.getEmail());\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@GetMapping(\"/users\")\npublic List<UserResponse> list() {\n    return users.findAll().stream()\n        .map(UserResponse::from)\n        .toList();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "fixed. frontend wants the created date too. key should be created_at",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: a record component name becomes the JSON key as it stands, so createdAt gets @JsonProperty to come out as created_at. Switching the whole ObjectMapper to snake_case would rename keys in every other endpoint too, so this stays on the one field."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.user;\n\nimport com.fasterxml.jackson.annotation.JsonProperty;\nimport java.time.Instant;\n\npublic record UserResponse(\n    Long id,\n    String name,\n    String email,\n    @JsonProperty(\"created_at\") Instant createdAt\n) {\n    public static UserResponse from(User user) {\n        return new UserResponse(user.getId(), user.getName(), user.getEmail(), user.getCreatedAt());\n    }\n}\n"
+        }
+      ]
+    }
+  ]
+}

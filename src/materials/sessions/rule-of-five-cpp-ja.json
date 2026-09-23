@@ -2,7 +2,7 @@
   "id": "rule-of-five-cpp-ja",
   "title": "三、五、ゼロの法則で LogFile を畳む",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "cpp",
   "summary": "二重 close をコピー禁止で止め、ムーブを足し、最後は unique_ptr でゼロにする。",
   "files": [

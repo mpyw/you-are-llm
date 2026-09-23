@@ -1,0 +1,65 @@
+{
+  "id": "health-checks-csharp-ja",
+  "title": "ヘルスチェックを liveness と readiness に分ける",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "csharp",
+  "summary": "AddHealthChecks に DB の確認を足したら、DB 障害で liveness まで落ちて再起動ループになったので、タグでエンドポイントを二つに分ける。",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using Microsoft.EntityFrameworkCore;\nusing Shop.Data;\n\nvar builder = WebApplication.CreateBuilder(args);\n\nbuilder.Services.AddDbContext<ShopDbContext>(options =>\n    options.UseNpgsql(builder.Configuration.GetConnectionString(\"Shop\")));\nbuilder.Services.AddControllers();\n\nvar app = builder.Build();\n\napp.MapGet(\"/healthz\", () => \"ok\");\napp.MapControllers();\n\napp.Run();\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "k8s に載せるので health check ちゃんとしたい。今の /healthz は ok 返すだけ。DB 死んでたら分かるようにしたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。ASP.NET Core 2.2 からある組み込みのヘルスチェックを活用します。.NET 10 でも使い方は同じです。AddDbContextCheck は Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore パッケージにあり、DbContext の CanConnectAsync で DB に繋がるかを確かめます。MapHealthChecks は登録したチェックをすべて実行し、どれかが Unhealthy なら 503 を、そうでなければ 200 を返します。",
+          "reading": "かしこまりました。ASP.NET Core 2.2 からあるくみこみのへるすちぇっくをかつようします。.NET 10 でもつかいかたはおなじです。AddDbContextCheck は Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore ぱっけーじにあり、DbContext の CanConnectAsync で DB につながるかをたしかめます。MapHealthChecks はとうろくしたちぇっくをすべてじっこうし、どれかが Unhealthy なら 503 を、そうでなければ 200 をかえします。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "builder.Services.AddHealthChecks()\n    .AddDbContextCheck<ShopDbContext>();\n\nvar app = builder.Build();\n\napp.MapHealthChecks(\"/healthz\");\napp.MapControllers();\n"
+        },
+        {
+          "kind": "text",
+          "body": "Now、Deployment の livenessProbe と readinessProbe は、どちらもこの /healthz に向ければ十分です。エンドポイントが一つなので、健康状態の判定が唯一の情報源にまとまります。",
+          "reading": "Now、Deployment の livenessProbe と readinessProbe は、どちらもこの /healthz にむければじゅうぶんです。えんどぽいんとがひとつなので、けんこうじょうたいのはんていがゆいいつのじょうほうげんにまとまります。"
+        }
+      ]
+    },
+    {
+      "user": "昨日 DB のメンテで10分止めたら pod が全部 CrashLoopBackOff になった。DB 戻っても pod がなかなか戻らなくて障害が伸びた…",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません、私の誤りでした。liveness が失敗すると kubelet はコンテナを再起動しますが、DB が止まっているあいだは何度再起動しても直りません。liveness は「このプロセスが生きているか」だけを答え、外部の依存を見るのは readiness の役目です。readiness が落ちた Pod は Service から外れるだけで、再起動はされません。タグでチェックを二つに分け、Predicate でエンドポイントごとに選びます。",
+          "reading": "もうしわけありません、わたしのあやまりでした。liveness がしっぱいすると kubelet はこんてなをさいきどうしますが、DB がとまっているあいだはなんどさいきどうしてもなおりません。liveness は「このぷろせすがいきているか」だけをこたえ、がいぶのいぞんをみるのは readiness のやくめです。readiness がおちた Pod は Service からはずれるだけで、さいきどうはされません。たぐでちぇっくをふたつにわけ、Predicate でえんどぽいんとごとにえらびます。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using Microsoft.AspNetCore.Diagnostics.HealthChecks;\nusing Microsoft.Extensions.Diagnostics.HealthChecks;\n\nbuilder.Services.AddHealthChecks()\n    .AddCheck(\"self\", () => HealthCheckResult.Healthy(), tags: [\"live\"])\n    .AddDbContextCheck<ShopDbContext>(tags: [\"ready\"]);\n\nvar app = builder.Build();\n\napp.MapHealthChecks(\"/healthz/live\", new HealthCheckOptions\n{\n    Predicate = check => check.Tags.Contains(\"live\"),\n});\napp.MapHealthChecks(\"/healthz/ready\", new HealthCheckOptions\n{\n    Predicate = check => check.Tags.Contains(\"ready\"),\n});\napp.MapControllers();\n"
+        }
+      ]
+    },
+    {
+      "user": "よさそう。インフラの人からパスは /livez /readyz にしてって。あと ready 落ちたとき何が悪いか JSON で見たいかも…いやそれは今度でいいや、パスだけ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "パスだけ差し替えます。Kubernetes の API サーバーと同じ名前になるので、運用の人にも通じやすくなります。/readyz が 503 を返しているあいだ、Pod は Ready から外れるだけで再起動されないことに注意することが重要です。",
+          "reading": "ぱすだけさしかえます。Kubernetes の API さーばーとおなじなまえになるので、うんようのひとにもつうじやすくなります。/readyz が 503 をかえしているあいだ、Pod は Ready からはずれるだけでさいきどうされないことにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's#\"/healthz/live\"#\"/livez\"#' -e 's#\"/healthz/ready\"#\"/readyz\"#' src/Program.cs"
+        }
+      ]
+    }
+  ]
+}

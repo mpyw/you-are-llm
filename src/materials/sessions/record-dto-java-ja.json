@@ -1,0 +1,59 @@
+{
+  "id": "record-dto-java-ja",
+  "title": "エンティティを返すコントローラを record の DTO に詰め替える",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "java",
+  "summary": "GET /users が遅延ロードで 500 になり、ついでに passwordHash まで返していたので、record に詰め替える。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/user/UserController.java",
+      "content": "package com.example.user;\n\nimport java.util.List;\nimport org.springframework.web.bind.annotation.GetMapping;\nimport org.springframework.web.bind.annotation.RestController;\n\n@RestController\npublic class UserController {\n    private final UserRepository users;\n\n    public UserController(UserRepository users) {\n        this.users = users;\n    }\n\n    @GetMapping(\"/users\")\n    public List<User> list() {\n        return users.findAll();\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/user/User.java",
+      "content": "package com.example.user;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.GenerationType;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.OneToMany;\nimport jakarta.persistence.Table;\nimport java.time.Instant;\nimport java.util.ArrayList;\nimport java.util.List;\n\n@Entity\n@Table(name = \"users\")\npublic class User {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n\n    private String name;\n\n    private String email;\n\n    private String passwordHash;\n\n    private Instant createdAt;\n\n    @OneToMany(mappedBy = \"user\")\n    private List<Order> orders = new ArrayList<>();\n\n    public Long getId() {\n        return id;\n    }\n\n    public String getName() {\n        return name;\n    }\n\n    public String getEmail() {\n        return email;\n    }\n\n    public String getPasswordHash() {\n        return passwordHash;\n    }\n\n    public Instant getCreatedAt() {\n        return createdAt;\n    }\n\n    public List<Order> getOrders() {\n        return orders;\n    }\n}\n"
+    },
+    {
+      "path": "src/main/resources/application.yml",
+      "content": "spring:\n  jpa:\n    open-in-view: false\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "open-in-view 切ったら GET /users が 500。failed to lazily initialize a collection of role: com.example.user.User.orders ... no Session だって。てか切る前のレスポンス見たら passwordHash 出てた、やば",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。原因は、コントローラがエンティティをそのまま返しているため、Jackson が getter を片端から呼び、getOrders() の遅延ロードに触れていることです。open-in-view を切ったので、その時点でセッションはもう閉じています。passwordHash が出ていたのも同じ理由で、getter がある項目は全部 JSON になります。返したい項目だけを持つ record を作り、そこに詰め替えます。言い換えると、API の形とテーブルの形を関心の分離で切り離します。",
+          "reading": "しょうちしました。げんいんは、コントローラがエンティティをそのままかえしているため、Jackson が getter をかたはしからよび、getOrders() のちえんろーどにふれていることです。open-in-view をきったので、そのじてんでセッションはもうとじています。passwordHash がでていたのもおなじりゆうで、getter があるこうもくはぜんぶ JSON になります。かえしたいこうもくだけをもつ record をつくり、そこにつめかえます。いいかえると、API のかたちとテーブルのかたちをかんしんのぶんりできりはなします。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.user;\n\npublic record UserResponse(Long id, String name, String email) {\n    public static UserResponse from(User user) {\n        return new UserResponse(user.getId(), user.getName(), user.getEmail());\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@GetMapping(\"/users\")\npublic List<UserResponse> list() {\n    return users.findAll().stream()\n        .map(UserResponse::from)\n        .toList();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "直った。フロントが作成日時もほしいって。キーは created_at で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: record ではコンポーネント名がそのまま JSON のキーになるので、createdAt に @JsonProperty を付けて created_at で出します。ObjectMapper 全体を snake_case にすると、ほかの API のキーまで変わってしまうので、ここではこの 1 項目だけにとどめます。",
+          "reading": "Note: record ではこんぽーねんとめいがそのまま JSON のきーになるので、createdAt に @JsonProperty をつけて created_at でだします。ObjectMapper ぜんたいを snake_case にすると、ほかの API のきーまでかわってしまうので、ここではこの 1 こうもくだけにとどめます。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.user;\n\nimport com.fasterxml.jackson.annotation.JsonProperty;\nimport java.time.Instant;\n\npublic record UserResponse(\n    Long id,\n    String name,\n    String email,\n    @JsonProperty(\"created_at\") Instant createdAt\n) {\n    public static UserResponse from(User user) {\n        return new UserResponse(user.getId(), user.getName(), user.getEmail(), user.getCreatedAt());\n    }\n}\n"
+        }
+      ]
+    }
+  ]
+}

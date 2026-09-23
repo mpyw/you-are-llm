@@ -1,0 +1,48 @@
+{
+  "id": "unique-ignore-php-en",
+  "title": "Your own email fails the unique rule",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "php",
+  "summary": "Replace unique:users, which counts the user's own row on a profile update, with Rule::unique()->ignore(), and ignore the route's user on the admin screen.",
+  "files": [
+    {
+      "path": "app/Http/Requests/UpdateProfileRequest.php",
+      "content": "<?php\n\nnamespace App\\Http\\Requests;\n\nuse Illuminate\\Foundation\\Http\\FormRequest;\n\nclass UpdateProfileRequest extends FormRequest\n{\n    public function rules(): array\n    {\n        return [\n            'name' => ['required', 'string', 'max:255'],\n            'email' => ['required', 'email', 'max:255', 'unique:users'],\n        ];\n    }\n}\n"
+    },
+    {
+      "path": "app/Http/Controllers/ProfileController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse App\\Http\\Requests\\UpdateProfileRequest;\n\nclass ProfileController extends Controller\n{\n    public function update(UpdateProfileRequest $request)\n    {\n        $request->user()->update($request->validated());\n\n        return back()->with('status', 'profile-updated');\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "saving the profile page with only the name changed fails with 'the email has already been taken'. it's MY email lol",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch. unique:users counts every row, including the one being updated, so an unchanged email always looks like a duplicate. Rule::unique('users')->ignore($this->user()) leaves the signed-in user's row out of the check, which guarantees you only collide with other accounts."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Illuminate\\Validation\\Rule;\n\npublic function rules(): array\n{\n    return [\n        'name' => ['required', 'string', 'max:255'],\n        'email' => [\n            'required',\n            'email',\n            'max:255',\n            Rule::unique('users')->ignore($this->user()),\n        ],\n    ];\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "wait, the admin update at /admin/users/{user} reuses this request. there it'd ignore the admin instead",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Right, on the admin screen the row being edited is the {user} in the route. This prefers $this->route('user'), which route model binding has already resolved, and falls back to the signed-in user. Note: ignore() takes the model and reads its primary key, so there is no need to pass the ID yourself."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "Rule::unique('users')->ignore($this->route('user') ?? $this->user()),\n"
+        }
+      ]
+    }
+  ]
+}

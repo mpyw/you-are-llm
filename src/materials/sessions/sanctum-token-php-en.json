@@ -1,0 +1,82 @@
+{
+  "id": "sanctum-token-php-en",
+  "title": "Give Sanctum tokens real abilities",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "php",
+  "summary": "Pass abilities to createToken, gate the routes with the abilities middleware, and forget that Laravel 11 and later need the middleware aliases registered.",
+  "files": [
+    {
+      "path": "app/Http/Controllers/TokenController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse Illuminate\\Http\\Request;\n\nclass TokenController extends Controller\n{\n    public function store(Request $request)\n    {\n        $request->validate([\n            'name' => ['required', 'string', 'max:255'],\n        ]);\n\n        $token = $request->user()->createToken($request->name);\n\n        return back()->with('token', $token->plainTextToken);\n    }\n\n    public function destroy(Request $request, string $tokenId)\n    {\n        $request->user()->tokens()->whereKey($tokenId)->delete();\n\n        return back();\n    }\n}\n"
+    },
+    {
+      "path": "routes/api.php",
+      "content": "<?php\n\nuse App\\Http\\Controllers\\Api\\OrderController;\nuse Illuminate\\Support\\Facades\\Route;\n\nRoute::middleware('auth:sanctum')->group(function () {\n    Route::get('/orders', [OrderController::class, 'index']);\n    Route::get('/orders/{order}', [OrderController::class, 'show']);\n    Route::post('/orders', [OrderController::class, 'store']);\n    Route::patch('/orders/{order}', [OrderController::class, 'update']);\n    Route::delete('/orders/{order}', [OrderController::class, 'destroy']);\n});\n"
+    },
+    {
+      "path": "bootstrap/app.php",
+      "content": "<?php\n\nuse Illuminate\\Foundation\\Application;\nuse Illuminate\\Foundation\\Configuration\\Exceptions;\nuse Illuminate\\Foundation\\Configuration\\Middleware;\n\nreturn Application::configure(basePath: dirname(__DIR__))\n    ->withRouting(\n        web: __DIR__.'/../routes/web.php',\n        api: __DIR__.'/../routes/api.php',\n        commands: __DIR__.'/../routes/console.php',\n        health: '/up',\n    )\n    ->withMiddleware(function (Middleware $middleware): void {\n        //\n    })\n    ->withExceptions(function (Exceptions $exceptions): void {\n        //\n    })->create();\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "users can issue api tokens from the settings page but every token can do everything, even delete orders. the one we hand to the reporting tool should be read only. let them pick with checkboxes when issuing",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's what is happening: createToken gets no second argument, so every token is stored with the default abilities of ['*'] and passes every check. This validates the abilities from the form against an allow list with Rule::in and passes them through."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Illuminate\\Validation\\Rule;\n\npublic function store(Request $request)\n{\n    $validated = $request->validate([\n        'name' => ['required', 'string', 'max:255'],\n        'abilities' => ['required', 'array'],\n        'abilities.*' => ['string', Rule::in(['orders:read', 'orders:write'])],\n    ]);\n\n    $token = $request->user()->createToken($validated['name'], $validated['abilities']);\n\n    return back()->with('token', $token->plainTextToken);\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "Now the routes. Each one gets Sanctum's abilities middleware: reads need orders:read, and create, update and delete need orders:write. Inside a controller, $request->user()->tokenCan('orders:write') runs the same check if you ever need to branch. A read only token now gets a 403 on every write."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "<?php\n\nuse App\\Http\\Controllers\\Api\\OrderController;\nuse Illuminate\\Support\\Facades\\Route;\n\nRoute::middleware('auth:sanctum')->group(function () {\n    Route::get('/orders', [OrderController::class, 'index'])->middleware('abilities:orders:read');\n    Route::get('/orders/{order}', [OrderController::class, 'show'])->middleware('abilities:orders:read');\n    Route::post('/orders', [OrderController::class, 'store'])->middleware('abilities:orders:write');\n    Route::patch('/orders/{order}', [OrderController::class, 'update'])->middleware('abilities:orders:write');\n    Route::delete('/orders/{order}', [OrderController::class, 'destroy'])->middleware('abilities:orders:write');\n});\n"
+        }
+      ]
+    },
+    {
+      "user": "500. Target class [abilities] does not exist.",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incomplete. Sanctum does not register abilities or ability itself, so the application has to alias them. Laravel 11 and later have no Kernel.php, so the aliases go in withMiddleware in bootstrap/app.php."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Laravel\\Sanctum\\Http\\Middleware\\CheckAbilities;\nuse Laravel\\Sanctum\\Http\\Middleware\\CheckForAnyAbility;\n\n->withMiddleware(function (Middleware $middleware): void {\n    $middleware->alias([\n        'abilities' => CheckAbilities::class,\n        'ability' => CheckForAnyAbility::class,\n    ]);\n})\n"
+        }
+      ]
+    },
+    {
+      "user": "works. hmm actually I don't want write tokens deleting stuff either, too easy to screw up. make orders:delete its own thing",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Makes sense. Only the delete route changes to require orders:delete, and the issue form gets it as a choice. Note: abilities are stored on the token when it is issued, so tokens created before today still hold ['*']. It is worth revoking those and issuing new ones."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/Route::delete/s/orders:write/orders:delete/' routes/api.php"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' \"s/'orders:write'\\])/'orders:write', 'orders:delete'])/\" app/Http/Controllers/TokenController.php"
+        },
+        {
+          "kind": "command",
+          "body": "php artisan route:list --path=api/orders -v"
+        }
+      ]
+    }
+  ]
+}

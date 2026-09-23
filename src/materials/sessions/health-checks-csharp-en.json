@@ -1,0 +1,61 @@
+{
+  "id": "health-checks-csharp-en",
+  "title": "Split health checks into liveness and readiness",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "csharp",
+  "summary": "A database check added to AddHealthChecks takes liveness down with the database and loops the pods, so tags split it into two endpoints.",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using Microsoft.EntityFrameworkCore;\nusing Shop.Data;\n\nvar builder = WebApplication.CreateBuilder(args);\n\nbuilder.Services.AddDbContext<ShopDbContext>(options =>\n    options.UseNpgsql(builder.Configuration.GetConnectionString(\"Shop\")));\nbuilder.Services.AddControllers();\n\nvar app = builder.Build();\n\napp.MapGet(\"/healthz\", () => \"ok\");\napp.MapControllers();\n\napp.Run();\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "moving this to k8s so i want real health checks. /healthz just returns ok right now. want to know when the db is dead",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the plan. ASP.NET Core has had built-in health checks since 2.2, and they work the same on .NET 10. AddDbContextCheck lives in the Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore package and calls CanConnectAsync on the DbContext. MapHealthChecks runs every registered check and answers 503 if any is Unhealthy, 200 otherwise."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "builder.Services.AddHealthChecks()\n    .AddDbContextCheck<ShopDbContext>();\n\nvar app = builder.Build();\n\napp.MapHealthChecks(\"/healthz\");\napp.MapControllers();\n"
+        },
+        {
+          "kind": "text",
+          "body": "Now point both livenessProbe and readinessProbe in the Deployment at this /healthz. With one endpoint, health has a single source of truth."
+        }
+      ]
+    },
+    {
+      "user": "we took the db down for 10 minutes of maintenance yesterday and every pod went CrashLoopBackOff. db came back and the pods took forever, outage got way longer",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, that advice was wrong. When liveness fails, the kubelet restarts the container, and no number of restarts fixes a database that is down. Liveness should only answer whether this process is alive. Watching external dependencies is the job of readiness. A Pod that fails readiness is just taken out of the Service, not restarted. Tags split the checks in two, and a Predicate picks them per endpoint."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using Microsoft.AspNetCore.Diagnostics.HealthChecks;\nusing Microsoft.Extensions.Diagnostics.HealthChecks;\n\nbuilder.Services.AddHealthChecks()\n    .AddCheck(\"self\", () => HealthCheckResult.Healthy(), tags: [\"live\"])\n    .AddDbContextCheck<ShopDbContext>(tags: [\"ready\"]);\n\nvar app = builder.Build();\n\napp.MapHealthChecks(\"/healthz/live\", new HealthCheckOptions\n{\n    Predicate = check => check.Tags.Contains(\"live\"),\n});\napp.MapHealthChecks(\"/healthz/ready\", new HealthCheckOptions\n{\n    Predicate = check => check.Tags.Contains(\"ready\"),\n});\napp.MapControllers();\n"
+        }
+      ]
+    },
+    {
+      "user": "looks good. infra wants the paths to be /livez and /readyz. also maybe json showing what failed on ready... nah later, just the paths",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Just the paths, then. They match the names the Kubernetes API server uses, which ops will recognise. Note: while /readyz answers 503 the Pod only leaves Ready. It is not restarted."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's#\"/healthz/live\"#\"/livez\"#' -e 's#\"/healthz/ready\"#\"/readyz\"#' src/Program.cs"
+        }
+      ]
+    }
+  ]
+}

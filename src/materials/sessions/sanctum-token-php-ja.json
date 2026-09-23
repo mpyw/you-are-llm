@@ -1,0 +1,86 @@
+{
+  "id": "sanctum-token-php-ja",
+  "title": "Sanctum のトークンに権限を持たせる",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "php",
+  "summary": "createToken に abilities を渡してルートを abilities ミドルウェアで絞り、Laravel 11 以降で必要なミドルウェアの別名登録を忘れる。",
+  "files": [
+    {
+      "path": "app/Http/Controllers/TokenController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse Illuminate\\Http\\Request;\n\nclass TokenController extends Controller\n{\n    public function store(Request $request)\n    {\n        $request->validate([\n            'name' => ['required', 'string', 'max:255'],\n        ]);\n\n        $token = $request->user()->createToken($request->name);\n\n        return back()->with('token', $token->plainTextToken);\n    }\n\n    public function destroy(Request $request, string $tokenId)\n    {\n        $request->user()->tokens()->whereKey($tokenId)->delete();\n\n        return back();\n    }\n}\n"
+    },
+    {
+      "path": "routes/api.php",
+      "content": "<?php\n\nuse App\\Http\\Controllers\\Api\\OrderController;\nuse Illuminate\\Support\\Facades\\Route;\n\nRoute::middleware('auth:sanctum')->group(function () {\n    Route::get('/orders', [OrderController::class, 'index']);\n    Route::get('/orders/{order}', [OrderController::class, 'show']);\n    Route::post('/orders', [OrderController::class, 'store']);\n    Route::patch('/orders/{order}', [OrderController::class, 'update']);\n    Route::delete('/orders/{order}', [OrderController::class, 'destroy']);\n});\n"
+    },
+    {
+      "path": "bootstrap/app.php",
+      "content": "<?php\n\nuse Illuminate\\Foundation\\Application;\nuse Illuminate\\Foundation\\Configuration\\Exceptions;\nuse Illuminate\\Foundation\\Configuration\\Middleware;\n\nreturn Application::configure(basePath: dirname(__DIR__))\n    ->withRouting(\n        web: __DIR__.'/../routes/web.php',\n        api: __DIR__.'/../routes/api.php',\n        commands: __DIR__.'/../routes/console.php',\n        health: '/up',\n    )\n    ->withMiddleware(function (Middleware $middleware): void {\n        //\n    })\n    ->withExceptions(function (Exceptions $exceptions): void {\n        //\n    })->create();\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "設定画面から API トークン発行できるようにしてあるんだけど、発行したトークンで注文の削除まで何でもできちゃう。外部の集計ツールに渡すやつは読み取りだけにしたい。発行するときチェックボックスで選ばせる感じで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、createToken の第 2 引数に abilities を渡していないので、既定値の ['*'] ですべての操作が許可されています。フォームから受け取った abilities を Rule::in で許可リストに絞ってから渡します。",
+          "reading": "Now、createToken のだい 2 ひきすうに abilities をわたしていないので、きていちの ['*'] ですべてのそうさがきょかされています。フォームからうけとった abilities を Rule::in できょかリストにしぼってからわたします。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Illuminate\\Validation\\Rule;\n\npublic function store(Request $request)\n{\n    $validated = $request->validate([\n        'name' => ['required', 'string', 'max:255'],\n        'abilities' => ['required', 'array'],\n        'abilities.*' => ['string', Rule::in(['orders:read', 'orders:write'])],\n    ]);\n\n    $token = $request->user()->createToken($validated['name'], $validated['abilities']);\n\n    return back()->with('token', $token->plainTextToken);\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "次にルート側です。Sanctum の abilities ミドルウェアを各ルートに付け、読み取りは orders:read、作成と更新と削除は orders:write を要求します。コントローラの中で分岐したいときは $request->user()->tokenCan('orders:write') で同じ判定が可能になります。これで読み取り専用トークンは書き込みで 403 になり、期待どおりに動作します。",
+          "reading": "つぎにルートがわです。Sanctum の abilities ミドルウェアをかくルートにつけ、よみとりは orders:read、さくせいとこうしんとさくじょは orders:write をようきゅうします。コントローラのなかでぶんきしたいときは $request->user()->tokenCan('orders:write') でおなじはんていがかのうになります。これでよみとりせんようトークンはかきこみで 403 になり、きたいどおりにどうさします。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "<?php\n\nuse App\\Http\\Controllers\\Api\\OrderController;\nuse Illuminate\\Support\\Facades\\Route;\n\nRoute::middleware('auth:sanctum')->group(function () {\n    Route::get('/orders', [OrderController::class, 'index'])->middleware('abilities:orders:read');\n    Route::get('/orders/{order}', [OrderController::class, 'show'])->middleware('abilities:orders:read');\n    Route::post('/orders', [OrderController::class, 'store'])->middleware('abilities:orders:write');\n    Route::patch('/orders/{order}', [OrderController::class, 'update'])->middleware('abilities:orders:write');\n    Route::delete('/orders/{order}', [OrderController::class, 'destroy'])->middleware('abilities:orders:write');\n});\n"
+        }
+      ]
+    },
+    {
+      "user": "Target class [abilities] does not exist. で 500 なんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません、私の誤りでした。Sanctum の abilities と ability はパッケージ側では登録されず、アプリで別名を定義する必要があるという点に注意することが重要です。Laravel 11 以降は Kernel.php がないので、bootstrap/app.php の withMiddleware に書きます。",
+          "reading": "もうしわけありません、わたしのあやまりでした。Sanctum の abilities と ability はパッケージがわではとうろくされず、アプリでべつめいをていぎするひつようがあるというてんにちゅういすることがじゅうようです。Laravel 11 いこうは Kernel.php がないので、bootstrap/app.php の withMiddleware にかきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Laravel\\Sanctum\\Http\\Middleware\\CheckAbilities;\nuse Laravel\\Sanctum\\Http\\Middleware\\CheckForAnyAbility;\n\n->withMiddleware(function (Middleware $middleware): void {\n    $middleware->alias([\n        'abilities' => CheckAbilities::class,\n        'ability' => CheckForAnyAbility::class,\n    ]);\n})\n"
+        }
+      ]
+    },
+    {
+      "user": "動いた。あーでもやっぱ削除は write でもできないほうがいいな、事故るので。orders:delete を別にして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。削除ルートだけ orders:delete を要求するように変え、発行フォームで選べる値にも足します。トークンの abilities は発行時の値で保存されているので、今回より前に作ったトークンは ['*'] のままです。一度失効させて発行し直すことをお勧めします。",
+          "reading": "しょうちしました。さくじょルートだけ orders:delete をようきゅうするようにかえ、はっこうフォームでえらべるあたいにもたします。トークンの abilities ははっこうじのあたいでほぞんされているので、こんかいよりまえにつくったトークンは ['*'] のままです。いちどしっこうさせてはっこうしなおすことをおすすめします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/Route::delete/s/orders:write/orders:delete/' routes/api.php"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' \"s/'orders:write'\\])/'orders:write', 'orders:delete'])/\" app/Http/Controllers/TokenController.php"
+        },
+        {
+          "kind": "command",
+          "body": "php artisan route:list --path=api/orders -v"
+        }
+      ]
+    }
+  ]
+}

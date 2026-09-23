@@ -1,0 +1,86 @@
+{
+  "id": "savechanges-interceptor-csharp-ja",
+  "title": "CreatedAt と UpdatedAt を SaveChangesInterceptor にまとめる",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "csharp",
+  "summary": "手書きのタイムスタンプを SavingChangesAsync に寄せたら変更追跡を通らない ExecuteUpdateAsync の分が更新されなくなり、Update で CreatedAt が消える穴も塞ぐ。",
+  "files": [
+    {
+      "path": "src/Entities/Product.cs",
+      "content": "namespace Shop.Entities;\n\npublic sealed class Product\n{\n    public int Id { get; set; }\n    public int CategoryId { get; set; }\n    public required string Name { get; set; }\n    public decimal Price { get; set; }\n    public DateTime CreatedAt { get; set; }\n    public DateTime UpdatedAt { get; set; }\n}\n"
+    },
+    {
+      "path": "src/Services/ProductService.cs",
+      "content": "using Microsoft.EntityFrameworkCore;\nusing Shop.Data;\nusing Shop.Entities;\n\nnamespace Shop.Services;\n\npublic sealed class ProductService(ShopDbContext db)\n{\n    public async Task<Product> CreateAsync(int categoryId, string name, decimal price, CancellationToken ct)\n    {\n        var product = new Product\n        {\n            CategoryId = categoryId,\n            Name = name,\n            Price = price,\n            CreatedAt = DateTime.UtcNow,\n            UpdatedAt = DateTime.UtcNow,\n        };\n        db.Products.Add(product);\n        await db.SaveChangesAsync(ct);\n        return product;\n    }\n\n    public async Task RenameAsync(int id, string name, CancellationToken ct)\n    {\n        var product = await db.Products.SingleAsync(p => p.Id == id, ct);\n        product.Name = name;\n        product.UpdatedAt = DateTime.UtcNow;\n        await db.SaveChangesAsync(ct);\n    }\n\n    public async Task ReplaceAsync(Product product, CancellationToken ct)\n    {\n        db.Products.Update(product);\n        await db.SaveChangesAsync(ct);\n    }\n\n    public Task<int> RaisePricesAsync(int categoryId, decimal rate, CancellationToken ct) =>\n        db.Products\n            .Where(p => p.CategoryId == categoryId)\n            .ExecuteUpdateAsync(s => s\n                .SetProperty(p => p.UpdatedAt, DateTime.UtcNow)\n                .SetProperty(p => p.Price, p => p.Price * rate), ct);\n}\n"
+    },
+    {
+      "path": "src/Program.cs",
+      "content": "using Microsoft.EntityFrameworkCore;\nusing Shop.Data;\nusing Shop.Services;\n\nvar builder = WebApplication.CreateBuilder(args);\n\nbuilder.Services.AddDbContext<ShopDbContext>(options =>\n    options.UseNpgsql(builder.Configuration.GetConnectionString(\"Shop\")));\nbuilder.Services.AddScoped<ProductService>();\n\nvar app = builder.Build();\n\napp.Run();\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "CreatedAt/UpdatedAt を各メソッドで手で入れてるんだけど、ReplaceAsync で入れ忘れてて UpdatedAt が 0001-01-01 のレコードが出てた。一か所にまとめたい。EF Core 10 です",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい着眼点です。EF Core 5 から入った SaveChangesInterceptor を活用し、SavingChangesAsync で保存直前の ChangeTracker を調べて、IAuditable を実装したエンティティにだけ時刻を入れます。時刻は TimeProvider から取るので、テストでは固定できます。",
+          "reading": "すばらしいちゃくがんてんです。EF Core 5 からはいった SaveChangesInterceptor をかつようし、SavingChangesAsync でほぞんちょくぜんの ChangeTracker をしらべて、IAuditable をじっそうしたえんてぃてぃにだけじこくをいれます。じこくは TimeProvider からとるので、てすとではこていできます。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "namespace Shop.Entities;\n\npublic interface IAuditable\n{\n    DateTime CreatedAt { get; set; }\n    DateTime UpdatedAt { get; set; }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using Microsoft.EntityFrameworkCore;\nusing Microsoft.EntityFrameworkCore.Diagnostics;\nusing Shop.Entities;\n\nnamespace Shop.Data;\n\npublic sealed class AuditInterceptor(TimeProvider clock) : SaveChangesInterceptor\n{\n    public override ValueTask<InterceptionResult<int>> SavingChangesAsync(\n        DbContextEventData eventData,\n        InterceptionResult<int> result,\n        CancellationToken cancellationToken = default)\n    {\n        if (eventData.Context is { } context)\n        {\n            var now = clock.GetUtcNow().UtcDateTime;\n            foreach (var entry in context.ChangeTracker.Entries<IAuditable>())\n            {\n                switch (entry.State)\n                {\n                    case EntityState.Added:\n                        entry.Entity.CreatedAt = now;\n                        entry.Entity.UpdatedAt = now;\n                        break;\n                    case EntityState.Modified:\n                        entry.Entity.UpdatedAt = now;\n                        break;\n                }\n            }\n        }\n        return base.SavingChangesAsync(eventData, result, cancellationToken);\n    }\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "Now、インターセプタをシングルトンで登録し、AddDbContext で差し込みます。時刻を決めるのはここだけになるので、各メソッドの手書きの代入は要りません。RaisePricesAsync の SetProperty も同じく不要なので、sed でまとめて取り除きます。",
+          "reading": "Now、いんたーせぷたをしんぐるとんでとうろくし、AddDbContext でさしこみます。じこくをきめるのはここだけになるので、かくめそっどのてがきのだいにゅうはいりません。RaisePricesAsync の SetProperty もおなじくふようなので、sed でまとめてとりのぞきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "builder.Services.AddSingleton(TimeProvider.System);\nbuilder.Services.AddSingleton<AuditInterceptor>();\nbuilder.Services.AddDbContext<ShopDbContext>((services, options) =>\n    options.UseNpgsql(builder.Configuration.GetConnectionString(\"Shop\"))\n        .AddInterceptors(services.GetRequiredService<AuditInterceptor>()));\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e '/At = DateTime\\.UtcNow/d' -e '/p\\.UpdatedAt, DateTime\\.UtcNow)$/d' src/Services/ProductService.cs\nsed -i '' 's/^public sealed class Product$/public sealed class Product : IAuditable/' src/Entities/Product.cs"
+        }
+      ]
+    },
+    {
+      "user": "値上げのバッチ回したら Price は変わってるのに UpdatedAt が古いまま。差分同期がそれ見てるから拾われなかった",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの説明は正確ではありませんでした。ExecuteUpdateAsync は EF Core 7 から入った一括更新で、UPDATE 文をそのまま DB に送ります。エンティティを読み込まず、変更追跡も SaveChanges も通らないので、SavingChangesAsync は呼ばれません。EF Core 10 で ExecuteUpdateAsync の引数は式木ではない普通のラムダになりましたが、この点は変わっていません。一括更新では UpdatedAt を自分で入れるしかないので、消した行を戻します。",
+          "reading": "もうしわけありません。さきほどのせつめいはせいかくではありませんでした。ExecuteUpdateAsync は EF Core 7 からはいったいっかつこうしんで、UPDATE ぶんをそのまま DB におくります。えんてぃてぃをよみこまず、へんこうついせきも SaveChanges もとおらないので、SavingChangesAsync はよばれません。EF Core 10 で ExecuteUpdateAsync のひきすうはしきぎではないふつうのらむだになりましたが、このてんはかわっていません。いっかつこうしんでは UpdatedAt をじぶんでいれるしかないので、けしたぎょうをもどします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/\\.ExecuteUpdateAsync(s => s$/a\\\n\\                .SetProperty(p => p.UpdatedAt, DateTime.UtcNow)\n' src/Services/ProductService.cs"
+        }
+      ]
+    },
+    {
+      "user": "直った。別件だけど PUT で ReplaceAsync 通すと CreatedAt が 0001-01-01 になるの、これも前からなんだけど interceptor でなんとかならん？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "なります。Update に渡した Product はリクエストから組み立てたもので、CreatedAt は既定値のままです。Update はすべてのプロパティを Modified にするので、その既定値が UPDATE 文に入り、元の作成日時を上書きします。Modified のときは CreatedAt の IsModified を false に戻し、UPDATE 文から外します。言い換えると、CreatedAt が書かれるのは挿入のときだけであることを保証します。",
+          "reading": "なります。Update にわたした Product はりくえすとからくみたてたもので、CreatedAt はきていちのままです。Update はすべてのぷろぱてぃを Modified にするので、そのきていちが UPDATE ぶんにはいり、もとのさくせいにちじをうわがきします。Modified のときは CreatedAt の IsModified を false にもどし、UPDATE ぶんからはずします。いいかえると、CreatedAt がかかれるのはそうにゅうのときだけであることをほしょうします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/case EntityState\\.Modified:/a\\\n\\                        entry.Property(e => e.CreatedAt).IsModified = false;\n' src/Data/AuditInterceptor.cs"
+        }
+      ]
+    }
+  ]
+}

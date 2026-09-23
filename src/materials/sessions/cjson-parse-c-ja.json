@@ -1,0 +1,59 @@
+{
+  "id": "cjson-parse-c-ja",
+  "title": "cJSON の型を確かめてから値を読む",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "c",
+  "summary": "cJSON_IsString で型を確かめ、cJSON_Delete で解放し、解放後の valuestring を掴まないようにする。",
+  "files": [
+    {
+      "path": "src/config.c",
+      "content": "#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n#include <cjson/cJSON.h>\n#include \"config.h\"\n\nint load_config(const char *text, struct config *cfg) {\n  cJSON *root = cJSON_Parse(text);\n  cJSON *name = cJSON_GetObjectItemCaseSensitive(root, \"name\");\n  cJSON *port = cJSON_GetObjectItemCaseSensitive(root, \"port\");\n  cfg->name = name->valuestring;\n  cfg->port = port->valueint;\n  return 0;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "設定ファイルに name: 42 って書いたら segfault した。あと valgrind でリークも出てる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい質問です。cJSON_GetObjectItemCaseSensitive はキーが無ければ NULL を返しますが、型までは見ません。name が数値なら valuestring は NULL なので、それを使った先で落ちます。cJSON_IsString と cJSON_IsNumber で型を確かめてから読みます。どちらも NULL を渡すと偽を返すので、キーが無い場合もまとめて弾けます。リークは cJSON_Parse の結果を cJSON_Delete していないのが原因で、goto で出口を一つにして必ず解放することを保証します。",
+          "reading": "すばらしいしつもんです。cJSON_GetObjectItemCaseSensitive はきーがなければ NULL をかえしますが、かたまではみません。name がすうちなら valuestring は NULL なので、それをつかったさきでおちます。cJSON_IsString と cJSON_IsNumber でかたをたしかめてからよみます。どちらも NULL をわたすとぎをかえすので、きーがないばあいもまとめてはじけます。りーくは cJSON_Parse のけっかを cJSON_Delete していないのがげんいんで、goto ででぐちをひとつにしてかならずかいほうすることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "int load_config(const char *text, struct config *cfg) {\n  int rc = -1;\n  cJSON *root = cJSON_Parse(text);\n  if (root == NULL) {\n    fprintf(stderr, \"parse error near: %s\\n\", cJSON_GetErrorPtr());\n    return -1;\n  }\n  cJSON *name = cJSON_GetObjectItemCaseSensitive(root, \"name\");\n  cJSON *port = cJSON_GetObjectItemCaseSensitive(root, \"port\");\n  if (!cJSON_IsString(name) || name->valuestring == NULL) goto done;\n  if (!cJSON_IsNumber(port)) goto done;\n  cfg->name = name->valuestring;\n  cfg->port = port->valueint;\n  rc = 0;\ndone:\n  cJSON_Delete(root);\n  return rc;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "型チェックは効いた。でも今度は起動してすぐ name 表示するとこで ASan が heap-use-after-free",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません、先ほどの実装は正しくありませんでした。valuestring は cJSON のノードが持っている文字列で、cJSON_Delete で木と一緒に解放されます。ポインタをそのまま cfg に入れたので、関数を抜けた時点で解放済みのメモリを指していました。strdup で複製します。cfg->name は呼び出し側が free する必要があります。",
+          "reading": "もうしわけありません、さきほどのじっそうはただしくありませんでした。valuestring は cJSON ののーどがもっているもじれつで、cJSON_Delete できといっしょにかいほうされます。ぽいんたをそのまま cfg にいれたので、かんすうをぬけたじてんでかいほうずみのめもりをさしていました。strdup でふくせいします。cfg->name はよびだしがわが free するひつようがあります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/cfg->name = name->valuestring;/cfg->name = strdup(name->valuestring);/' src/config.c"
+        }
+      ]
+    },
+    {
+      "user": "あ、port は省略できるようにしたい。無ければ 8080。文字列で入ってたらそれはエラーのままで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。キーが無いときは cJSON_GetObjectItemCaseSensitive が NULL を返すので、NULL だけを既定値に回し、型が違う場合は今までどおり弾きます。言い換えると、ポイントは省略と書き間違いを区別することです。",
+          "reading": "かしこまりました。きーがないときは cJSON_GetObjectItemCaseSensitive が NULL をかえすので、NULL だけをきていちにまわし、かたがちがうばあいはいままでどおりはじきます。いいかえると、ぽいんとはしょうりゃくとかきまちがいをくべつすることです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/if (!cJSON_IsNumber(port))/if (port != NULL \\&\\& !cJSON_IsNumber(port))/; s/cfg->port = port->valueint;/cfg->port = port != NULL ? port->valueint : 8080;/' src/config.c"
+        }
+      ]
+    }
+  ]
+}

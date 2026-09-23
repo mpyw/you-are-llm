@@ -1,0 +1,65 @@
+{
+  "id": "kafka-listener-java-en",
+  "title": "Stop a @KafkaListener retrying forever with a DLT",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "java",
+  "summary": "A message that throws is reprocessed endlessly and blocks the partition, so retries get a limit and failures go to a dead letter topic.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/order/OrderListener.java",
+      "content": "package com.example.order;\n\nimport org.springframework.kafka.annotation.KafkaListener;\nimport org.springframework.stereotype.Component;\n\n@Component\npublic class OrderListener {\n    private final OrderService orders;\n\n    public OrderListener(OrderService orders) {\n        this.orders = orders;\n    }\n\n    @KafkaListener(topics = \"orders\")\n    public void onOrder(OrderEvent event) {\n        orders.apply(event);\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/order/KafkaConfig.java",
+      "content": "package com.example.order;\n\nimport org.springframework.context.annotation.Bean;\nimport org.springframework.context.annotation.Configuration;\nimport org.springframework.kafka.listener.DefaultErrorHandler;\nimport org.springframework.util.backoff.FixedBackOff;\n\n@Configuration\npublic class KafkaConfig {\n    @Bean\n    DefaultErrorHandler errorHandler() {\n        return new DefaultErrorHandler(new FixedBackOff(0L, FixedBackOff.UNLIMITED_ATTEMPTS));\n    }\n}\n"
+    },
+    {
+      "path": "src/main/resources/application.yml",
+      "content": "spring:\n  kafka:\n    bootstrap-servers: localhost:9092\n    consumer:\n      group-id: order-worker\n      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer\n      properties:\n        spring.json.trusted.packages: com.example.order\n    producer:\n      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "orders consumer keeps processing the same message over and over, everything behind it is stuck. its one where OrderService throws. looks like the previous guy wrote KafkaConfig with \"never drop anything\". i want 3 tries then off to a DLT",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "The cause is FixedBackOff.UNLIMITED_ATTEMPTS. DefaultErrorHandler seeks back to the failed record and hands it over again, so with no limit it never moves on, and every message behind it on that partition waits too. Give it a DeadLetterPublishingRecoverer and a record that runs out of attempts is published to a dead letter topic before the offset moves forward. Spring Boot puts a single CommonErrorHandler bean into its auto-configured container factory, so replacing the bean is all it takes. Since spring-kafka 3.3 the default destination is orders-dlt. TL;DR: \"never drop anything\" is guaranteed by the DLT, not by retrying forever."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.order;\n\nimport org.springframework.context.annotation.Bean;\nimport org.springframework.context.annotation.Configuration;\nimport org.springframework.kafka.core.KafkaOperations;\nimport org.springframework.kafka.listener.DeadLetterPublishingRecoverer;\nimport org.springframework.kafka.listener.DefaultErrorHandler;\nimport org.springframework.util.backoff.FixedBackOff;\n\n@Configuration\npublic class KafkaConfig {\n    @Bean\n    DefaultErrorHandler errorHandler(KafkaOperations<?, ?> template) {\n        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(template);\n        return new DefaultErrorHandler(recoverer, new FixedBackOff(1000L, 3L));\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "its in the DLT. but the logs show OrderService called 4 times. you said 3",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. The second argument of FixedBackOff is not the total number of attempts. It is the number of retries after the first one. 3L means the first call plus three retries, four calls in all. Giving up after three calls is 2L."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/new FixedBackOff(1000L, 3L)/new FixedBackOff(1000L, 2L)/' src/main/java/com/example/order/KafkaConfig.java"
+        }
+      ]
+    },
+    {
+      "user": "also the DLT infra set up is orders.DLT. orders-dlt got auto created and they yelled at me. and InvalidOrderException is pointless to retry, straight to DLT please",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Makes sense. Up to 3.2 the default was orders.DLT, which is probably what the infra naming follows. The destination is a function passed as the second argument, so it appends .DLT to the original topic name. It sends to the same partition number as the original, so check that orders.DLT has at least as many partitions as orders. Passing InvalidOrderException to addNotRetryableExceptions sends it to the DLT on the first failure. The listener exception arrives wrapped in ListenerExecutionFailedException, but the classifier walks the causes, so it still matches."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import org.apache.kafka.common.TopicPartition;\n\n@Bean\nDefaultErrorHandler errorHandler(KafkaOperations<?, ?> template) {\n    DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(template,\n        (record, ex) -> new TopicPartition(record.topic() + \".DLT\", record.partition()));\n    DefaultErrorHandler handler = new DefaultErrorHandler(recoverer, new FixedBackOff(1000L, 2L));\n    handler.addNotRetryableExceptions(InvalidOrderException.class);\n    return handler;\n}\n"
+        }
+      ]
+    }
+  ]
+}

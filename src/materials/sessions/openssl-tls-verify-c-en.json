@@ -1,0 +1,56 @@
+{
+  "id": "openssl-tls-verify-c-en",
+  "title": "Verify certificates in an OpenSSL TLS client",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "c",
+  "summary": "Give a client stuck on SSL_VERIFY_NONE a trust store, SSL_VERIFY_PEER and SNI, then check the host name with SSL_set1_host.",
+  "files": [
+    {
+      "path": "src/net/tls.c",
+      "content": "#include <stdio.h>\n#include <openssl/ssl.h>\n#include <openssl/err.h>\n\nSSL_CTX *tls_client_ctx(void) {\n  SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());\n  if (ctx == NULL) return NULL;\n  SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL);\n  return ctx;\n}\n\nSSL *tls_connect(SSL_CTX *ctx, int fd, const char *host) {\n  SSL *ssl = SSL_new(ctx);\n  if (ssl == NULL) return NULL;\n  if (SSL_set_fd(ssl, fd) != 1 || SSL_connect(ssl) != 1) {\n    ERR_print_errors_fp(stderr);\n    SSL_free(ssl);\n    return NULL;\n  }\n  return ssl;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "security audit says tls_connect doesnt check certs. fix it. openssl 3",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "The audit is right. With SSL_VERIFY_NONE the handshake succeeds whatever certificate the peer presents, so anyone on the path can pose as the server. Step 1: SSL_CTX_set_default_verify_paths loads OpenSSL's default trust store. Then SSL_VERIFY_PEER in SSL_CTX_set_verify rejects any certificate that does not chain to a trusted CA during the handshake. SSL_set_tlsext_host_name sends SNI as well. That gives you robust verification end to end."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#include <stdio.h>\n#include <openssl/ssl.h>\n#include <openssl/err.h>\n\nSSL_CTX *tls_client_ctx(void) {\n  SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());\n  if (ctx == NULL) return NULL;\n  if (SSL_CTX_set_default_verify_paths(ctx) != 1) {\n    SSL_CTX_free(ctx);\n    return NULL;\n  }\n  SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);\n  return ctx;\n}\n\nSSL *tls_connect(SSL_CTX *ctx, int fd, const char *host) {\n  SSL *ssl = SSL_new(ctx);\n  if (ssl == NULL) return NULL;\n  if (SSL_set_tlsext_host_name(ssl, host) != 1\n      || SSL_set_fd(ssl, fd) != 1\n      || SSL_connect(ssl) != 1) {\n    long result = SSL_get_verify_result(ssl);\n    if (result != X509_V_OK) {\n      fprintf(stderr, \"tls %s: %s\\n\", host, X509_verify_cert_error_string(result));\n    }\n    ERR_print_errors_fp(stderr);\n    SSL_free(ssl);\n    return NULL;\n  }\n  return ssl;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "self-signed.badssl.com fails like it should. but wrong.host.badssl.com connects just fine??",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. SSL_VERIFY_PEER only checks that the certificate chains to a trusted CA. It never checks that the certificate was issued for the host you meant to reach, and SNI only tells the server which name you want. So a valid certificate for some other site passes. SSL_set1_host registers the expected host name, verification matches it against the SAN, and a mismatch fails with hostname mismatch."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/SSL_set_tlsext_host_name(ssl, host) != 1$/& || SSL_set1_host(ssl, host) != 1/' src/net/tls.c"
+        }
+      ]
+    },
+    {
+      "user": "oh the internal api uses our own CA, /etc/myapp/ca.pem. we still hit public sites so keep the defaults",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Load it on top of the default store. SSL_CTX_load_verify_file, new in OpenSSL 3, adds the CAs from a PEM file next to the defaults. Take ca_file as a parameter and use only the defaults when it is NULL, which keeps the path out of the function."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/tls_client_ctx(void)/tls_client_ctx(const char *ca_file)/; s/SSL_CTX_set_default_verify_paths(ctx) != 1/& || (ca_file != NULL \\&\\& SSL_CTX_load_verify_file(ctx, ca_file) != 1)/' src/net/tls.c"
+        }
+      ]
+    }
+  ]
+}

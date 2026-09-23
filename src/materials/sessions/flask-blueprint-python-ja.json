@@ -1,0 +1,59 @@
+{
+  "id": "flask-blueprint-python-ja",
+  "title": "Flask の app.py を Blueprint と create_app に分ける",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "python",
+  "summary": "1 ファイルに詰まったルートを Blueprint に分けてアプリケーションファクトリで登録し、壊れた url_for のエンドポイント名を直す。",
+  "files": [
+    {
+      "path": "app.py",
+      "content": "from flask import Flask, abort, jsonify, redirect, request, url_for\n\napp = Flask(__name__)\napp.config[\"SECRET_KEY\"] = \"dev\"\n\nUSERS = {1: {\"id\": 1, \"name\": \"alice\"}}\nPOSTS = {1: {\"id\": 1, \"user_id\": 1, \"title\": \"hello\"}}\n\n\n@app.get(\"/users/<int:user_id>\")\ndef show_user(user_id):\n    user = USERS.get(user_id)\n    if user is None:\n        abort(404)\n    return jsonify(user)\n\n\n@app.post(\"/users\")\ndef create_user():\n    user_id = max(USERS) + 1\n    USERS[user_id] = {\"id\": user_id, \"name\": request.json[\"name\"]}\n    return redirect(url_for(\"show_user\", user_id=user_id))\n\n\n@app.get(\"/posts\")\ndef list_posts():\n    return jsonify(list(POSTS.values()))\n\n\n@app.get(\"/posts/<int:post_id>\")\ndef show_post(post_id):\n    post = POSTS.get(post_id)\n    if post is None:\n        abort(404)\n    return jsonify(post)\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "app.py にルート全部書いてたらでかくなってきた。users と posts で分けたい。あとテストで毎回アプリ作り直せるようにしたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。ルートは機能ごとに Blueprint にまとめ、アプリ本体はアプリケーションファクトリの create_app の中で組み立てます。モジュールを読み込んだだけではグローバルな app が作られなくなるので、テストごとに設定を変えた新しいアプリを作れます。関心の分離の観点からも、ルートの定義と設定の組み立てが別のファイルになります。url_prefix を付けたので、空文字のルールは末尾のスラッシュなしの /users として登録されます。app パッケージと古い app.py が並ぶと import がぶつかるので、app.py は消してください。",
+          "reading": "しょうちしました。るーとはきのうごとに Blueprint にまとめ、あぷりほんたいはあぷりけーしょんふぁくとりの create_app のなかでくみたてます。もじゅーるをよみこんだだけではぐろーばるな app がつくられなくなるので、てすとごとにせっていをかえたあたらしいあぷりをつくれます。かんしんのぶんりのかんてんからも、るーとのていぎとせっていのくみたてがべつのふぁいるになります。url_prefix をつけたので、からもじのるーるはまつびのすらっしゅなしの /users としてとうろくされます。app ぱっけーじとふるい app.py がならぶと import がぶつかるので、app.py はけしてください。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "# app/users.py\nfrom flask import Blueprint, abort, jsonify, redirect, request, url_for\n\nbp = Blueprint(\"users\", __name__, url_prefix=\"/users\")\n\nUSERS = {1: {\"id\": 1, \"name\": \"alice\"}}\n\n\n@bp.get(\"/<int:user_id>\")\ndef show_user(user_id):\n    user = USERS.get(user_id)\n    if user is None:\n        abort(404)\n    return jsonify(user)\n\n\n@bp.post(\"\")\ndef create_user():\n    user_id = max(USERS) + 1\n    USERS[user_id] = {\"id\": user_id, \"name\": request.json[\"name\"]}\n    return redirect(url_for(\"show_user\", user_id=user_id))\n"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "# app/posts.py\nfrom flask import Blueprint, abort, jsonify\n\nbp = Blueprint(\"posts\", __name__, url_prefix=\"/posts\")\n\nPOSTS = {1: {\"id\": 1, \"user_id\": 1, \"title\": \"hello\"}}\n\n\n@bp.get(\"\")\ndef list_posts():\n    return jsonify(list(POSTS.values()))\n\n\n@bp.get(\"/<int:post_id>\")\ndef show_post(post_id):\n    post = POSTS.get(post_id)\n    if post is None:\n        abort(404)\n    return jsonify(post)\n"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "# app/__init__.py\nfrom flask import Flask\n\nfrom . import posts, users\n\n\ndef create_app(test_config=None):\n    app = Flask(__name__)\n    app.config.from_mapping(SECRET_KEY=\"dev\")\n    if test_config is not None:\n        app.config.from_mapping(test_config)\n\n    app.register_blueprint(users.bp)\n    app.register_blueprint(posts.bp)\n    return app\n"
+        },
+        {
+          "kind": "command",
+          "body": "rm app.py && flask --app app run --debug"
+        }
+      ]
+    },
+    {
+      "user": "GET は動く。POST /users で 500、BuildError: Could not build url for endpoint 'show_user' だって",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの users.py で、url_for の中身を直し忘れていました。Blueprint に登録したビューのエンドポイント名には Blueprint の名前が前に付くので、show_user は users.show_user になっています。同じ Blueprint の中からは、先頭にドットを付けた .show_user で参照できます。言い換えると、あとで Blueprint の名前を変えてもこの行は変えずに済みます。",
+          "reading": "もうしわけありません。さきほどの users.py で、url_for のなかみをなおしわすれていました。Blueprint にとうろくしたびゅーのえんどぽいんとめいには Blueprint のなまえがまえにつくので、show_user は users.show_user になっています。おなじ Blueprint のなかからは、せんとうにどっとをつけた .show_user でさんしょうできます。いいかえると、あとで Blueprint のなまえをかえてもこのぎょうはかえずにすみます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/url_for(\"show_user\"/url_for(\".show_user\"/' app/users.py"
+        }
+      ]
+    }
+  ]
+}

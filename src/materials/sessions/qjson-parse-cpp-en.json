@@ -2,7 +2,7 @@
   "id": "qjson-parse-cpp-en",
   "title": "The app that starts on a broken config",
   "language": "en",
-  "difficulty": "expert",
+  "difficulty": "hard",
   "codeLanguage": "cpp",
   "summary": "A failed QJsonDocument::fromJson turns into an empty object. QJsonParseError and isObject() stop it, and toInt's default quietly swallows a wrong type too.",
   "files": [

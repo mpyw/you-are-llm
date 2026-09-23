@@ -1,0 +1,57 @@
+{
+  "id": "clap-subcommands-rust-en",
+  "title": "Split a string action into clap subcommands",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "rust",
+  "summary": "Replace a CLI that matches on an action string with a Subcommand enum, then let --db follow the subcommand with global = true.",
+  "files": [
+    {
+      "path": "src/main.rs",
+      "content": "use clap::Parser;\n\n#[derive(Parser)]\nstruct Cli {\n    action: String,\n    title: Option<String>,\n    #[arg(long)]\n    id: Option<u32>,\n    #[arg(long)]\n    all: bool,\n}\n\nfn add(title: &str) {\n    println!(\"added: {title}\");\n}\n\nfn list(all: bool) {\n    println!(\"listing (all = {all})\");\n}\n\nfn done(id: u32) {\n    println!(\"done: {id}\");\n}\n\nfn main() {\n    let cli = Cli::parse();\n    match cli.action.as_str() {\n        \"add\" => add(&cli.title.expect(\"title is required\")),\n        \"list\" => list(cli.all),\n        \"done\" => done(cli.id.expect(\"--id is required\")),\n        other => eprintln!(\"unknown action: {other}\"),\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "our todo cli takes the action as a string and matches on it. add happily accepts --id and the help is useless. want real subcommands",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's move each subcommand's arguments into its own enum variant. Cli keeps a single field marked #[command(subcommand)], and a #[derive(Subcommand)] enum lists Add, List and Done. Passing --id to add is now a parse error, and each doc comment becomes that subcommand's line in --help. The match is exhaustive too, so the unknown action arm goes away. Note: the id for done is positional now instead of --id."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use clap::{Parser, Subcommand};\n\n#[derive(Parser)]\n#[command(version, about)]\nstruct Cli {\n    #[command(subcommand)]\n    command: Command,\n}\n\n#[derive(Subcommand)]\nenum Command {\n    /// Add a new task\n    Add { title: String },\n    /// List tasks\n    List {\n        #[arg(long)]\n        all: bool,\n    },\n    /// Mark a task as done\n    Done { id: u32 },\n}\n\nfn main() {\n    let cli = Cli::parse();\n    match cli.command {\n        Command::Add { title } => add(&title),\n        Command::List { all } => list(all),\n        Command::Done { id } => done(id),\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "nice. also let me pick the task file with --db, default todo.json",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Add --db to Cli and pass the path into each function. An option on Cli is shared by every subcommand, so --db can go before or after the subcommand name."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::path::{Path, PathBuf};\n\nuse clap::{Parser, Subcommand};\n\n#[derive(Parser)]\n#[command(version, about)]\nstruct Cli {\n    /// Path to the task file\n    #[arg(long, default_value = \"todo.json\")]\n    db: PathBuf,\n    #[command(subcommand)]\n    command: Command,\n}\n\nfn add(db: &Path, title: &str) {\n    println!(\"added to {}: {title}\", db.display());\n}\n\nfn list(db: &Path, all: bool) {\n    println!(\"listing {} (all = {all})\", db.display());\n}\n\nfn done(db: &Path, id: u32) {\n    println!(\"done in {}: {id}\", db.display());\n}\n\nfn main() {\n    let cli = Cli::parse();\n    match cli.command {\n        Command::Add { title } => add(&cli.db, &title),\n        Command::List { all } => list(&cli.db, all),\n        Command::Done { id } => done(&cli.db, id),\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "todo list --db x.json -> error: unexpected argument '--db' found",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. By default an option on Cli is only accepted before the subcommand name. Once clap sees list, everything after it is parsed as an argument of List, and List has no --db. Adding global = true to the #[arg] propagates it to every subcommand, so it lands in cli.db wherever it is written."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/#\\[arg(long, default_value = \"todo.json\")\\]/#[arg(long, global = true, default_value = \"todo.json\")]/' src/main.rs"
+        }
+      ]
+    }
+  ]
+}

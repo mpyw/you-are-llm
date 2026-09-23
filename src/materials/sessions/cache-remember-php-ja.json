@@ -2,7 +2,7 @@
   "id": "cache-remember-php-ja",
   "title": "ダッシュボードの売上集計を Cache::remember で包む",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "php",
   "summary": "毎リクエスト走る日別売上の集計を 10 分キャッシュし、注文が保存されたらキーを消す。",
   "files": [

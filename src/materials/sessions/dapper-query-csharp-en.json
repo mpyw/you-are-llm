@@ -1,0 +1,44 @@
+{
+  "id": "dapper-query-csharp-en",
+  "title": "Replace string-built SQL with Dapper",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "csharp",
+  "summary": "Turn a search that concatenated values into SQL into Dapper QueryAsync<T> with an anonymous parameter object, then allow several statuses.",
+  "files": [
+    {
+      "path": "src/Data/OrderRepository.cs",
+      "content": "using Microsoft.Data.SqlClient;\n\nnamespace Acme.Orders.Data;\n\npublic sealed class OrderRepository(string connectionString)\n{\n    public List<Order> FindByCustomer(string customerCode, string status)\n    {\n        using var connection = new SqlConnection(connectionString);\n        connection.Open();\n        using var command = connection.CreateCommand();\n        command.CommandText =\n            \"SELECT Id, CustomerCode, Status, Total FROM Orders \" +\n            \"WHERE CustomerCode = '\" + customerCode + \"' AND Status = '\" + status + \"'\";\n        using var reader = command.ExecuteReader();\n        var orders = new List<Order>();\n        while (reader.Read())\n        {\n            orders.Add(new Order(\n                reader.GetInt32(0), reader.GetString(1), reader.GetString(2), reader.GetDecimal(3)));\n        }\n        return orders;\n    }\n}\n\npublic sealed record Order(int Id, string CustomerCode, string Status, decimal Total);\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "the OrderRepository search glues strings into SQL and static analysis is yelling. dapper is already referenced, rewrite it with that. make it async while youre there",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure thing! The values stop being concatenated into the SQL and become @customerCode and @status placeholders. Pass the values as an anonymous object and Dapper sends each property as a parameter with the same name. A value can never be read as part of the SQL, so the query is robust against injection. QueryAsync<Order> maps rows to Order by column name, so the reader loop goes away too."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using Dapper;\nusing Microsoft.Data.SqlClient;\n\npublic async Task<IReadOnlyList<Order>> FindByCustomerAsync(\n    string customerCode, string status, CancellationToken ct)\n{\n    const string sql = \"\"\"\n        SELECT Id, CustomerCode, Status, Total\n        FROM Orders\n        WHERE CustomerCode = @customerCode AND Status = @status\n        \"\"\";\n\n    await using var connection = new SqlConnection(connectionString);\n    var orders = await connection.QueryAsync<Order>(\n        new CommandDefinition(sql, new { customerCode, status }, cancellationToken: ct));\n    return orders.AsList();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "works. now they want to filter by several statuses, like paid and shipped together",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Make the argument a collection and write IN @statuses in the SQL. When Dapper sees an IEnumerable value it expands it into @statuses1, @statuses2 and so on, and adds the parentheses itself. In other words, you do not write IN (@statuses). Note: an empty collection makes Dapper emit a condition that is always false, so you get zero rows rather than an error."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public async Task<IReadOnlyList<Order>> FindByCustomerAsync(\n    string customerCode, IReadOnlyCollection<string> statuses, CancellationToken ct)\n{\n    const string sql = \"\"\"\n        SELECT Id, CustomerCode, Status, Total\n        FROM Orders\n        WHERE CustomerCode = @customerCode AND Status IN @statuses\n        \"\"\";\n\n    await using var connection = new SqlConnection(connectionString);\n    var orders = await connection.QueryAsync<Order>(\n        new CommandDefinition(sql, new { customerCode, statuses }, cancellationToken: ct));\n    return orders.AsList();\n}\n"
+        }
+      ]
+    }
+  ]
+}

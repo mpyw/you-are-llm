@@ -1,0 +1,47 @@
+{
+  "id": "epoll-edge-c-en",
+  "title": "Fix connections that stall under edge-triggered epoll",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "c",
+  "summary": "A Linux echo server freezes after switching to EPOLLET. Make the sockets non-blocking and read until EAGAIN.",
+  "files": [
+    {
+      "path": "src/net/echo.c",
+      "content": "#define _GNU_SOURCE\n#include <stdio.h>\n#include <unistd.h>\n#include <sys/epoll.h>\n#include <sys/socket.h>\n\n#define MAX_EVENTS 64\n\nvoid serve(int listen_fd) {\n  int ep = epoll_create1(0);\n  struct epoll_event ev = { .events = EPOLLIN | EPOLLET, .data.fd = listen_fd };\n  epoll_ctl(ep, EPOLL_CTL_ADD, listen_fd, &ev);\n  struct epoll_event events[MAX_EVENTS];\n  for (;;) {\n    int n = epoll_wait(ep, events, MAX_EVENTS, -1);\n    for (int i = 0; i < n; i++) {\n      int fd = events[i].data.fd;\n      if (fd == listen_fd) {\n        int client = accept(listen_fd, NULL, NULL);\n        struct epoll_event cev = { .events = EPOLLIN | EPOLLET, .data.fd = client };\n        epoll_ctl(ep, EPOLL_CTL_ADD, client, &cev);\n      } else {\n        char buf[4096];\n        ssize_t r = read(fd, buf, sizeof buf);\n        if (r <= 0) {\n          close(fd);\n          continue;\n        }\n        write(fd, buf, r);\n      }\n    }\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "switched epoll to EPOLLET and now bigger payloads just stop halfway. level triggered was fine. this is linux btw",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great observation! Edge triggering reports readiness once, at the moment new data arrives. Read 4096 bytes and return, and the rest stays in the kernel buffer, but no new notification comes until more data does. That is the stall. With edge triggering, the socket has to be non-blocking and read until read returns EAGAIN. accept works the same way: take every pending connection in one go."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#define _GNU_SOURCE\n#include <errno.h>\n#include <fcntl.h>\n#include <stdio.h>\n#include <unistd.h>\n#include <sys/epoll.h>\n#include <sys/socket.h>\n\n#define MAX_EVENTS 64\n\nstatic int set_nonblocking(int fd) {\n  int flags = fcntl(fd, F_GETFL, 0);\n  if (flags < 0) return -1;\n  return fcntl(fd, F_SETFL, flags | O_NONBLOCK);\n}\n\nstatic void drain(int fd) {\n  char buf[4096];\n  for (;;) {\n    ssize_t r = read(fd, buf, sizeof buf);\n    if (r > 0) {\n      write(fd, buf, r);\n      continue;\n    }\n    if (r < 0 && errno == EINTR) continue;\n    if (r < 0 && errno == EAGAIN) return;\n    close(fd);\n    return;\n  }\n}\n\nvoid serve(int listen_fd) {\n  set_nonblocking(listen_fd);\n  int ep = epoll_create1(0);\n  struct epoll_event ev = { .events = EPOLLIN | EPOLLET, .data.fd = listen_fd };\n  epoll_ctl(ep, EPOLL_CTL_ADD, listen_fd, &ev);\n  struct epoll_event events[MAX_EVENTS];\n  for (;;) {\n    int n = epoll_wait(ep, events, MAX_EVENTS, -1);\n    for (int i = 0; i < n; i++) {\n      int fd = events[i].data.fd;\n      if (fd != listen_fd) {\n        drain(fd);\n        continue;\n      }\n      for (;;) {\n        int client = accept(listen_fd, NULL, NULL);\n        if (client < 0) break;\n        struct epoll_event cev = { .events = EPOLLIN | EPOLLET, .data.fd = client };\n        epoll_ctl(ep, EPOLL_CTL_ADD, client, &cev);\n      }\n    }\n  }\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "Since listen_fd is non-blocking, the sockets accept returns inherit that flag, so the client side is fully covered. Handling a full send buffer with EPOLLOUT is a separate topic and is left out here."
+        }
+      ]
+    },
+    {
+      "user": "first connection works but from the second one everything freezes. strace shows it stuck in read",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. Inheriting O_NONBLOCK through accept is BSD behaviour. On Linux, accept does not carry it over. The client stays blocking, so the read after the buffer is drained waits instead of returning EAGAIN, and the whole loop stops with it. The Linux-only accept4 takes SOCK_NONBLOCK and makes the socket non-blocking as it is accepted. _GNU_SOURCE is already defined at the top of the file."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/accept(listen_fd, NULL, NULL)/accept4(listen_fd, NULL, NULL, SOCK_NONBLOCK)/' src/net/echo.c"
+        }
+      ]
+    }
+  ]
+}

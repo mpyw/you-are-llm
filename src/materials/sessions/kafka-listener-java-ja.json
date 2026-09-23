@@ -1,0 +1,68 @@
+{
+  "id": "kafka-listener-java-ja",
+  "title": "@KafkaListener の無限再処理を DLT で止める",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "java",
+  "summary": "例外を投げるメッセージを延々と再処理して後ろが詰まるので、再試行の回数を決めて DLT に送る。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/order/OrderListener.java",
+      "content": "package com.example.order;\n\nimport org.springframework.kafka.annotation.KafkaListener;\nimport org.springframework.stereotype.Component;\n\n@Component\npublic class OrderListener {\n    private final OrderService orders;\n\n    public OrderListener(OrderService orders) {\n        this.orders = orders;\n    }\n\n    @KafkaListener(topics = \"orders\")\n    public void onOrder(OrderEvent event) {\n        orders.apply(event);\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/order/KafkaConfig.java",
+      "content": "package com.example.order;\n\nimport org.springframework.context.annotation.Bean;\nimport org.springframework.context.annotation.Configuration;\nimport org.springframework.kafka.listener.DefaultErrorHandler;\nimport org.springframework.util.backoff.FixedBackOff;\n\n@Configuration\npublic class KafkaConfig {\n    @Bean\n    DefaultErrorHandler errorHandler() {\n        return new DefaultErrorHandler(new FixedBackOff(0L, FixedBackOff.UNLIMITED_ATTEMPTS));\n    }\n}\n"
+    },
+    {
+      "path": "src/main/resources/application.yml",
+      "content": "spring:\n  kafka:\n    bootstrap-servers: localhost:9092\n    consumer:\n      group-id: order-worker\n      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer\n      properties:\n        spring.json.trusted.packages: com.example.order\n    producer:\n      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "orders の consumer がずっと同じメッセージ処理してて後ろが全部詰まってる。OrderService が例外投げるやつ。前任が「絶対落とすな」って KafkaConfig 書いたっぽい。3 回やってダメなら DLT に逃がしたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。原因は FixedBackOff.UNLIMITED_ATTEMPTS です。DefaultErrorHandler は失敗したレコードの位置まで seek し直して同じレコードを渡し直すので、上限がないと永遠に先へ進めず、同じパーティションの後ろのメッセージも止まります。DeadLetterPublishingRecoverer を渡すと、回数を使い切ったレコードを DLT に送ってからオフセットを進めます。Spring Boot は CommonErrorHandler の Bean が 1 つだけならそれを自動構成のコンテナファクトリに入れるので、Bean を差し替えるだけで済みます。送り先は spring-kafka 3.3 以降の既定で orders-dlt です。ポイントは、無限の再試行をやめることです。言い換えると、落とさないという要件は DLT で保証します。",
+          "reading": "しょうちしました。げんいんは FixedBackOff.UNLIMITED_ATTEMPTS です。DefaultErrorHandler はしっぱいしたレコードのいちまで seek しなおしておなじレコードをわたしなおすので、じょうげんがないとえいえんにさきへすすめず、おなじパーティションのうしろのメッセージもとまります。DeadLetterPublishingRecoverer をわたすと、かいすうをつかいきったレコードを DLT におくってからオフセットをすすめます。Spring Boot は CommonErrorHandler の Bean が 1 つだけならそれをじどうこうせいのコンテナファクトリにいれるので、Bean をさしかえるだけですみます。おくりさきは spring-kafka 3.3 いこうのきていで orders-dlt です。ポイントは、むげんのさいしこうをやめることです。いいかえると、おとさないというようけんは DLT でほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.order;\n\nimport org.springframework.context.annotation.Bean;\nimport org.springframework.context.annotation.Configuration;\nimport org.springframework.kafka.core.KafkaOperations;\nimport org.springframework.kafka.listener.DeadLetterPublishingRecoverer;\nimport org.springframework.kafka.listener.DefaultErrorHandler;\nimport org.springframework.util.backoff.FixedBackOff;\n\n@Configuration\npublic class KafkaConfig {\n    @Bean\n    DefaultErrorHandler errorHandler(KafkaOperations<?, ?> template) {\n        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(template);\n        return new DefaultErrorHandler(recoverer, new FixedBackOff(1000L, 3L));\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "DLT には入った。けどログ見たら OrderService が 4 回呼ばれてる。3 回って言ったよね",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "重要な訂正があります。FixedBackOff の第 2 引数は試行の総数ではなく、最初の 1 回を含まない再試行の回数でした。3L だと最初の 1 回と再試行 3 回で、合わせて 4 回呼ばれます。3 回で諦めるなら 2L です。",
+          "reading": "じゅうようなていせいがあります。FixedBackOff のだい 2 ひきすうはしこうのそうすうではなく、さいしょの 1 かいをふくまないさいしこうのかいすうでした。3L だとさいしょの 1 かいとさいしこう 3 かいで、あわせて 4 かいよばれます。3 かいであきらめるなら 2L です。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/new FixedBackOff(1000L, 3L)/new FixedBackOff(1000L, 2L)/' src/main/java/com/example/order/KafkaConfig.java"
+        }
+      ]
+    },
+    {
+      "user": "あとインフラが用意してる DLT、orders.DLT なんだって。orders-dlt が自動作成されてて怒られた。それと InvalidOrderException は何回やっても無駄だから即 DLT で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "おっしゃるとおりです。3.2 までの既定は orders.DLT だったので、インフラの命名はそちらに合わせてあるのだと思います。送り先は第 2 引数の関数で決められるので、元のトピック名に .DLT を足します。パーティションは元と同じ番号に送るので、orders.DLT のパーティション数が orders 以上あることを確かめてください。InvalidOrderException は addNotRetryableExceptions に渡すと、1 回目の失敗でそのまま DLT に送られます。リスナーの例外は ListenerExecutionFailedException に包まれて届きますが、判定は cause をたどるのでこのままで一致します。",
+          "reading": "おっしゃるとおりです。3.2 までのきていは orders.DLT だったので、インフラのめいめいはそちらにあわせてあるのだとおもいます。おくりさきはだい 2 ひきすうのかんすうできめられるので、もとのトピックめいに .DLT をたします。パーティションはもととおなじばんごうにおくるので、orders.DLT のパーティションすうが orders いじょうあることをたしかめてください。InvalidOrderException は addNotRetryableExceptions にわたすと、1 かいめのしっぱいでそのまま DLT におくられます。リスナーのれいがいは ListenerExecutionFailedException につつまれてとどきますが、はんていは cause をたどるのでこのままでいっちします。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import org.apache.kafka.common.TopicPartition;\n\n@Bean\nDefaultErrorHandler errorHandler(KafkaOperations<?, ?> template) {\n    DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(template,\n        (record, ex) -> new TopicPartition(record.topic() + \".DLT\", record.partition()));\n    DefaultErrorHandler handler = new DefaultErrorHandler(recoverer, new FixedBackOff(1000L, 2L));\n    handler.addNotRetryableExceptions(InvalidOrderException.class);\n    return handler;\n}\n"
+        }
+      ]
+    }
+  ]
+}

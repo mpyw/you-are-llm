@@ -1,0 +1,57 @@
+{
+  "id": "tokio-join-set-rust-en",
+  "title": "Swap a Vec of JoinHandle for a JoinSet",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "rust",
+  "summary": "Handles awaited front to back become a JoinSet read in completion order with abort_all, and a panicked JoinError is traced back to its file.",
+  "files": [
+    {
+      "path": "src/import.rs",
+      "content": "use std::path::PathBuf;\n\nuse anyhow::{Context, Result};\n\nfn parse_row(line: &str) -> (u64, &str) {\n    let (id, name) = line.split_once(',').expect(\"row without a comma\");\n    (id.parse().expect(\"id is not a number\"), name)\n}\n\nasync fn import_file(path: PathBuf) -> Result<usize> {\n    let text = tokio::fs::read_to_string(&path)\n        .await\n        .with_context(|| format!(\"read {}\", path.display()))?;\n    let rows: Vec<_> = text.lines().map(parse_row).collect();\n    Ok(rows.len())\n}\n\npub async fn import_all(paths: Vec<PathBuf>) -> Result<usize> {\n    let mut handles = Vec::new();\n    for path in paths {\n        handles.push(tokio::spawn(import_file(path)));\n    }\n    let mut total = 0;\n    for handle in handles {\n        total += handle.await??;\n    }\n    Ok(total)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "import_all waits for everything before it errors, even when one file is just missing. if the first one is heavy that's like a minute. and after it returns the error the other tasks keep running",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: the JoinHandles sit in a Vec and are awaited front to back. If the third one fails at once, you still cannot see its Err until the first one finishes. Dropping a JoinHandle does not stop its task either, so the rest keep running after ? returns. Spawn into a JoinSet instead, take results with join_next in the order they finish, and call abort_all on the first failure. A panic inside a task also comes back through ? as a JoinError, so the process stays up and with_context still tells you which file it was."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use tokio::task::JoinSet;\n\npub async fn import_all(paths: Vec<PathBuf>) -> Result<usize> {\n    let mut set = JoinSet::new();\n    for path in paths {\n        set.spawn(import_file(path));\n    }\n    let mut total = 0;\n    while let Some(joined) = set.join_next().await {\n        match joined? {\n            Ok(lines) => total += lines,\n            Err(err) => {\n                set.abort_all();\n                return Err(err);\n            }\n        }\n    }\n    Ok(total)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "one broken CSV made parse_row panic and the error is just `task 14 panicked with message \"row without a comma\"`. which file??",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, I checked again and that was not accurate. with_context only applies when import_file returns an Err. A panic unwinds the task before that point, so the JoinError holds nothing but the task Id. Keep the id() of the AbortHandle that spawn returns in a HashMap next to its path, and receive with join_next_with_id. On a panic, JoinError::id() finds the owner and its path goes on as context."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::collections::HashMap;\n\nuse tokio::task::JoinSet;\n\npub async fn import_all(paths: Vec<PathBuf>) -> Result<usize> {\n    let mut set = JoinSet::new();\n    let mut owners = HashMap::new();\n    for path in paths {\n        let handle = set.spawn(import_file(path.clone()));\n        owners.insert(handle.id(), path);\n    }\n    let mut total = 0;\n    while let Some(joined) = set.join_next_with_id().await {\n        match joined {\n            Ok((_, Ok(lines))) => total += lines,\n            Ok((_, Err(err))) => {\n                set.abort_all();\n                return Err(err);\n            }\n            Err(err) => {\n                set.abort_all();\n                let path = owners[&err.id()].display();\n                return Err(err).with_context(|| format!(\"import {path} did not finish\"));\n            }\n        }\n    }\n    Ok(total)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "actually a panic is a bug, don't turn it into an error, just crash. log which file though",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. JoinError::into_panic takes out the panic payload and std::panic::resume_unwind throws it on to the caller. The path is printed with eprintln before unwinding. Note: into_panic panics itself on a cancelled JoinError, but this function only calls abort_all right before it returns, so what arrives here is always a panic."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/let path = \\(.*\\)\\.display();/eprintln!(\"import {} panicked\", \\1.display());/' -e 's/return Err(err).with_context(.*/std::panic::resume_unwind(err.into_panic());/' src/import.rs"
+        }
+      ]
+    }
+  ]
+}

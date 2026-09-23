@@ -1,0 +1,70 @@
+{
+  "id": "mapstruct-mapper-java-en",
+  "title": "Replace a hand written converter with a MapStruct mapper",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "java",
+  "summary": "OrderMapper moves to MapStruct, customerName quietly turns null, and unmappedTargetPolicy makes the build catch it.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/order/OrderMapper.java",
+      "content": "package com.example.order;\n\nimport org.springframework.stereotype.Component;\n\n@Component\npublic class OrderMapper {\n    public OrderResponse toResponse(Order order) {\n        return new OrderResponse(\n                order.getId(),\n                order.getNumber(),\n                order.getCustomer().getName(),\n                order.getStatus().name(),\n                order.getOrderedAt());\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/order/OrderResponse.java",
+      "content": "package com.example.order;\n\nimport java.time.Instant;\n\npublic record OrderResponse(long id, String orderNumber, String customerName, String status, Instant orderedAt) {\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/order/Order.java",
+      "content": "package com.example.order;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.EnumType;\nimport jakarta.persistence.Enumerated;\nimport jakarta.persistence.FetchType;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.ManyToOne;\nimport jakarta.persistence.Table;\nimport java.time.Instant;\n\n@Entity\n@Table(name = \"orders\")\npublic class Order {\n    @Id\n    private Long id;\n\n    private String number;\n\n    @ManyToOne(fetch = FetchType.LAZY)\n    private Customer customer;\n\n    @Enumerated(EnumType.STRING)\n    private OrderStatus status;\n\n    private Instant orderedAt;\n\n    private Instant dispatchedAt;\n\n    protected Order() {\n    }\n\n    public Long getId() {\n        return id;\n    }\n\n    public String getNumber() {\n        return number;\n    }\n\n    public Customer getCustomer() {\n        return customer;\n    }\n\n    public OrderStatus getStatus() {\n        return status;\n    }\n\n    public Instant getOrderedAt() {\n        return orderedAt;\n    }\n\n    public Instant getDispatchedAt() {\n        return dispatchedAt;\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "i'm tired of editing OrderMapper by hand every time a field shows up. can we do mapstruct? needs to be injectable as a spring bean",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great choice. MapStruct generates the implementation at compile time, so there is no reflection and it runs as fast as the hand written version. With componentModel = \"spring\" the generated OrderMapperImpl carries @Component, and you keep injecting it through the constructor as before. Properties with the same name are matched for you, so only the renamed one, number to orderNumber, needs a @Mapping. The enum to String conversion for status is built in, and customerName gets filled from customer.name automatically."
+        },
+        {
+          "kind": "code",
+          "lang": "groovy",
+          "body": "dependencies {\n    implementation 'org.mapstruct:mapstruct:1.6.3'\n    annotationProcessor 'org.mapstruct:mapstruct-processor:1.6.3'\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.order;\n\nimport org.mapstruct.Mapper;\nimport org.mapstruct.Mapping;\n\n@Mapper(componentModel = \"spring\")\npublic interface OrderMapper {\n    @Mapping(target = \"orderNumber\", source = \"number\")\n    OrderResponse toResponse(Order order);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "swapped it in. customerName comes back null on every order. no error, nothing",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. MapStruct only matches properties whose names are equal. It never splits customerName into customer and name to go looking. A target property with no source falls under unmappedTargetPolicy, which defaults to WARN, so all you got was an Unmapped target property warning in the compile output and a null at runtime. A nested value is written with a dot in source. Setting the policy to ERROR turns the next miss like this into a failed build instead of a silent null."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.order;\n\nimport org.mapstruct.Mapper;\nimport org.mapstruct.Mapping;\nimport org.mapstruct.ReportingPolicy;\n\n@Mapper(componentModel = \"spring\", unmappedTargetPolicy = ReportingPolicy.ERROR)\npublic interface OrderMapper {\n    @Mapping(target = \"orderNumber\", source = \"number\")\n    @Mapping(target = \"customerName\", source = \"customer.name\")\n    OrderResponse toResponse(Order order);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "build fails now. Unmapped target property: \"shippedAt\". right, i added shippedAt to OrderResponse. on Order it is called dispatchedAt. null is fine if it has not shipped yet",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "That is ERROR doing exactly its job. Under WARN, shippedAt would have been null forever without a word. One more line maps it from dispatchedAt. An order that has not shipped has a null dispatchedAt, which carries over as a null shippedAt, so there is no need to silence it with ignore = true."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/source = \"customer\\.name\")/a\\\n    @Mapping(target = \"shippedAt\", source = \"dispatchedAt\")\n' src/main/java/com/example/order/OrderMapper.java"
+        }
+      ]
+    }
+  ]
+}

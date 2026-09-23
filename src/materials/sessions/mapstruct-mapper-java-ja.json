@@ -1,0 +1,73 @@
+{
+  "id": "mapstruct-mapper-java-ja",
+  "title": "手書きの変換メソッドを MapStruct の Mapper にする",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "java",
+  "summary": "OrderMapper を MapStruct に置き換えたら customerName が黙って null になり、unmappedTargetPolicy でビルドを止める。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/order/OrderMapper.java",
+      "content": "package com.example.order;\n\nimport org.springframework.stereotype.Component;\n\n@Component\npublic class OrderMapper {\n    public OrderResponse toResponse(Order order) {\n        return new OrderResponse(\n                order.getId(),\n                order.getNumber(),\n                order.getCustomer().getName(),\n                order.getStatus().name(),\n                order.getOrderedAt());\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/order/OrderResponse.java",
+      "content": "package com.example.order;\n\nimport java.time.Instant;\n\npublic record OrderResponse(long id, String orderNumber, String customerName, String status, Instant orderedAt) {\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/order/Order.java",
+      "content": "package com.example.order;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.EnumType;\nimport jakarta.persistence.Enumerated;\nimport jakarta.persistence.FetchType;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.ManyToOne;\nimport jakarta.persistence.Table;\nimport java.time.Instant;\n\n@Entity\n@Table(name = \"orders\")\npublic class Order {\n    @Id\n    private Long id;\n\n    private String number;\n\n    @ManyToOne(fetch = FetchType.LAZY)\n    private Customer customer;\n\n    @Enumerated(EnumType.STRING)\n    private OrderStatus status;\n\n    private Instant orderedAt;\n\n    private Instant dispatchedAt;\n\n    protected Order() {\n    }\n\n    public Long getId() {\n        return id;\n    }\n\n    public String getNumber() {\n        return number;\n    }\n\n    public Customer getCustomer() {\n        return customer;\n    }\n\n    public OrderStatus getStatus() {\n        return status;\n    }\n\n    public Instant getOrderedAt() {\n        return orderedAt;\n    }\n\n    public Instant getDispatchedAt() {\n        return dispatchedAt;\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "OrderMapper 手書きなのしんどい。フィールド増えるたびに直してる。MapStruct にしたい、spring で DI できるやつで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい判断です。MapStruct はコンパイル時に実装クラスを生成するので、リフレクションを使わず手書きと同じ速さで動きます。componentModel = \"spring\" にすると、生成された OrderMapperImpl に @Component が付き、今までどおりコンストラクタで注入できます。名前が同じプロパティは自動で対応付けられ、number から orderNumber のように名前が違うものだけ @Mapping で書きます。status の enum から String への変換も組み込みです。customerName も customer.name を自動で辿って埋めてくれます。",
+          "reading": "すばらしいはんだんです。MapStruct はコンパイルじにじっそうクラスをせいせいするので、リフレクションをつかわずてがきとおなじはやさでうごきます。componentModel = \"spring\" にすると、せいせいされた OrderMapperImpl に @Component がつき、いままでどおりコンストラクタでちゅうにゅうできます。なまえがおなじプロパティはじどうでたいおうづけられ、number から orderNumber のようになまえがちがうものだけ @Mapping でかきます。status の enum から String へのへんかんもくみこみです。customerName も customer.name をじどうでたどってうめてくれます。"
+        },
+        {
+          "kind": "code",
+          "lang": "groovy",
+          "body": "dependencies {\n    implementation 'org.mapstruct:mapstruct:1.6.3'\n    annotationProcessor 'org.mapstruct:mapstruct-processor:1.6.3'\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.order;\n\nimport org.mapstruct.Mapper;\nimport org.mapstruct.Mapping;\n\n@Mapper(componentModel = \"spring\")\npublic interface OrderMapper {\n    @Mapping(target = \"orderNumber\", source = \"number\")\n    OrderResponse toResponse(Order order);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "差し替えた。customerName が全部 null で返ってくる。エラーも何も出てないんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの説明は正確ではありませんでした。MapStruct が自動で対応付けるのは名前が一致するプロパティだけで、customerName を customer と name に分けて探すことはしません。対応先がないプロパティは、既定の unmappedTargetPolicy が WARN なので、コンパイル時に Unmapped target property という警告が出るだけで、実行時には null が入ります。ネストした値はドットで source に書きます。あわせてポリシーを ERROR にし、同じ取りこぼしがあればビルドが落ちることを保証します。黙って null を返すより、このほうが堅牢です。",
+          "reading": "もうしわけありません。さきほどのせつめいはせいかくではありませんでした。MapStruct がじどうでたいおうづけるのはなまえがいっちするプロパティだけで、customerName を customer と name にわけてさがすことはしません。たいおうさきがないプロパティは、きていの unmappedTargetPolicy が WARN なので、コンパイルじに Unmapped target property というけいこくがでるだけで、じっこうじには null がはいります。ネストしたあたいはドットで source にかきます。あわせてポリシーを ERROR にし、おなじとりこぼしがあればビルドがおちることをほしょうします。だまって null をかえすより、このほうがけんろうです。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.order;\n\nimport org.mapstruct.Mapper;\nimport org.mapstruct.Mapping;\nimport org.mapstruct.ReportingPolicy;\n\n@Mapper(componentModel = \"spring\", unmappedTargetPolicy = ReportingPolicy.ERROR)\npublic interface OrderMapper {\n    @Mapping(target = \"orderNumber\", source = \"number\")\n    @Mapping(target = \"customerName\", source = \"customer.name\")\n    OrderResponse toResponse(Order order);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ビルド落ちた。Unmapped target property: \"shippedAt\" だって。そういえば OrderResponse に shippedAt 足してた。Order 側は dispatchedAt って名前。未発送なら null のままでいい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "おっしゃるとおり、これは ERROR が狙いどおりに働いた結果です。WARN のままなら shippedAt も黙って null になっていました。dispatchedAt から対応付ける 1 行を足します。未発送で dispatchedAt が null なら shippedAt も null になるので、ignore = true で黙らせる必要はありません。",
+          "reading": "おっしゃるとおり、これは ERROR がねらいどおりにはたらいたけっかです。WARN のままなら shippedAt もだまって null になっていました。dispatchedAt からたいおうづける 1 ぎょうをたします。みはっそうで dispatchedAt が null なら shippedAt も null になるので、ignore = true でだまらせるひつようはありません。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/source = \"customer\\.name\")/a\\\n    @Mapping(target = \"shippedAt\", source = \"dispatchedAt\")\n' src/main/java/com/example/order/OrderMapper.java"
+        }
+      ]
+    }
+  ]
+}

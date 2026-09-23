@@ -1,0 +1,46 @@
+{
+  "id": "vue-define-model-typescript-ja",
+  "title": "子コンポーネントの v-model を defineModel にする",
+  "language": "ja",
+  "codeLanguage": "typescript",
+  "difficulty": "normal",
+  "files": [
+    {
+      "path": "src/components/SearchBox.vue",
+      "content": "<script setup lang=\"ts\">\nconst props = defineProps<{ modelValue: string }>()\n</script>\n\n<template>\n  <input v-model=\"props.modelValue\" type=\"search\" placeholder=\"Search\" />\n</template>\n"
+    }
+  ],
+  "summary": "props.modelValue に直接書き込んで readonly の警告が出る SearchBox を、defineModel で親と繋ぎ直す。",
+  "turns": [
+    {
+      "user": "SearchBox に打つとコンソールに Set operation on key \"modelValue\" failed: target is readonly って出る。親は <SearchBox v-model=\"query\" /> してるだけ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。props は子から見ると読み取り専用なので、input の v-model が props.modelValue に書き込もうとして弾かれています。Vue 3.4 以降なら defineModel を活用しましょう。prop の受け取りと update:modelValue の emit を 1 つの ref にまとめてくれるので、input にはそれをそのまま渡せます。required: true を付けないと型が string | undefined になる点に注意することが重要です。親の v-model はこのままで動きます。",
+          "reading": "しょうちしました。props はこからみるとよみとりせんようなので、input の v-model が props.modelValue にかきこもうとしてはじかれています。Vue 3.4 いこうなら defineModel をかつようしましょう。prop のうけとりと update:modelValue の emit を 1 つの ref にまとめてくれるので、input にはそれをそのままわたせます。required: true をつけないとかたが string | undefined になるてんにちゅういすることがじゅうようです。おやの v-model はこのままでうごきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "vue",
+          "body": "<script setup lang=\"ts\">\nconst model = defineModel<string>({ required: true })\n</script>\n\n<template>\n  <input v-model=\"model\" type=\"search\" placeholder=\"Search\" />\n</template>\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、別のリポジトリがまだ 3.3 で defineModel 使えないんだった。そっちはどう書くの",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "3.3 までは、prop と emit を自分で宣言して配線します。defineModel がやっているのは、言い換えるとこの 2 つを束ねることだけです。:value で値を渡し、input イベントで update:modelValue を emit します。子は props を書き換えず、新しい値を親に渡して親が書き換える、という流れは同じです。",
+          "reading": "3.3 までは、prop と emit をじぶんでせんげんしてはいせんします。defineModel がやっているのは、いいかえるとこの 2 つをたばねることだけです。:value であたいをわたし、input いべんとで update:modelValue を emit します。こは props をかきかえず、あたらしいあたいをおやにわたしておやがかきかえる、というながれはおなじです。"
+        },
+        {
+          "kind": "code",
+          "lang": "vue",
+          "body": "<script setup lang=\"ts\">\ndefineProps<{ modelValue: string }>()\n\nconst emit = defineEmits<{\n  'update:modelValue': [value: string]\n}>()\n\nfunction onInput(event: Event) {\n  emit('update:modelValue', (event.target as HTMLInputElement).value)\n}\n</script>\n\n<template>\n  <input :value=\"modelValue\" type=\"search\" placeholder=\"Search\" @input=\"onInput\" />\n</template>\n"
+        }
+      ]
+    }
+  ]
+}

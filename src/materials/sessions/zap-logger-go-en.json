@@ -1,0 +1,44 @@
+{
+  "id": "zap-logger-go-en",
+  "title": "Turn zap Infof calls into structured fields",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "go",
+  "summary": "Move order_id out of a SugaredLogger Infof string into a zap.String field and add defer logger.Sync(). A constant message then runs into sampling.",
+  "files": [
+    {
+      "path": "cmd/import/main.go",
+      "content": "package main\n\nimport (\n  \"os\"\n\n  \"go.uber.org/zap\"\n)\n\nfunc main() {\n  logger, _ := zap.NewProduction()\n  sugar := logger.Sugar()\n\n  orders, err := loadOrders(os.Args[1])\n  if err != nil {\n    sugar.Errorf(\"load failed: %v\", err)\n    os.Exit(1)\n  }\n  for _, o := range orders {\n    sugar.Infof(\"order %s imported amount=%d\", o.ID, o.Amount)\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "cant filter the import batch logs by order_id, its baked into the Infof string. use the zap field thing",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! Let's drop the Sugar and call *zap.Logger directly. zap.String and zap.Int are typed fields, and each one becomes its own key in the JSON output. They skip fmt.Sprintf, so they also allocate less than Infof. Note: zap may buffer depending on the sink, so defer logger.Sync() goes at the top of main. os.Exit skips deferred calls, though, so the Errorf plus os.Exit pair becomes logger.Fatal, which syncs after writing and then exits."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func main() {\n  logger, err := zap.NewProduction()\n  if err != nil {\n    panic(err)\n  }\n  defer logger.Sync()\n\n  orders, err := loadOrders(os.Args[1])\n  if err != nil {\n    logger.Fatal(\"load failed\", zap.String(\"path\", os.Args[1]), zap.Error(err))\n  }\n  for _, o := range orders {\n    logger.Info(\"order imported\", zap.String(\"order_id\", o.ID), zap.Int(\"amount\", o.Amount))\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "order_id shows up now. but i imported 3000 orders and theres only like 130 imported lines",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, I missed this. zap.NewProduction turns on sampling. For each level and message, it writes the first 100 entries per second and then only every 100th. With Infof the order_id was part of the message, so every line was a different string and nothing was sampled. The constant message is what made them look the same. You want every line for a count, so the config drops Sampling."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func main() {\n  cfg := zap.NewProductionConfig()\n  cfg.Sampling = nil\n  logger, err := cfg.Build()\n  if err != nil {\n    panic(err)\n  }\n  defer logger.Sync()\n  // ...\n}\n"
+        }
+      ]
+    }
+  ]
+}

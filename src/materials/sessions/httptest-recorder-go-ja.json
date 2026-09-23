@@ -1,0 +1,50 @@
+{
+  "id": "httptest-recorder-go-ja",
+  "title": "ハンドラのテストで実サーバーを立てるのをやめる",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "go",
+  "summary": "ListenAndServe と Sleep で立てていたテスト用サーバーを httptest.NewRecorder と NewRequest に置き換え、ルーター経由で呼び直す。",
+  "files": [
+    {
+      "path": "internal/api/router.go",
+      "content": "package api\n\nimport (\n  \"encoding/json\"\n  \"net/http\"\n)\n\nfunc NewRouter() http.Handler {\n  mux := http.NewServeMux()\n  mux.HandleFunc(\"GET /healthz\", Health)\n  return mux\n}\n\nfunc Health(w http.ResponseWriter, r *http.Request) {\n  w.Header().Set(\"Content-Type\", \"application/json\")\n  json.NewEncoder(w).Encode(map[string]string{\"status\": \"ok\"})\n}\n"
+    },
+    {
+      "path": "internal/api/health_test.go",
+      "content": "package api\n\nimport (\n  \"io\"\n  \"net/http\"\n  \"testing\"\n  \"time\"\n)\n\nfunc TestHealth(t *testing.T) {\n  go http.ListenAndServe(\":8080\", NewRouter())\n  time.Sleep(100 * time.Millisecond)\n\n  resp, err := http.Get(\"http://localhost:8080/healthz\")\n  if err != nil {\n    t.Fatal(err)\n  }\n  defer resp.Body.Close()\n\n  if resp.StatusCode != http.StatusOK {\n    t.Fatalf(\"status = %d\", resp.StatusCode)\n  }\n  body, _ := io.ReadAll(resp.Body)\n  if string(body) != `{\"status\":\"ok\"}`+\"\\n\" {\n    t.Fatalf(\"body = %q\", body)\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "health のテスト CI でたまにコケる。8080 使ってる別のやつとぶつかってるっぽい。サーバー立てずにテストできないの",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。httptest.NewRecorder は http.ResponseWriter を実装した記録係で、ハンドラが書いたステータスと本文を手元に残します。httptest.NewRequest で作ったリクエストと一緒にハンドラへ渡せば、ポートも Sleep も要りません。ネットワークを通らないので、並列で走らせても結果は決定論的です。",
+          "reading": "しょうちしました。httptest.NewRecorder は http.ResponseWriter をじっそうしたきろくがかりで、ハンドラがかいたステータスとほんぶんをてもとにのこします。httptest.NewRequest でつくったリクエストといっしょにハンドラへわたせば、ポートも Sleep もいりません。ネットワークをとおらないので、へいれつではしらせてもけっかはけっていろんてきです。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "package api\n\nimport (\n  \"net/http\"\n  \"net/http/httptest\"\n  \"testing\"\n)\n\nfunc TestHealth(t *testing.T) {\n  req := httptest.NewRequest(http.MethodGet, \"/healthz\", nil)\n  rec := httptest.NewRecorder()\n\n  Health(rec, req)\n\n  if rec.Code != http.StatusOK {\n    t.Fatalf(\"status = %d\", rec.Code)\n  }\n  if got := rec.Body.String(); got != `{\"status\":\"ok\"}`+\"\\n\" {\n    t.Fatalf(\"body = %q\", got)\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "通った。けど前は NewRouter 通してたよね？これだとパス間違えても通る。あと POST で叩いたら 405 になるのも見たい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ご指摘のとおりです。先ほどの版は Health を直接呼んでいたので、ルーティングを素通りしていました。NewRouter() が返す http.Handler の ServeHTTP に rec と req を渡せば、パスとメソッドの照合まで含めて検査できます。GET /healthz というパターンは Go 1.22 以降の ServeMux がメソッドも見るので、POST には 405 が返ります。",
+          "reading": "ごしてきのとおりです。さきほどのはんは Health をちょくせつよんでいたので、ルーティングをすどおりしていました。NewRouter() がかえす http.Handler の ServeHTTP に rec と req をわたせば、パスとメソッドのしょうごうまでふくめてけんさできます。GET /healthz というパターンは Go 1.22 いこうの ServeMux がメソッドもみるので、POST には 405 がかえります。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func TestHealth(t *testing.T) {\n  req := httptest.NewRequest(http.MethodGet, \"/healthz\", nil)\n  rec := httptest.NewRecorder()\n\n  NewRouter().ServeHTTP(rec, req)\n\n  if rec.Code != http.StatusOK {\n    t.Fatalf(\"status = %d\", rec.Code)\n  }\n  if got := rec.Body.String(); got != `{\"status\":\"ok\"}`+\"\\n\" {\n    t.Fatalf(\"body = %q\", got)\n  }\n}\n\nfunc TestHealthRejectsPost(t *testing.T) {\n  req := httptest.NewRequest(http.MethodPost, \"/healthz\", nil)\n  rec := httptest.NewRecorder()\n\n  NewRouter().ServeHTTP(rec, req)\n\n  if rec.Code != http.StatusMethodNotAllowed {\n    t.Fatalf(\"status = %d\", rec.Code)\n  }\n}\n"
+        }
+      ]
+    }
+  ]
+}

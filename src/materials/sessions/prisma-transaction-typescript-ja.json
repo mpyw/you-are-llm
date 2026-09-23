@@ -1,0 +1,74 @@
+{
+  "id": "prisma-transaction-typescript-ja",
+  "title": "Prisma の対話的トランザクションに tx を通す",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "typescript",
+  "summary": "ポイント送金を $transaction のコールバックにまとめたが、writeLedger が外の prisma を使っていて残った。Prisma.TransactionClient を渡し、P2028 に合わせて maxWait を延ばし、メールはコミット後に送る。",
+  "files": [
+    {
+      "path": "src/points/transfer.ts",
+      "content": "import { prisma } from '../db'\nimport { writeLedger } from './ledger'\n\nexport async function transferPoints(fromId: string, toId: string, amount: number) {\n  const from = await prisma.wallet.findUniqueOrThrow({ where: { userId: fromId } })\n  if (from.balance < amount) {\n    throw new Error('Insufficient balance')\n  }\n  await writeLedger(fromId, toId, amount)\n  await prisma.wallet.update({\n    where: { userId: fromId },\n    data: { balance: { decrement: amount } },\n  })\n  await prisma.wallet.update({\n    where: { userId: toId },\n    data: { balance: { increment: amount } },\n  })\n}\n"
+    },
+    {
+      "path": "src/points/ledger.ts",
+      "content": "import { prisma } from '../db'\n\nexport async function writeLedger(fromId: string, toId: string, amount: number) {\n  await prisma.ledgerEntry.create({ data: { fromId, toId, amount } })\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "ポイント送金、途中で落ちると送った側だけ減ってたりする。トランザクションにして。prisma の",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。前の結果を見て throw したいので、配列形式の $transaction([...]) ではなく対話的トランザクションを使います。配列形式は渡したクエリを順に流すだけで、途中の値では分岐できません。残高は先に読むと、読んでから減らすまでの間に別の送金が割り込みます。先に decrement して、結果が負なら throw してロールバックさせます。writeLedger もコールバックの中で呼んでいるので、まとめてアトミックに扱われます。",
+          "reading": "しょうちしました。まえのけっかをみて throw したいので、はいれつけいしきの $transaction([...]) ではなくたいわてきとらんざくしょんをつかいます。はいれつけいしきはわたしたくえりをじゅんにながすだけで、とちゅうのあたいではぶんきできません。ざんだかはさきによむと、よんでからへらすまでのあいだにべつのそうきんがわりこみます。さきに decrement して、けっかがふなら throw してろーるばっくさせます。writeLedger もこーるばっくのなかでよんでいるので、まとめてあとみっくにあつかわれます。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { prisma } from '../db'\nimport { writeLedger } from './ledger'\n\nexport async function transferPoints(fromId: string, toId: string, amount: number) {\n  await prisma.$transaction(async (tx) => {\n    await writeLedger(fromId, toId, amount)\n    const from = await tx.wallet.update({\n      where: { userId: fromId },\n      data: { balance: { decrement: amount } },\n    })\n    if (from.balance < 0) {\n      throw new Error('Insufficient balance')\n    }\n    await tx.wallet.update({\n      where: { userId: toId },\n      data: { balance: { increment: amount } },\n    })\n  })\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "残高不足で弾かれたはずの送金が ledger に残ってる。残高は戻ってるのに",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、先ほどの説明は正しくありませんでした。writeLedger は ledger.ts で import した prisma をそのまま使っていて、tx を受け取っていません。コールバックの中で呼んでも、そのクエリは別の接続ですぐにコミットされます。言い換えると、トランザクションに入るのは tx を通したクエリだけです。writeLedger が Prisma.TransactionClient を受け取るように変えます。Prisma 7 の prisma-client ジェネレータを使っているなら、@prisma/client ではなく output に指定した生成先から import します。既定値の maxWait と timeout も書き出しておきます。",
+          "reading": "あらためてかくにんしたところ、さきほどのせつめいはただしくありませんでした。writeLedger は ledger.ts で import した prisma をそのままつかっていて、tx をうけとっていません。こーるばっくのなかでよんでも、そのくえりはべつのせつぞくですぐにこみっとされます。いいかえると、とらんざくしょんにはいるのは tx をとおしたくえりだけです。writeLedger が Prisma.TransactionClient をうけとるようにかえます。Prisma 7 の prisma-client じぇねれーたをつかっているなら、@prisma/client ではなく output にしていしたせいせいさきから import します。きていちの maxWait と timeout もかきだしておきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import type { Prisma } from '@prisma/client'\n\nexport async function writeLedger(\n  db: Prisma.TransactionClient,\n  fromId: string,\n  toId: string,\n  amount: number,\n) {\n  await db.ledgerEntry.create({ data: { fromId, toId, amount } })\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { prisma } from '../db'\nimport { writeLedger } from './ledger'\n\nexport async function transferPoints(fromId: string, toId: string, amount: number) {\n  await prisma.$transaction(\n    async (tx) => {\n      await writeLedger(tx, fromId, toId, amount)\n      const from = await tx.wallet.update({\n        where: { userId: fromId },\n        data: { balance: { decrement: amount } },\n      })\n      if (from.balance < 0) {\n        throw new Error('Insufficient balance')\n      }\n      await tx.wallet.update({\n        where: { userId: toId },\n        data: { balance: { increment: amount } },\n      })\n    },\n    { maxWait: 2000, timeout: 5000 },\n  )\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "送金したら相手に通知メール送りたい。transferPoints の中で。あとピーク時にたまに P2028 出てるらしい、関係ある？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "良い質問です。まとめると、対話的トランザクションはコールバックが終わるまで接続を 1 本握り続けます。既定では接続を待つ maxWait が 2 秒、全体の timeout が 5 秒で、超えると P2028 になります。メールをコールバックの中で送るとその分だけ接続を握りますし、送ったあとでロールバックされたら取り消せません。$transaction を await した後ろ、コミットのあとで送ります。ピーク時にプールの空きを待てるよう、maxWait は 5 秒に延ばします。先ほどまで writeLedger が外の prisma で接続をもう 1 本取っていたのも、プールを細らせていた一因です。",
+          "reading": "よいしつもんです。まとめると、たいわてきとらんざくしょんはこーるばっくがおわるまでせつぞくを 1 ぽんにぎりつづけます。きていではせつぞくをまつ maxWait が 2 びょう、ぜんたいの timeout が 5 びょうで、こえると P2028 になります。めーるをこーるばっくのなかでおくるとそのぶんだけせつぞくをにぎりますし、おくったあとでろーるばっくされたらとりけせません。$transaction を await したうしろ、こみっとのあとでおくります。ぴーくじにぷーるのあきをまてるよう、maxWait は 5 びょうにのばします。さきほどまで writeLedger がそとの prisma でせつぞくをもう 1 ぽんとっていたのも、ぷーるをほそらせていたいちいんです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/maxWait: 2000/maxWait: 5000/' src/points/transfer.ts"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { prisma } from '../db'\nimport { sendTransferMail } from '../mail'\nimport { writeLedger } from './ledger'\n\nexport async function transferPoints(fromId: string, toId: string, amount: number) {\n  await prisma.$transaction(\n    async (tx) => {\n      // ... unchanged\n    },\n    { maxWait: 5000, timeout: 5000 },\n  )\n  await sendTransferMail(fromId, toId, amount)\n}\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "id": "graceful-shutdown-go-ja",
+  "title": "Gin の r.Run をやめて graceful shutdown する",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "go",
+  "summary": "r.Run で起動していたのでデプロイのたびに処理中のリクエストが切れていた。http.Server と signal.NotifyContext で Shutdown を待つ。ErrServerClosed を log.Fatal して即死していた。",
+  "files": [
+    {
+      "path": "cmd/server/main.go",
+      "content": "package main\n\nimport (\n  \"log\"\n\n  \"github.com/gin-gonic/gin\"\n)\n\nfunc main() {\n  r := gin.Default()\n  registerRoutes(r)\n  if err := r.Run(\":8080\"); err != nil {\n    log.Fatal(err)\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "デプロイのたびに処理中のリクエストが 502 になる。k8s から SIGTERM 来たら、今あるやつ終わらせてから落ちてほしい。いま r.Run してるだけ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい質問です。r.Run は中で http.ListenAndServe を呼ぶだけで、止める手段を返しません。SIGTERM が来るとプロセスはそのまま終わり、処理中の接続も一緒に切れます。自分で http.Server を持てば、srv.Shutdown が新しい接続の受け付けを止めて、処理中のリクエストが終わるまで待つことを保証します。シグナルは signal.NotifyContext で ctx に変えて、それが Done になったら Shutdown を呼びます。Shutdown に渡す ctx は、もう Done になっている ctx ではなく、context.Background から 10 秒のタイムアウトで作り直します。",
+          "reading": "すばらしいしつもんです。r.Run はなかで http.ListenAndServe をよぶだけで、とめるしゅだんをかえしません。SIGTERM がくるとぷろせすはそのままおわり、しょりちゅうのせつぞくもいっしょにきれます。じぶんで http.Server をもてば、srv.Shutdown があたらしいせつぞくのうけつけをとめて、しょりちゅうのりくえすとがおわるまでまつことをほしょうします。しぐなるは signal.NotifyContext で ctx にかえて、それが Done になったら Shutdown をよびます。Shutdown にわたす ctx は、もう Done になっている ctx ではなく、context.Background から 10 びょうのたいむあうとでつくりなおします。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func main() {\n  r := gin.Default()\n  registerRoutes(r)\n  srv := &http.Server{Addr: \":8080\", Handler: r}\n\n  ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)\n  defer stop()\n\n  go func() {\n    if err := srv.ListenAndServe(); err != nil {\n      log.Fatal(err)\n    }\n  }()\n\n  <-ctx.Done()\n  shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)\n  defer cancel()\n  if err := srv.Shutdown(shutdownCtx); err != nil {\n    log.Printf(\"shutdown: %v\", err)\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ローカルで重いエンドポイント叩きながら Ctrl-C したら「http: Server closed」って出て即終了した。全然待ってない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、先ほどのコードは正しくありませんでした。Shutdown を呼ぶと、ListenAndServe はその場で http.ErrServerClosed を返します。これは止めたから返ってくる正常な値なのに、goroutine の中で log.Fatal していました。log.Fatal は os.Exit を呼ぶので、Shutdown の待ちを追い越してプロセスを終わらせていたわけです。ErrServerClosed だけは errors.Is で除外します。ポイントは、main を抜けるのは ListenAndServe が戻ったときではなく、Shutdown が戻ったときだという点です。",
+          "reading": "あらためてかくにんしたところ、さきほどのこーどはただしくありませんでした。Shutdown をよぶと、ListenAndServe はそのばで http.ErrServerClosed をかえします。これはとめたからかえってくるせいじょうなあたいなのに、goroutine のなかで log.Fatal していました。log.Fatal は os.Exit をよぶので、Shutdown のまちをおいこしてぷろせすをおわらせていたわけです。ErrServerClosed だけは errors.Is でじょがいします。ぽいんとは、main をぬけるのは ListenAndServe がもどったときではなく、Shutdown がもどったときだというてんです。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "  go func() {\n    if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {\n      log.Fatal(err)\n    }\n  }()\n"
+        }
+      ]
+    },
+    {
+      "user": "待つようになった。けどレポート生成で 20 秒くらいかかるのがあって、それが 10 秒で打ち切られてる。grace period は 30 秒",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。タイムアウトは 30 秒より少し短い 25 秒にします。grace period を過ぎると SIGKILL が来て、Shutdown の途中でも問答無用で終わるからです。",
+          "reading": "しょうちしました。たいむあうとは 30 びょうよりすこしみじかい 25 びょうにします。grace period をすぎると SIGKILL がきて、Shutdown のとちゅうでももんどうむようでおわるからです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/10\\*time\\.Second/25*time.Second/' cmd/server/main.go"
+        }
+      ]
+    }
+  ]
+}

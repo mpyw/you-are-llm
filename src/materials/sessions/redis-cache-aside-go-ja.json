@@ -1,0 +1,60 @@
+{
+  "id": "redis-cache-aside-go-ja",
+  "title": "go-redis の redis.Nil を 500 にしない",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "go",
+  "summary": "キーが無いだけの redis.Nil を 500 にしていたので errors.Is で分け、DB から取って TTL 付きで書き戻す。構造体をそのまま Set に渡して怒られる。",
+  "files": [
+    {
+      "path": "internal/product/handler.go",
+      "content": "package product\n\nimport (\n  \"net/http\"\n\n  \"github.com/redis/go-redis/v9\"\n)\n\ntype Handler struct {\n  rdb   *redis.Client\n  store *Store\n}\n\nfunc (h *Handler) Get(w http.ResponseWriter, r *http.Request) {\n  key := \"product:\" + r.PathValue(\"id\")\n  cached, err := h.rdb.Get(r.Context(), key).Bytes()\n  if err != nil {\n    http.Error(w, err.Error(), http.StatusInternalServerError)\n    return\n  }\n  writeJSON(w, cached)\n}\n\nfunc writeJSON(w http.ResponseWriter, body []byte) {\n  w.Header().Set(\"Content-Type\", \"application/json\")\n  w.Write(body)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "商品 API、キャッシュが空だと 500 で「redis: nil」って返ってくる。無いなら DB から取ってキャッシュに入れといて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。go-redis では、キーが無いことも redis.Nil というエラーで返ってきます。つまり今のコードは、ただのキャッシュミスを障害として扱っています。errors.Is(err, redis.Nil) でミスだけを分けて、それ以外のエラーは今までどおり 500 にします。ミスのときは Store から取って、10 分の TTL を付けて書き戻します。いわゆるキャッシュアサイドのベストプラクティスです。",
+          "reading": "するどいごしてきです。go-redis では、きーがないことも redis.Nil というえらーでかえってきます。つまりいまのこーどは、ただのきゃっしゅみすをしょうがいとしてあつかっています。errors.Is(err, redis.Nil) でみすだけをわけて、それいがいのえらーはいままでどおり 500 にします。みすのときは Store からとって、10 ぷんの TTL をつけてかきもどします。いわゆるきゃっしゅあさいどのべすとぷらくてぃすです。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {\n  ctx := r.Context()\n  id := r.PathValue(\"id\")\n  key := \"product:\" + id\n\n  cached, err := h.rdb.Get(ctx, key).Bytes()\n  if err == nil {\n    writeJSON(w, cached)\n    return\n  }\n  if !errors.Is(err, redis.Nil) {\n    http.Error(w, err.Error(), http.StatusInternalServerError)\n    return\n  }\n\n  p, err := h.store.Find(ctx, id)\n  if err != nil {\n    http.Error(w, err.Error(), http.StatusInternalServerError)\n    return\n  }\n  if err := h.rdb.Set(ctx, key, p, 10*time.Minute).Err(); err != nil {\n    http.Error(w, err.Error(), http.StatusInternalServerError)\n    return\n  }\n  body, _ := json.Marshal(p)\n  writeJSON(w, body)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "まだ 500。今度は redis: can't marshal *product.Product (implement encoding.BinaryMarshaler) だって",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどのコードは Set に *Product をそのまま渡していました。go-redis は構造体を勝手に JSON にはしないので、encoding.BinaryMarshaler を実装していない値は書き込めません。json.Marshal したバイト列を Set に渡し、同じバイト列をレスポンスにも使います。ついでに、書き戻しが失敗したときはログだけにして、リクエストは落とさないようにします。言い換えると、Redis の調子が悪くても、DB から取れた商品はそのまま返せます。",
+          "reading": "もうしわけありません。さきほどのこーどは Set に *Product をそのままわたしていました。go-redis はこうぞうたいをかってに JSON にはしないので、encoding.BinaryMarshaler をじっそうしていないあたいはかきこめません。json.Marshal したばいとれつを Set にわたし、おなじばいとれつをれすぽんすにもつかいます。ついでに、かきもどしがしっぱいしたときはろぐだけにして、りくえすとはおとさないようにします。いいかえると、Redis のちょうしがわるくても、DB からとれたしょうひんはそのままかえせます。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "  p, err := h.store.Find(ctx, id)\n  if err != nil {\n    http.Error(w, err.Error(), http.StatusInternalServerError)\n    return\n  }\n  body, err := json.Marshal(p)\n  if err != nil {\n    http.Error(w, err.Error(), http.StatusInternalServerError)\n    return\n  }\n  if err := h.rdb.Set(ctx, key, body, 10*time.Minute).Err(); err != nil {\n    slog.Warn(\"cache set failed\", \"key\", key, \"err\", err)\n  }\n  writeJSON(w, body)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "10 分だと値下げの反映が遅いって言われた。1 分で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。TTL を持っているのは Set の 1 か所だけなので、そこを変えます。",
+          "reading": "しょうちしました。TTL をもっているのは Set の 1 かしょだけなので、そこをかえます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/10\\*time\\.Minute/time.Minute/' internal/product/handler.go"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "id": "nlohmann-json-adl-cpp-en",
+  "title": "Converting a struct with a single get<T>()",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "cpp",
+  "summary": "Put to_json and from_json in the same namespace as the type and ADL finds them, all the way up to vector<User>. When the fields pile up, hand them to the _WITH_DEFAULT macro.",
+  "files": [
+    {
+      "path": "src/model/user.h",
+      "content": "#pragma once\n\n#include <string>\n#include <vector>\n\nnamespace app {\n\nstruct User {\n  std::string name;\n  int age;\n  std::vector<std::string> tags;\n};\n\n}  // namespace app\n"
+    },
+    {
+      "path": "src/model/user_json.h",
+      "content": "#pragma once\n\n#include <nlohmann/json.hpp>\n\n#include \"model/user.h\"\n\ninline nlohmann::json user_to_json(const app::User& u) {\n  return {{\"name\", u.name}, {\"age\", u.age}, {\"tags\", u.tags}};\n}\n\ninline app::User user_from_json(const nlohmann::json& j) {\n  app::User u;\n  u.name = j.at(\"name\").get<std::string>();\n  u.age = j.at(\"age\").get<int>();\n  u.tags = j.at(\"tags\").get<std::vector<std::string>>();\n  return u;\n}\n"
+    },
+    {
+      "path": "src/api/users.cpp",
+      "content": "#include <vector>\n\n#include \"model/user_json.h\"\n\nstd::vector<app::User> parse_users(const nlohmann::json& j) {\n  std::vector<app::User> users;\n  for (const auto& item : j.at(\"users\")) {\n    users.push_back(user_from_json(item));\n  }\n  return users;\n}\n\nnlohmann::json dump_users(const std::vector<app::User>& users) {\n  nlohmann::json arr = nlohmann::json::array();\n  for (const auto& u : users) {\n    arr.push_back(user_to_json(u));\n  }\n  return {{\"users\", arr}};\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "every time i turn a list of Users into json i write a for loop around user_to_json. cant i just do j.get<std::vector<User>>()",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. nlohmann/json looks for per-type conversions in free functions named to_json and from_json. Give it those two with the expected parameters and it builds get<User>() for you, along with User inside a vector or a map. Here is user_json.h with the two functions rewritten."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#pragma once\n\n#include <nlohmann/json.hpp>\n\n#include \"model/user.h\"\n\ninline void to_json(nlohmann::json& j, const app::User& u) {\n  j = {{\"name\", u.name}, {\"age\", u.age}, {\"tags\", u.tags}};\n}\n\ninline void from_json(const nlohmann::json& j, app::User& u) {\n  j.at(\"name\").get_to(u.name);\n  j.at(\"age\").get_to(u.age);\n  j.at(\"tags\").get_to(u.tags);\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "Here's users.cpp. The loops go away."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "std::vector<app::User> parse_users(const nlohmann::json& j) {\n  return j.at(\"users\").get<std::vector<app::User>>();\n}\n\nnlohmann::json dump_users(const std::vector<app::User>& users) {\n  return {{\"users\", users}};\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "doesnt compile. no matching member function for call to 'get' and then a wall of notes about get_impl",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous version left both functions in the global namespace. The library calls to_json unqualified from inside nlohmann, so the only functions it can find are the ones ADL reaches, which means those in namespace app, where the argument type app::User lives. The global ones were never candidates, so every get_impl overload dropped out. Wrapping both functions in namespace app fixes it."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/^#include \"model\\/user.h\"$/&\\\n\\\nnamespace app {/' -e '$a\\\n\\\n}  // namespace app' src/model/user_json.h"
+        }
+      ]
+    },
+    {
+      "user": "builds now. but some old data has no tags and it throws out_of_range. also want a role field, viewer if missing. and am i writing these by hand forever every time a field gets added?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Short answer: no. List the type and its members in NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT and it generates the same to_json and from_json. The _WITH_DEFAULT flavour fills a missing key with that member of User{}, so the default lives in the member initializer. The macro just expands to functions, so it still goes inside namespace app."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#pragma once\n\n#include <nlohmann/json.hpp>\n\n#include \"model/user.h\"\n\nnamespace app {\n\nNLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(User, name, age, tags, role)\n\n}  // namespace app\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^  std::vector<std::string> tags;$/&\\\n  std::string role = \"viewer\";/' src/model/user.h"
+        },
+        {
+          "kind": "text",
+          "body": "TL;DR: data without tags gets an empty vector, and data without role gets viewer. Caveat: name becomes optional too and quietly turns into an empty string. If name has to stay required, go back to the two handwritten functions and read just name with at()."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "id": "lombok-entity-java-ja",
+  "title": "JPA エンティティの @Data をやめる",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "java",
+  "summary": "双方向関連の toString が StackOverflowError を出すので @Getter と @Setter に分け、id だけの equals が保存前に壊れるのを直す。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/library/Author.java",
+      "content": "package com.example.library;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.OneToMany;\nimport java.util.HashSet;\nimport java.util.Set;\nimport lombok.Data;\n\n@Entity\n@Data\npublic class Author {\n    @Id\n    @GeneratedValue\n    private Long id;\n\n    private String name;\n\n    @OneToMany(mappedBy = \"author\")\n    private Set<Book> books = new HashSet<>();\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/library/Book.java",
+      "content": "package com.example.library;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.FetchType;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.ManyToOne;\nimport lombok.Data;\n\n@Entity\n@Data\npublic class Book {\n    @Id\n    @GeneratedValue\n    private Long id;\n\n    private String title;\n\n    @ManyToOne(fetch = FetchType.LAZY)\n    private Author author;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "log.debug(\"{}\", author) 足しただけで StackOverflowError。@Data 外せばいいのはなんとなくわかるけど getter 手で書くのはだるい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。@Data は toString と equals と hashCode を全フィールドから作るので、Author の toString が books を、Book の toString が author を呼び合って止まりません。hashCode も同じ輪を持っていて、Book を Set に入れた時点で落ちます。さらに author は遅延ロードなので、セッションの外で toString に触れると LazyInitializationException になります。ボイラープレートは Lombok に任せたまま、@Data を @Getter と @Setter に分け、関連は @ToString.Exclude で外し、equals と hashCode は id だけで作ります。",
+          "reading": "するどいごしてきです。@Data は toString と equals と hashCode をぜんふぃーるどからつくるので、Author の toString が books を、Book の toString が author をよびあってとまりません。hashCode もおなじわをもっていて、Book を Set にいれたじてんでおちます。さらに author はちえんろーどなので、せっしょんのそとで toString にふれると LazyInitializationException になります。ボイラープレートは Lombok にまかせたまま、@Data を @Getter と @Setter にわけ、かんれんは @ToString.Exclude ではずし、equals と hashCode は id だけでつくります。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.library;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.OneToMany;\nimport java.util.HashSet;\nimport java.util.Set;\nimport lombok.EqualsAndHashCode;\nimport lombok.Getter;\nimport lombok.Setter;\nimport lombok.ToString;\n\n@Entity\n@Getter\n@Setter\n@ToString\n@EqualsAndHashCode(onlyExplicitlyIncluded = true)\npublic class Author {\n    @Id\n    @GeneratedValue\n    @EqualsAndHashCode.Include\n    private Long id;\n\n    private String name;\n\n    @OneToMany(mappedBy = \"author\")\n    @ToString.Exclude\n    private Set<Book> books = new HashSet<>();\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.library;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.FetchType;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.ManyToOne;\nimport lombok.EqualsAndHashCode;\nimport lombok.Getter;\nimport lombok.Setter;\nimport lombok.ToString;\n\n@Entity\n@Getter\n@Setter\n@ToString\n@EqualsAndHashCode(onlyExplicitlyIncluded = true)\npublic class Book {\n    @Id\n    @GeneratedValue\n    @EqualsAndHashCode.Include\n    private Long id;\n\n    private String title;\n\n    @ManyToOne(fetch = FetchType.LAZY)\n    @ToString.Exclude\n    private Author author;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ログは出た。けど新しい Book 3 冊 author.getBooks().add() したら size() が 1 なんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの equals は保存前のエンティティで壊れます。id は persist するまで null で、Lombok の equals は null 同士を等しいとみなし、hashCode も同じ値を返します。そのため新しい Book は Set の中で 1 冊にまとまりました。Lombok の equals と hashCode は外して手で書きます。id が null のあいだは自分自身とだけ等しくし、hashCode は保存の前後で変わらないようクラスごとの定数にします。相手が Hibernate のプロキシのこともあるので、フィールドではなく getId() で読みます。Author にも同じ形で入れます。言い換えると、保存前の Book 同士は別物として扱います。",
+          "reading": "もうしわけありません。さきほどの equals はほぞんまえのエンティティでこわれます。id は persist するまで null で、Lombok の equals は null どうしをひとしいとみなし、hashCode もおなじあたいをかえします。そのためあたらしい Book は Set のなかで 1 さつにまとまりました。Lombok の equals と hashCode ははずしててでかきます。id が null のあいだはじぶんじしんとだけひとしくし、hashCode はほぞんのぜんごでかわらないようクラスごとのていすうにします。あいてが Hibernate のプロキシのこともあるので、フィールドではなく getId() でよみます。Author にもおなじかたちでいれます。いいかえると、ほぞんまえの Book どうしはべつものとしてあつかいます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/EqualsAndHashCode/d' src/main/java/com/example/library/Author.java src/main/java/com/example/library/Book.java"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Override\npublic boolean equals(Object o) {\n    if (this == o) {\n        return true;\n    }\n    if (!(o instanceof Book other)) {\n        return false;\n    }\n    return id != null && id.equals(other.getId());\n}\n\n@Override\npublic int hashCode() {\n    return Book.class.hashCode();\n}\n"
+        }
+      ]
+    }
+  ]
+}

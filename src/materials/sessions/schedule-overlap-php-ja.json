@@ -1,0 +1,78 @@
+{
+  "id": "schedule-overlap-php-ja",
+  "title": "重なって二重に走る集計バッチをスケジューラで止める",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "php",
+  "summary": "withoutOverlapping で前回と重ならないようにし、onOneServer で 2 台の二重起動を止め、キャッシュドライバの前提を踏み抜き、runInBackground で後ろのタスクを待たせない。",
+  "files": [
+    {
+      "path": "routes/console.php",
+      "content": "<?php\n\nuse Illuminate\\Support\\Facades\\Schedule;\n\nSchedule::command('reports:aggregate-sales')->everyFiveMinutes();\n\nSchedule::command('orders:sync-shipping')->everyFiveMinutes();\n"
+    },
+    {
+      "path": ".env",
+      "content": "APP_ENV=production\nAPP_DEBUG=false\n\nCACHE_STORE=file\nQUEUE_CONNECTION=redis\n\nREDIS_HOST=10.0.1.20\nREDIS_PORT=6379\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "5 分おきの reports:aggregate-sales が月末だけ 7〜8 分かかって、前のが終わる前に次が始まって売上が二重計上された。重ならないようにして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。withoutOverlapping() を付けると、実行中はキャッシュにロックを置き、次の回はロックが残っていればスキップします。ロックの有効期限は既定で 1440 分、つまり 24 時間だという点に注意することが重要です。プロセスが OOM などで落ちるとロックが残り、丸一日スキップされ続けるので、30 分を渡します。",
+          "reading": "かしこまりました。withoutOverlapping() をつけると、じっこうちゅうはキャッシュにロックをおき、つぎのかいはロックがのこっていればスキップします。ロックのゆうこうきげんはきていで 1440 ぷん、つまり 24 じかんだというてんにちゅういすることがじゅうようです。プロセスが OOM などでおちるとロックがのこり、まるいちにちスキップされつづけるので、30 ぷんをわたします。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "Schedule::command('reports:aggregate-sales')\n    ->everyFiveMinutes()\n    ->withoutOverlapping(30);\n"
+        }
+      ]
+    },
+    {
+      "user": "本番はサーバー 2 台で、両方の cron で schedule:run してる。これで大丈夫？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、まだ足りません。withoutOverlapping は実行中の重なりを防ぐだけで、2 台が同じ分に起動すること自体は止めません。onOneServer() を足すと、その回の実行権を最初に取ったサーバーだけが走るので、2 台でも 1 回だけになることを保証します。",
+          "reading": "けつろんからいうと、まだたりません。withoutOverlapping はじっこうちゅうのかさなりをふせぐだけで、2 だいがおなじふんにきどうすることじたいはとめません。onOneServer() をたすと、そのかいのじっこうけんをさいしょにとったサーバーだけがはしるので、2 だいでも 1 かいだけになることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "Schedule::command('reports:aggregate-sales')\n    ->everyFiveMinutes()\n    ->withoutOverlapping(30)\n    ->onOneServer();\n"
+        }
+      ]
+    },
+    {
+      "user": "デプロイしたけどまだ両方で走ってる。ログに 2 台ともホスト名が出てる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。.env を見落としていました。CACHE_STORE=file なので、ロックは各サーバーのローカルディスクに置かれ、2 台は互いのロックが見えていません。onOneServer はデフォルトのキャッシュが database、memcached、dynamodb、redis のどれかで、全台が同じキャッシュサーバーを見ていることが前提です。キューで使っている Redis がすでに共有されているので、そちらに切り替えます。本番で config:cache していると .env を変えても反映されないので、作り直すまでがセットです。",
+          "reading": "もうしわけありません。.env をみおとしていました。CACHE_STORE=file なので、ロックはかくサーバーのローカルディスクにおかれ、2 だいはたがいのロックがみえていません。onOneServer はデフォルトのキャッシュが database、memcached、dynamodb、redis のどれかで、ぜんだいがおなじキャッシュサーバーをみていることがぜんていです。キューでつかっている Redis がすでにきょうゆうされているので、そちらにきりかえます。ほんばんで config:cache していると .env をかえてもはんえいされないので、つくりなおすまでがセットです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^CACHE_STORE=file$/CACHE_STORE=redis/' .env && php artisan config:cache"
+        }
+      ]
+    },
+    {
+      "user": "二重は直った。けど今度は orders:sync-shipping が月末だけ毎回 7 分くらい遅れて走ってるって。あっちは数秒で終わるやつなのに",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。schedule:run はその分に実行すべきタスクを定義順に 1 つずつ、前のタスクの終了を待ってから起動します。集計が 7 分かかれば、後ろの sync-shipping も 7 分待たされます。runInBackground() を付けると集計は別プロセスで走り、schedule:run はすぐ次へ進みます。ロックは集計が終わったときに外れるので、withoutOverlapping の効き目はそのままです。Caveat: runInBackground は command と exec で登録したタスク専用で、call に渡したクロージャに付けると RuntimeException になります。",
+          "reading": "するどいごしてきです。schedule:run はそのふんにじっこうすべきタスクをていぎじゅんに 1 つずつ、まえのタスクのしゅうりょうをまってからきどうします。しゅうけいが 7 ふんかかれば、うしろの sync-shipping も 7 ふんまたされます。runInBackground() をつけるとしゅうけいはべつプロセスではしり、schedule:run はすぐつぎへすすみます。ロックはしゅうけいがおわったときにはずれるので、withoutOverlapping のききめはそのままです。Caveat: runInBackground は command と exec でとうろくしたタスクせんようで、call にわたしたクロージャにつけると RuntimeException になります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/->withoutOverlapping(30)/a\\\n    ->runInBackground()\n' routes/console.php"
+        }
+      ]
+    }
+  ]
+}

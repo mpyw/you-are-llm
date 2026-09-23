@@ -1,0 +1,46 @@
+{
+  "id": "chrono-format-rust-ja",
+  "title": "請求書の期限を chrono で出す",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "rust",
+  "summary": "文字列の切り貼りで 09/53/2026 になる期限を NaiveDate と format で直し、オフセット付きの値は DateTime<Utc> で読む。",
+  "files": [
+    {
+      "path": "src/invoice.rs",
+      "content": "pub struct Invoice {\n    pub id: u32,\n    pub issued_on: String,\n}\n\npub fn due_label(invoice: &Invoice) -> String {\n    let year = &invoice.issued_on[0..4];\n    let month = &invoice.issued_on[5..7];\n    let day: u32 = invoice.issued_on[8..10].parse().unwrap();\n    format!(\"{}/{}/{}\", month, day + 30, year)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "請求書の期限が 09/53/2026 とか出てるw chrono 入ってるからそれで直して。表示は Oct 23, 2026 みたいなやつ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。文字列から日を切り出して 30 を足しているので、月をまたぐと 53 日のような日付になります。NaiveDate::parse_from_str で日付として読み、Days::new(30) を足してから format で書き出します。%-d はゼロ埋めしない日です。2 月 30 日のような存在しない日付は panic ではなく ParseError で返るので、呼び出し側で扱えます。時刻を持たない日付には NaiveDate を使うのがベストプラクティスです。",
+          "reading": "しょうちしました。もじれつからひをきりだして 30 をたしているので、つきをまたぐと 53 にちのようなひづけになります。NaiveDate::parse_from_str でひづけとしてよみ、Days::new(30) をたしてから format でかきだします。%-d はぜろうめしないひです。2 がつ 30 にちのようなそんざいしないひづけは panic ではなく ParseError でかえるので、よびだしがわであつかえます。じこくをもたないひづけには NaiveDate をつかうのがべすとぷらくてぃすです。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use chrono::{Days, NaiveDate, ParseError};\n\npub struct Invoice {\n    pub id: u32,\n    pub issued_on: String,\n}\n\npub fn due_label(invoice: &Invoice) -> Result<String, ParseError> {\n    let issued = NaiveDate::parse_from_str(&invoice.issued_on, \"%Y-%m-%d\")?;\n    let due = issued + Days::new(30);\n    Ok(due.format(\"%b %-d, %Y\").to_string())\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、API 変わって issued_at になった。2026-09-23T15:30:00+09:00 みたいなのが来る。期限は UTC 基準で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、時刻とオフセットが付いた値なので NaiveDate では読めません。parse_from_str は後ろに残った T15:30:00+09:00 を trailing input として弾きます。DateTime::parse_from_rfc3339 で読み、with_timezone(&Utc) で DateTime<Utc> に揃えてから date_naive で日付だけを取り出します。日本時間の朝 9 時より前に発行された請求書は UTC では前の日になり、期限も 1 日早くなるという点に注意することが重要です。",
+          "reading": "Now、じこくとおふせっとがついたあたいなので NaiveDate ではよめません。parse_from_str はうしろにのこった T15:30:00+09:00 を trailing input としてはじきます。DateTime::parse_from_rfc3339 でよみ、with_timezone(&Utc) で DateTime<Utc> にそろえてから date_naive でひづけだけをとりだします。にほんじかんのあさ 9 じよりまえにはっこうされたせいきゅうしょは UTC ではまえのひになり、きげんも 1 にちはやくなるというてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use chrono::{DateTime, Days, ParseError, Utc};\n\npub struct Invoice {\n    pub id: u32,\n    pub issued_at: String,\n}\n\npub fn due_label(invoice: &Invoice) -> Result<String, ParseError> {\n    let issued: DateTime<Utc> =\n        DateTime::parse_from_rfc3339(&invoice.issued_at)?.with_timezone(&Utc);\n    let due = issued.date_naive() + Days::new(30);\n    Ok(due.format(\"%b %-d, %Y\").to_string())\n}\n"
+        }
+      ]
+    }
+  ]
+}

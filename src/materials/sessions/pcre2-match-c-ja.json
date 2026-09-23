@@ -1,0 +1,59 @@
+{
+  "id": "pcre2-match-c-ja",
+  "title": "sscanf のログ解析を PCRE2 に置き換える",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "c",
+  "summary": "pcre2_match_data_create_from_pattern と ovector でグループを取り出し、マッチしないときとエラーを分けて返す。",
+  "files": [
+    {
+      "path": "src/log/parse.c",
+      "content": "#include <stdio.h>\n\nstruct log_line {\n  char level[16];\n  char message[256];\n};\n\nint parse_log_line(const char *line, struct log_line *out) {\n  return sscanf(line, \"%15[A-Z]: %255[^\\n]\", out->level, out->message) == 2;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "parse_log_line を pcre2 にしたい。パターンこれから増えるから sscanf だとしんどい。マッチしなかったら 0、壊れてたら -1 で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。pcre2_compile にパターンを PCRE2_ZERO_TERMINATED 付きで渡し、pcre2_match_data_create_from_pattern でグループ数ぴったりの match data を作ります。マッチすると ovector に開始と終了のオフセットが 2 つずつ並ぶので、グループ i は ov[2 * i] から ov[2 * i + 1] の手前までです。pcre2_match はマッチしないとき PCRE2_ERROR_NOMATCH を返し、それ以外の負の値は本物のエラーなので、ここを分けるという点に注意することが重要です。match data と code はどちらの経路でも解放します。",
+          "reading": "しょうちしました。pcre2_compile にぱたーんを PCRE2_ZERO_TERMINATED つきでわたし、pcre2_match_data_create_from_pattern でぐるーぷすうぴったりの match data をつくります。まっちすると ovector にかいしとしゅうりょうのおふせっとが 2 つずつならぶので、ぐるーぷ i は ov[2 * i] から ov[2 * i + 1] のてまえまでです。pcre2_match はまっちしないとき PCRE2_ERROR_NOMATCH をかえし、それいがいのふのあたいはほんもののえらーなので、ここをわけるというてんにちゅういすることがじゅうようです。match data と code はどちらのけいろでもかいほうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#include <string.h>\n#include <pcre2.h>\n\nstruct log_line {\n  char level[16];\n  char message[256];\n};\n\nstatic void copy_group(char *dst, size_t cap, const char *line, const PCRE2_SIZE *ov, int i) {\n  size_t len = ov[2 * i + 1] - ov[2 * i];\n  if (len >= cap) len = cap - 1;\n  memcpy(dst, line + ov[2 * i], len);\n  dst[len] = '\\0';\n}\n\nint parse_log_line(const char *line, struct log_line *out) {\n  int errcode;\n  PCRE2_SIZE erroffset;\n  pcre2_code *re = pcre2_compile((PCRE2_SPTR)\"^([A-Z]+): (.*)$\", PCRE2_ZERO_TERMINATED, 0, &errcode, &erroffset, NULL);\n  if (re == NULL) return -1;\n  pcre2_match_data *md = pcre2_match_data_create_from_pattern(re, NULL);\n  if (md == NULL) {\n    pcre2_code_free(re);\n    return -1;\n  }\n  int rc = pcre2_match(re, (PCRE2_SPTR)line, PCRE2_ZERO_TERMINATED, 0, 0, md, NULL);\n  if (rc > 0) {\n    const PCRE2_SIZE *ov = pcre2_get_ovector_pointer(md);\n    copy_group(out->level, sizeof out->level, line, ov, 1);\n    copy_group(out->message, sizeof out->message, line, ov, 2);\n  }\n  pcre2_match_data_free(md);\n  pcre2_code_free(re);\n  if (rc == PCRE2_ERROR_NOMATCH) return 0;\n  return rc > 0 ? 1 : -1;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ビルドで pcre2.h に怒られる。PCRE2_CODE_UNIT_WIDTH must be defined なんとか",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません、見落としていました。pcre2.h は 8、16、32 ビットのどれで使うかを PCRE2_CODE_UNIT_WIDTH で決めてから include する必要があり、それに従って pcre2_compile などの名前が pcre2_compile_8 に展開されます。char の文字列を扱うので、include の直前で 8 を定義します。リンクするのも -lpcre2-8 です。",
+          "reading": "もうしわけありません、みおとしていました。pcre2.h は 8、16、32 びっとのどれでつかうかを PCRE2_CODE_UNIT_WIDTH できめてから include するひつようがあり、それにしたがって pcre2_compile などのなまえが pcre2_compile_8 にてんかいされます。char のもじれつをあつかうので、include のちょくぜんで 8 をていぎします。りんくするのも -lpcre2-8 です。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^#include <pcre2.h>/#define PCRE2_CODE_UNIT_WIDTH 8\\n&/' src/log/parse.c"
+        }
+      ]
+    },
+    {
+      "user": "あと本番のログ見たら小文字の error: もあった。どっちも拾って",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ポイントは、パターンを書き換えずにコンパイルオプションで吸収することです。PCRE2_CASELESS を渡せば [A-Z]+ が小文字にもマッチします。ただし level には元の表記がそのまま入るので、比較する側では strcasecmp を使うことをお勧めします。",
+          "reading": "ぽいんとは、ぱたーんをかきかえずにこんぱいるおぷしょんできゅうしゅうすることです。PCRE2_CASELESS をわたせば [A-Z]+ がこもじにもまっちします。ただし level にはもとのひょうきがそのままはいるので、ひかくするがわでは strcasecmp をつかうことをおすすめします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/PCRE2_ZERO_TERMINATED, 0, \\&errcode/PCRE2_ZERO_TERMINATED, PCRE2_CASELESS, \\&errcode/' src/log/parse.c"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "id": "output-cache-csharp-en",
+  "title": "Output cache ignores sort and serves stale articles",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "csharp",
+  "summary": "SetVaryByQuery replaces the default of every query key, so sort is added. Tag and EvictByTagAsync drop entries on update. Authenticated responses are not cached by default.",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using Microsoft.AspNetCore.OutputCaching;\n\nvar builder = WebApplication.CreateBuilder(args);\n\nbuilder.Services.AddAuthentication().AddJwtBearer();\nbuilder.Services.AddAuthorization();\nbuilder.Services.AddOutputCache(options =>\n{\n    options.AddPolicy(\"Articles\", policy => policy\n        .Expire(TimeSpan.FromMinutes(10))\n        .SetVaryByQuery(\"page\"));\n});\nbuilder.Services.AddScoped<ArticleService>();\nbuilder.Services.AddScoped<BookmarkService>();\n\nvar app = builder.Build();\n\napp.UseAuthentication();\napp.UseAuthorization();\napp.UseOutputCache();\n\napp.MapGet(\"/articles\", (int? page, string? sort, ArticleService service, CancellationToken ct) =>\n    service.ListAsync(page ?? 1, sort ?? \"new\", ct))\n    .CacheOutput(\"Articles\");\n\napp.MapPut(\"/articles/{id:int}\", async (int id, ArticleInput input, ArticleService service, CancellationToken ct) =>\n{\n    await service.UpdateAsync(id, input, ct);\n    return Results.NoContent();\n})\n    .RequireAuthorization();\n\napp.Run();\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "added output caching to the article list and now ?sort=popular still returns newest first. page works. also editors say edits stay stale for 10 min",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's what is going on. Both come from how output caching behaves by default. The default policy of AddOutputCache puts every query string key in the cache key, but calling SetVaryByQuery replaces that with only the keys you list. Only page is listed, so a different sort gets the same entry. Add sort."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/SetVaryByQuery(\"page\")/SetVaryByQuery(\"page\", \"sort\")/' src/Program.cs"
+        },
+        {
+          "kind": "text",
+          "body": "Now the stale part. The entry lives until the 10 minute Expire runs out, whatever happens to the article. Put a Tag on the policy and call EvictByTagAsync on IOutputCacheStore in the PUT, and every entry with that tag is dropped. The eviction goes after the update finishes. Evict first and a request that arrives mid update caches the old content again. Also note the default store is in process memory. With several instances you need the Redis store from .NET 8 onward, or the other instances keep their entries."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "builder.Services.AddOutputCache(options =>\n{\n    options.AddPolicy(\"Articles\", policy => policy\n        .Expire(TimeSpan.FromMinutes(10))\n        .SetVaryByQuery(\"page\", \"sort\")\n        .Tag(\"articles\"));\n});\n\napp.MapPut(\"/articles/{id:int}\", async (int id, ArticleInput input, ArticleService service, IOutputCacheStore cache, CancellationToken ct) =>\n{\n    await service.UpdateAsync(id, input, ct);\n    await cache.EvictByTagAsync(\"articles\", ct);\n    return Results.NoContent();\n})\n    .RequireAuthorization();\n"
+        }
+      ]
+    },
+    {
+      "user": "fixed! while youre at it cache /me/bookmarks too, its slow. login required. 1 min is fine",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. Bookmarks differ per user, so the key is split by the Authorization header. That guarantees nobody gets someone else's list. A separate policy expires after one minute."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using System.Security.Claims;\n\noptions.AddPolicy(\"Bookmarks\", policy => policy\n    .Expire(TimeSpan.FromMinutes(1))\n    .SetVaryByHeader(\"Authorization\"));\n\napp.MapGet(\"/me/bookmarks\", (ClaimsPrincipal user, BookmarkService service, CancellationToken ct) =>\n    service.ListAsync(user.FindFirstValue(ClaimTypes.NameIdentifier)!, ct))\n    .CacheOutput(\"Bookmarks\")\n    .RequireAuthorization();\n"
+        }
+      ]
+    },
+    {
+      "user": "not cached at all. logs show it hits the db every time",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. The default policy turns caching off, at request time, for any request carrying an Authorization header or an authenticated user. No amount of SetVaryByHeader brings it back, because nothing is stored in the first place. That default is the safe one. Output caching stores whole HTTP responses, so one mistake in the key hands out another user's bookmarks. Drop the bookmarks policy and take the load off the data side instead. On .NET 9 and later, HybridCache can cache the list keyed by user ID."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e '/AddPolicy(\"Bookmarks\"/,/SetVaryByHeader/d' -e '/CacheOutput(\"Bookmarks\")/d' src/Program.cs"
+        }
+      ]
+    }
+  ]
+}

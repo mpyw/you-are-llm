@@ -1,0 +1,71 @@
+{
+  "id": "qt-network-reply-cpp-en",
+  "title": "Every update check leaves a QNetworkReply behind",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "cpp",
+  "summary": "Nobody deletes a reply from QNetworkAccessManager, and finished fires on failure too. Check reply->error(), call deleteLater, and keep an early return from skipping it.",
+  "files": [
+    {
+      "path": "src/app/updatechecker.h",
+      "content": "#pragma once\n\n#include <QNetworkAccessManager>\n#include <QObject>\n#include <QString>\n#include <QUrl>\n\nclass UpdateChecker : public QObject\n{\n    Q_OBJECT\n\npublic:\n    explicit UpdateChecker(const QUrl &url, QObject *parent = nullptr);\n\n    void check();\n\nsignals:\n    void checked(const QString &version);\n\nprivate:\n    QUrl url_;\n    QNetworkAccessManager *manager_;\n};\n"
+    },
+    {
+      "path": "src/app/updatechecker.cpp",
+      "content": "#include \"updatechecker.h\"\n\n#include <QJsonDocument>\n#include <QJsonObject>\n#include <QNetworkReply>\n#include <QNetworkRequest>\n\nUpdateChecker::UpdateChecker(const QUrl &url, QObject *parent)\n    : QObject(parent), url_(url), manager_(new QNetworkAccessManager(this))\n{\n}\n\nvoid UpdateChecker::check()\n{\n    QNetworkReply *reply = manager_->get(QNetworkRequest(url_));\n    connect(reply, &QNetworkReply::finished, this, [this, reply] {\n        const auto doc = QJsonDocument::fromJson(reply->readAll());\n        emit checked(doc.object().value(\"version\").toString());\n    });\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "update check runs every 10 min and memory creeps up if the app stays open. also offline it shows \"new version: \" with nothing after it. take a look",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch! There are two causes. First, the QNetworkReply that QNetworkAccessManager hands back is never deleted for you. It stays a child of the manager, so one more piled up every ten minutes. Inside finished, use deleteLater rather than delete, because deleting the reply while it is still emitting finished destroys an object Qt is in the middle of using. Second, finished fires on failure too. The code called readAll without looking at reply->error(), so an empty body turned into an empty version. HTTP errors such as 404 show up in error() as well, and a failure now goes out through a new failed signal."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "signals:\n    void checked(const QString &version);\n    void failed(const QString &message);\n"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "    connect(reply, &QNetworkReply::finished, this, [this, reply] {\n        if (reply->error() != QNetworkReply::NoError) {\n            emit failed(reply->errorString());\n            return;\n        }\n        const auto doc = QJsonDocument::fromJson(reply->readAll());\n        emit checked(doc.object().value(\"version\").toString());\n        reply->deleteLater();\n    });\n"
+        }
+      ]
+    },
+    {
+      "user": "better. but left offline it still grows",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. On an error the lambda returns early, so it never reaches the deleteLater at the bottom. That is why replies only piled up while offline. Move deleteLater to the top of the lambda. deleteLater only deletes once control is back in the event loop, so error() and readAll are still safe to call after it. Now every path out of the lambda cleans up."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "    connect(reply, &QNetworkReply::finished, this, [this, reply] {\n        reply->deleteLater();\n        if (reply->error() != QNetworkReply::NoError) {\n            emit failed(reply->errorString());\n            return;\n        }\n        const auto doc = QJsonDocument::fromJson(reply->readAll());\n        emit checked(doc.object().value(\"version\").toString());\n    });\n"
+        }
+      ]
+    },
+    {
+      "user": "fixed. but there are like 5 other places that call get, do i write this every time? i will forget one",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Set setAutoDeleteReplies(true) on the manager and it calls deleteLater on each reply after finished. The lambda connected to finished runs before that, so its body stays as it is. The hand-written deleteLater is no longer needed, so it goes. Cleanup lives in one place on the manager instead of at every call site."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/reply->deleteLater();/d' src/app/updatechecker.cpp"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "UpdateChecker::UpdateChecker(const QUrl &url, QObject *parent)\n    : QObject(parent), url_(url), manager_(new QNetworkAccessManager(this))\n{\n    manager_->setAutoDeleteReplies(true);\n}\n"
+        }
+      ]
+    }
+  ]
+}

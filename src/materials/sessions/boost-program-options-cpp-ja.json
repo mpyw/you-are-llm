@@ -1,0 +1,45 @@
+{
+  "id": "boost-program-options-cpp-ja",
+  "title": "手書きの argv 解析を Boost.Program_options に",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "cpp",
+  "summary": "strcmp と atoi で回していた引数解析を options_description と variables_map にする。必須の検査は notify で行われるので、--help はその前に見る。",
+  "files": [
+    {
+      "path": "src/main.cpp",
+      "content": "#include <cstdlib>\n#include <cstring>\n#include <iostream>\n#include <string>\n\n#include \"server.h\"\n\nint main(int argc, char* argv[]) {\n  std::string host = \"127.0.0.1\";\n  int port = 8080;\n  bool verbose = false;\n\n  for (int i = 1; i < argc; ++i) {\n    if (std::strcmp(argv[i], \"--host\") == 0 && i + 1 < argc) {\n      host = argv[++i];\n    } else if (std::strcmp(argv[i], \"--port\") == 0 && i + 1 < argc) {\n      port = std::atoi(argv[++i]);\n    } else if (std::strcmp(argv[i], \"-v\") == 0) {\n      verbose = true;\n    } else {\n      std::cerr << \"unknown option: \" << argv[i] << \"\\n\";\n      return 1;\n    }\n  }\n\n  return run_server(host, port, verbose);\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "main の引数解析が strcmp 地獄。boost はもう入ってるから program_options にしといて。--help もほしい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。手書きのループを Boost.Program_options に置き換えます。受け付けるオプションを options_description に並べ、parse_command_line の結果を store で variables_map に入れ、notify で host や port の変数に書き戻します。atoi と違い、--port abc のような値は黙って 0 にならず、po::error の例外になります。知らないオプションも同じ例外で弾かれ、使い方は desc を出力するだけで揃うので、strcmp のボイラープレートはなくなります。",
+          "reading": "しょうちしました。てがきのるーぷを Boost.Program_options におきかえます。うけつけるおぷしょんを options_description にならべ、parse_command_line のけっかを store で variables_map にいれ、notify で host や port のへんすうにかきもどします。atoi とちがい、--port abc のようなあたいはだまって 0 にならず、po::error のれいがいになります。しらないおぷしょんもおなじれいがいではじかれ、つかいかたは desc をしゅつりょくするだけでそろうので、strcmp のぼいらーぷれーとはなくなります。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include <iostream>\n#include <string>\n\n#include <boost/program_options.hpp>\n\n#include \"server.h\"\n\nnamespace po = boost::program_options;\n\nint main(int argc, char* argv[]) {\n  std::string host;\n  int port = 0;\n  bool verbose = false;\n\n  po::options_description desc(\"Options\");\n  desc.add_options()\n      (\"help,h\", \"show this help\")\n      (\"host\", po::value<std::string>(&host)->default_value(\"127.0.0.1\"), \"address to bind\")\n      (\"port,p\", po::value<int>(&port)->default_value(8080), \"port to listen on\")\n      (\"verbose,v\", po::bool_switch(&verbose), \"log every request\");\n\n  po::variables_map vm;\n  try {\n    po::store(po::parse_command_line(argc, argv, desc), vm);\n    if (vm.count(\"help\")) {\n      std::cout << desc << \"\\n\";\n      return 0;\n    }\n    po::notify(vm);\n  } catch (const po::error& e) {\n    std::cerr << e.what() << \"\\n\" << desc << \"\\n\";\n    return 1;\n  }\n\n  return run_server(host, port, verbose);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、port はデフォルトなしの必須で。本番が 8080 で上がって事故ったことある",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "default_value を required に差し替えます。ポイントは、help を notify より前に見ている点です。必須かどうかの検査は notify の中で行われるので、--help だけなら port がなくても使い方を出して終われます。言い換えると、port を忘れたときだけ、足りないオプションの名前と使い方が出ます。",
+          "reading": "default_value を required にさしかえます。ぽいんとは、help を notify よりまえにみているてんです。ひっすかどうかのけんさは notify のなかでおこなわれるので、--help だけなら port がなくてもつかいかたをだしておわれます。いいかえると、port をわすれたときだけ、たりないおぷしょんのなまえとつかいかたがでます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/->default_value(8080)/->required()/' src/main.cpp"
+        }
+      ]
+    }
+  ]
+}

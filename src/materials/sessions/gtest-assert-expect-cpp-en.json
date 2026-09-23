@@ -1,0 +1,48 @@
+{
+  "id": "gtest-assert-expect-cpp-en",
+  "title": "The test crashes right after checking for nullptr",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "cpp",
+  "summary": "A failed EXPECT_NE lets the test carry on to the next line. Checks that later lines depend on belong in ASSERT_, and an ASSERT_ inside a helper is caught with ASSERT_NO_FATAL_FAILURE.",
+  "files": [
+    {
+      "path": "tests/parser_test.cpp",
+      "content": "#include <gtest/gtest.h>\n\n#include \"config/parser.h\"\n\nTEST(ParserTest, ReadsPort) {\n  auto config = parse_config(\"port = 8080\\n\");\n  EXPECT_NE(config, nullptr);\n  EXPECT_EQ(config->port, 8080);\n}\n\nTEST(ParserTest, ReadsHosts) {\n  auto config = parse_config(\"hosts = a, b\\n\");\n  EXPECT_EQ(config->hosts.size(), 2u);\n  EXPECT_EQ(config->hosts[0], \"a\");\n}\n\nTEST(ParserTest, RejectsGarbage) {\n  EXPECT_EQ(parse_config(\"port = ???\\n\"), nullptr);\n}\n"
+    },
+    {
+      "path": "src/config/parser.h",
+      "content": "#pragma once\n\n#include <memory>\n#include <string>\n#include <vector>\n\nstruct Config {\n  int port = 0;\n  std::vector<std::string> hosts;\n};\n\nstd::unique_ptr<Config> parse_config(const std::string& text);\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "changed parse_config and now the test binary dies with Segmentation fault. i see the ReadsPort failure and then nothing. i literally check nullptr with EXPECT_NE??",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! EXPECT_ macros only record a failure. The test function keeps going to the next line. So after EXPECT_NE(config, nullptr) fails, config->port still runs, dereferences nullptr, and takes the whole process down with it. Any check that later lines depend on should be an ASSERT_. It returns from the test function on failure, so the remaining tests still run and get reported. ReadsHosts checks neither nullptr nor the size before hosts[0], so it gets both."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "TEST(ParserTest, ReadsPort) {\n  auto config = parse_config(\"port = 8080\\n\");\n  ASSERT_NE(config, nullptr);\n  EXPECT_EQ(config->port, 8080);\n}\n\nTEST(ParserTest, ReadsHosts) {\n  auto config = parse_config(\"hosts = a, b\\n\");\n  ASSERT_NE(config, nullptr);\n  ASSERT_EQ(config->hosts.size(), 2u);\n  EXPECT_EQ(config->hosts[0], \"a\");\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ok. moved the parse + null check into a helper since i write it everywhere, now ASSERT_NE doesnt compile. GoogleTest_NotSupported_OnFunctionReturningNonVoid ???",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: on failure an ASSERT_ expands to a plain return with no value, so it only works in a function that returns void. The helper hands its result back through a pointer instead. One more thing worth knowing: that ASSERT_ only leaves the helper. The test that called it carries on. Wrap the call in ASSERT_NO_FATAL_FAILURE and the test stops as soon as the helper hits a fatal failure."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "void ParseOrFail(const std::string& text, std::unique_ptr<Config>* out) {\n  *out = parse_config(text);\n  ASSERT_NE(*out, nullptr) << \"input: \" << text;\n}\n\nTEST(ParserTest, ReadsHosts) {\n  std::unique_ptr<Config> config;\n  ASSERT_NO_FATAL_FAILURE(ParseOrFail(\"hosts = a, b\\n\", &config));\n  ASSERT_EQ(config->hosts.size(), 2u);\n  EXPECT_EQ(config->hosts[0], \"a\");\n}\n"
+        }
+      ]
+    }
+  ]
+}

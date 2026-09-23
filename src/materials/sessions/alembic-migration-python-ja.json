@@ -1,0 +1,71 @@
+{
+  "id": "alembic-migration-python-ja",
+  "title": "Alembic の autogenerate が消すカラムを alter_column で守る",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "python",
+  "summary": "env.py に target_metadata を渡して autogenerate を動かし、リネームが drop と add になったマイグレーションを alter_column に書き直す。",
+  "files": [
+    {
+      "path": "app/models.py",
+      "content": "from datetime import datetime\n\nfrom sqlalchemy import String, func\nfrom sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column\n\n\nclass Base(DeclarativeBase):\n    pass\n\n\nclass User(Base):\n    __tablename__ = \"users\"\n\n    id: Mapped[int] = mapped_column(primary_key=True)\n    email: Mapped[str] = mapped_column(String(255), unique=True)\n    display_name: Mapped[str] = mapped_column(String(100))\n    created_at: Mapped[datetime] = mapped_column(server_default=func.now())\n"
+    },
+    {
+      "path": "migrations/env.py",
+      "content": "from logging.config import fileConfig\n\nfrom sqlalchemy import engine_from_config\nfrom sqlalchemy import pool\n\nfrom alembic import context\n\n# this is the Alembic Config object, which provides\n# access to the values within the .ini file in use.\nconfig = context.config\n\n# Interpret the config file for Python logging.\n# This line sets up loggers basically.\nif config.config_file_name is not None:\n    fileConfig(config.config_file_name)\n\n# add your model's MetaData object here\n# for 'autogenerate' support\n# from myapp import mymodel\n# target_metadata = mymodel.Base.metadata\ntarget_metadata = None\n\n# other values from the config, defined by the needs of env.py,\n# can be acquired:\n# my_important_option = config.get_main_option(\"my_important_option\")\n# ... etc.\n\n\ndef run_migrations_offline() -> None:\n    \"\"\"Run migrations in 'offline' mode.\n\n    This configures the context with just a URL\n    and not an Engine, though an Engine is acceptable\n    here as well.  By skipping the Engine creation\n    we don't even need a DBAPI to be available.\n\n    Calls to context.execute() here emit the given string to the\n    script output.\n\n    \"\"\"\n    url = config.get_main_option(\"sqlalchemy.url\")\n    context.configure(\n        url=url,\n        target_metadata=target_metadata,\n        literal_binds=True,\n        dialect_opts={\"paramstyle\": \"named\"},\n    )\n\n    with context.begin_transaction():\n        context.run_migrations()\n\n\ndef run_migrations_online() -> None:\n    \"\"\"Run migrations in 'online' mode.\n\n    In this scenario we need to create an Engine\n    and associate a connection with the context.\n\n    \"\"\"\n    connectable = engine_from_config(\n        config.get_section(config.config_ini_section, {}),\n        prefix=\"sqlalchemy.\",\n        poolclass=pool.NullPool,\n    )\n\n    with connectable.connect() as connection:\n        context.configure(\n            connection=connection, target_metadata=target_metadata\n        )\n\n        with context.begin_transaction():\n            context.run_migrations()\n\n\nif context.is_offline_mode():\n    run_migrations_offline()\nelse:\n    run_migrations_online()\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "User.name を display_name にリネームした。alembic revision --autogenerate したら Can't proceed with --autogenerate option; environment script migrations/env.py does not provide a MetaData object って言われる。本番は Postgres",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、env.py の target_metadata が None のままです。autogenerate は、ここに渡された MetaData とデータベースの実際のスキーマを比べて差分を作ります。比べる相手がないので、Alembic は処理を止めています。テンプレートでコメントになっている import の行を、モデルの Base を読み込む行に置き換えます。これで autogenerate が name から display_name へのリネームを検出し、alter_column を生成します。",
+          "reading": "けつろんからいうと、env.py の target_metadata が None のままです。autogenerate は、ここにわたされた MetaData とでーたべーすのじっさいのすきーまをくらべてさぶんをつくります。くらべるあいてがないので、Alembic はしょりをとめています。てんぷれーとでこめんとになっている import のぎょうを、もでるの Base をよみこむぎょうにおきかえます。これで autogenerate が name から display_name へのりねーむをけんしゅつし、alter_column をせいせいします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/^# from myapp import mymodel$/from app.models import Base/' -e 's/^target_metadata = None$/target_metadata = Base.metadata/' migrations/env.py"
+        },
+        {
+          "kind": "command",
+          "body": "alembic revision --autogenerate -m \"rename name to display_name\""
+        }
+      ]
+    },
+    {
+      "user": "ファイルはできた。けど中見たら add_column と drop_column になってるんだけど。これ流したら name の中身消えるよね？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "重要な訂正があります。先ほど autogenerate がリネームを検出すると書きましたが、正確ではありませんでした。autogenerate に見えるのは、モデルにあってデータベースにないカラムと、その逆だけです。name が消えて display_name が増えたことしか分からないので、drop_column と add_column を出します。このまま流すと name の値は捨てられ、既存の行があれば NOT NULL の display_name を足す時点で失敗します。生成されたファイルの upgrade と downgrade を alter_column に書き換えると、既存の値がそのまま残ることを保証します。",
+          "reading": "じゅうようなていせいがあります。さきほど autogenerate がりねーむをけんしゅつするとかきましたが、せいかくではありませんでした。autogenerate にみえるのは、もでるにあってでーたべーすにないからむと、そのぎゃくだけです。name がきえて display_name がふえたことしかわからないので、drop_column と add_column をだします。このままながすと name のあたいはすてられ、きそんのぎょうがあれば NOT NULL の display_name をたすじてんでしっぱいします。せいせいされたふぁいるの upgrade と downgrade を alter_column にかきかえると、きそんのあたいがそのままのこることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "# migrations/versions/d31f4b93982a_rename_name_to_display_name.py\ndef upgrade() -> None:\n    op.alter_column(\"users\", \"name\", new_column_name=\"display_name\")\n\n\ndef downgrade() -> None:\n    op.alter_column(\"users\", \"display_name\", new_column_name=\"name\")\n"
+        }
+      ]
+    },
+    {
+      "user": "まだ誰も upgrade してないから、ついでに display_name を 200 文字にしたい。リビジョン増やさずこれに入れて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、モデルとマイグレーションの両方で長さを変えます。alter_column は new_column_name と type_ を同じ呼び出しで受け取れるので、既存の行に足すだけです。PostgreSQL では ALTER COLUMN TYPE と RENAME の 2 つの文として実行されます。downgrade で 100 文字に戻すときは、100 文字を超える値が 1 行でもあると失敗するという点に注意することが重要です。",
+          "reading": "Now、もでるとまいぐれーしょんのりょうほうでながさをかえます。alter_column は new_column_name と type_ をおなじよびだしでうけとれるので、きそんのぎょうにたすだけです。PostgreSQL では ALTER COLUMN TYPE と RENAME の 2 つのぶんとしてじっこうされます。downgrade で 100 もじにもどすときは、100 もじをこえるあたいが 1 ぎょうでもあるとしっぱいするというてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/String(100)/String(200)/' app/models.py"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/new_column_name=\"display_name\")/new_column_name=\"display_name\", type_=sa.String(200))/' -e 's/new_column_name=\"name\")/new_column_name=\"name\", type_=sa.String(100))/' migrations/versions/d31f4b93982a_rename_name_to_display_name.py"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "id": "lombok-entity-java-en",
+  "title": "Take @Data off a JPA entity",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "java",
+  "summary": "A bidirectional toString overflows the stack, so @Data splits into @Getter and @Setter, and then an id-only equals breaks before save.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/library/Author.java",
+      "content": "package com.example.library;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.OneToMany;\nimport java.util.HashSet;\nimport java.util.Set;\nimport lombok.Data;\n\n@Entity\n@Data\npublic class Author {\n    @Id\n    @GeneratedValue\n    private Long id;\n\n    private String name;\n\n    @OneToMany(mappedBy = \"author\")\n    private Set<Book> books = new HashSet<>();\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/library/Book.java",
+      "content": "package com.example.library;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.FetchType;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.ManyToOne;\nimport lombok.Data;\n\n@Entity\n@Data\npublic class Book {\n    @Id\n    @GeneratedValue\n    private Long id;\n\n    private String title;\n\n    @ManyToOne(fetch = FetchType.LAZY)\n    private Author author;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "added log.debug(\"{}\", author) and got a StackOverflowError. i get that @Data is the problem but writing getters by hand is a pain",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! @Data builds toString, equals and hashCode from every field, so Author's toString prints books, each Book's toString prints its author, and neither ever stops. hashCode has the same loop and fails as soon as a Book goes into a Set. author is also lazy, so touching it in toString outside a session throws LazyInitializationException. Let's keep Lombok for the boilerplate: split @Data into @Getter and @Setter, leave the relations out of toString with @ToString.Exclude, and base equals and hashCode on the id alone."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.library;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.OneToMany;\nimport java.util.HashSet;\nimport java.util.Set;\nimport lombok.EqualsAndHashCode;\nimport lombok.Getter;\nimport lombok.Setter;\nimport lombok.ToString;\n\n@Entity\n@Getter\n@Setter\n@ToString\n@EqualsAndHashCode(onlyExplicitlyIncluded = true)\npublic class Author {\n    @Id\n    @GeneratedValue\n    @EqualsAndHashCode.Include\n    private Long id;\n\n    private String name;\n\n    @OneToMany(mappedBy = \"author\")\n    @ToString.Exclude\n    private Set<Book> books = new HashSet<>();\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.library;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.FetchType;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.ManyToOne;\nimport lombok.EqualsAndHashCode;\nimport lombok.Getter;\nimport lombok.Setter;\nimport lombok.ToString;\n\n@Entity\n@Getter\n@Setter\n@ToString\n@EqualsAndHashCode(onlyExplicitlyIncluded = true)\npublic class Book {\n    @Id\n    @GeneratedValue\n    @EqualsAndHashCode.Include\n    private Long id;\n\n    private String title;\n\n    @ManyToOne(fetch = FetchType.LAZY)\n    @ToString.Exclude\n    private Author author;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "logging works. but i added 3 new Books with author.getBooks().add() and size() says 1",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, the equals I gave you breaks on entities that are not saved yet. The id stays null until persist, Lombok's equals treats two nulls as equal, and hashCode returns the same value for both. So the three new Books collapsed into one inside the Set. The Lombok equals and hashCode come out and get written by hand. While the id is null an entity equals only itself, and hashCode is a constant per class so it does not change across save. The other side may be a Hibernate proxy, so it is read through getId() rather than the field. Author gets the same shape."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/EqualsAndHashCode/d' src/main/java/com/example/library/Author.java src/main/java/com/example/library/Book.java"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Override\npublic boolean equals(Object o) {\n    if (this == o) {\n        return true;\n    }\n    if (!(o instanceof Book other)) {\n        return false;\n    }\n    return id != null && id.equals(other.getId());\n}\n\n@Override\npublic int hashCode() {\n    return Book.class.hashCode();\n}\n"
+        }
+      ]
+    }
+  ]
+}

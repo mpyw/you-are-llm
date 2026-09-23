@@ -1,0 +1,71 @@
+{
+  "id": "sqlx-named-go-en",
+  "title": "sqlx Get fails with missing destination name",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "go",
+  "summary": "Fix Get into a struct without db tags by adding the tags, then move writes to NamedExec. LastInsertId does not work on Postgres, so take the id back with RETURNING.",
+  "files": [
+    {
+      "path": "internal/repo/user.go",
+      "content": "package repo\n\nimport (\n  \"context\"\n  \"time\"\n\n  \"github.com/jmoiron/sqlx\"\n)\n\ntype User struct {\n  ID        int64\n  Email     string\n  CreatedAt time.Time\n}\n\ntype Repo struct {\n  db *sqlx.DB\n}\n\nfunc (r *Repo) Find(ctx context.Context, id int64) (*User, error) {\n  var u User\n  err := r.db.GetContext(ctx, &u, \"SELECT id, email, created_at FROM users WHERE id = $1\", id)\n  if err != nil {\n    return nil, err\n  }\n  return &u, nil\n}\n\nfunc (r *Repo) Recent(ctx context.Context, limit int) ([]User, error) {\n  var users []User\n  err := r.db.SelectContext(ctx, &users, \"SELECT id, email, created_at FROM users ORDER BY created_at DESC LIMIT $1\", limit)\n  return users, err\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "Find dies with missing destination name created_at in *repo.User. just added sqlx. id and email seem to load fine??",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: User has no db tags. For an untagged field, sqlx uses the field name in lower case as the column name. ID becomes id and Email becomes email, so those match. CreatedAt becomes createdat, which is not created_at. When a result column has nowhere to go, sqlx returns this error instead of silently dropping it. Tag every field and the column names are explicit."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "type User struct {\n  ID        int64     `db:\"id\"`\n  Email     string    `db:\"email\"`\n  CreatedAt time.Time `db:\"created_at\"`\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "works. do Create and UpdateEmail too. tired of counting $1 $2, just want to pass the struct",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great idea! NamedExecContext fills named parameters like :email from the fields with the same db tag. The tags become the single source of truth for both SELECT and INSERT, so adding a column means touching the struct and nothing else. sqlx also rewrites them to $1 style based on the driver name. Create writes the generated id back into u with LastInsertId."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (r *Repo) Create(ctx context.Context, u *User) error {\n  res, err := r.db.NamedExecContext(ctx,\n    \"INSERT INTO users (email, created_at) VALUES (:email, :created_at)\", u)\n  if err != nil {\n    return err\n  }\n  u.ID, err = res.LastInsertId()\n  return err\n}\n\nfunc (r *Repo) UpdateEmail(ctx context.Context, u *User) error {\n  _, err := r.db.NamedExecContext(ctx, \"UPDATE users SET email = :email WHERE id = :id\", u)\n  return err\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "LastInsertId is not supported by this driver. the row does get inserted though",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous Create does not work on Postgres. Unlike MySQL, Postgres does not report the last inserted id in the result, so LastInsertId from database/sql returns this error. Note that the row is already in, so retrying the same call would insert it twice. Add RETURNING id and read it with GetContext on a statement from PrepareNamedContext."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (r *Repo) Create(ctx context.Context, u *User) error {\n  stmt, err := r.db.PrepareNamedContext(ctx,\n    \"INSERT INTO users (email, created_at) VALUES (:email, :created_at) RETURNING id\")\n  if err != nil {\n    return err\n  }\n  defer stmt.Close()\n  return stmt.GetContext(ctx, &u.ID, u)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "also have UpdateEmail set updated_at to now(). column already exists",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. It is one more column in the UPDATE. now() is evaluated by the database, so the struct needs no new field."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/SET email = :email WHERE/SET email = :email, updated_at = now() WHERE/' internal/repo/user.go"
+        }
+      ]
+    }
+  ]
+}

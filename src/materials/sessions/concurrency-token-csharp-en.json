@@ -2,7 +2,7 @@
   "id": "concurrency-token-csharp-en",
   "title": "Stop concurrent edits from silently overwriting",
   "language": "en",
-  "difficulty": "expert",
+  "difficulty": "hard",
   "codeLanguage": "csharp",
   "summary": "The last save of an article silently wins over a concurrent edit. Detect it with a [Timestamp] row version and turn DbUpdateConcurrencyException into 409.",
   "files": [

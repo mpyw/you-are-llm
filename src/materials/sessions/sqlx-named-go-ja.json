@@ -1,0 +1,75 @@
+{
+  "id": "sqlx-named-go-ja",
+  "title": "sqlx の Get が missing destination name で落ちる",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "go",
+  "summary": "db タグの無い struct に Get していたのをタグで直し、書き込みを NamedExec に寄せる。Postgres で LastInsertId が使えない件は RETURNING で受け直す。",
+  "files": [
+    {
+      "path": "internal/repo/user.go",
+      "content": "package repo\n\nimport (\n  \"context\"\n  \"time\"\n\n  \"github.com/jmoiron/sqlx\"\n)\n\ntype User struct {\n  ID        int64\n  Email     string\n  CreatedAt time.Time\n}\n\ntype Repo struct {\n  db *sqlx.DB\n}\n\nfunc (r *Repo) Find(ctx context.Context, id int64) (*User, error) {\n  var u User\n  err := r.db.GetContext(ctx, &u, \"SELECT id, email, created_at FROM users WHERE id = $1\", id)\n  if err != nil {\n    return nil, err\n  }\n  return &u, nil\n}\n\nfunc (r *Repo) Recent(ctx context.Context, limit int) ([]User, error) {\n  var users []User\n  err := r.db.SelectContext(ctx, &users, \"SELECT id, email, created_at FROM users ORDER BY created_at DESC LIMIT $1\", limit)\n  return users, err\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "Find が missing destination name created_at in *repo.User で死ぬ。sqlx 入れたばっか。id と email は読めてるっぽいのに",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、User に db タグが無いのが原因です。sqlx はタグの無いフィールドを、名前を小文字にしただけの列名に対応付けます。ID は id、Email は email になるので一致しますが、CreatedAt は createdat になり、created_at とは一致しません。結果の列に行き先が無いと、sqlx は黙って捨てずにこのエラーを返します。全フィールドに db タグを付けて、列名を明示します。",
+          "reading": "けつろんからいうと、User に db タグがないのがげんいんです。sqlx はタグのないフィールドを、なまえをこもじにしただけのれつめいにたいおうづけます。ID は id、Email は email になるのでいっちしますが、CreatedAt は createdat になり、created_at とはいっちしません。けっかのれつにいきさきがないと、sqlx はだまってすてずにこのエラーをかえします。ぜんフィールドに db タグをつけて、れつめいをめいじします。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "type User struct {\n  ID        int64     `db:\"id\"`\n  Email     string    `db:\"email\"`\n  CreatedAt time.Time `db:\"created_at\"`\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "読めた。ついでに Create と UpdateEmail も。$1 $2 って数えるのもうやだ、struct そのまま渡したい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい方針です。NamedExecContext は :email のような名前付きパラメータを、同じ db タグを持つフィールドから埋めます。タグが SELECT と INSERT の唯一の情報源になるので、列を足すときも struct を直すだけで済みます。$1 形式への変換も sqlx がドライバ名を見て行います。Create は LastInsertId で採番された id を u に書き戻します。",
+          "reading": "すばらしいほうしんです。NamedExecContext は :email のようななまえつきパラメータを、おなじ db タグをもつフィールドからうめます。タグが SELECT と INSERT のゆいいつのじょうほうげんになるので、れつをたすときも struct をなおすだけですみます。$1 けいしきへのへんかんも sqlx がドライバめいをみておこないます。Create は LastInsertId でさいばんされた id を u にかきもどします。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (r *Repo) Create(ctx context.Context, u *User) error {\n  res, err := r.db.NamedExecContext(ctx,\n    \"INSERT INTO users (email, created_at) VALUES (:email, :created_at)\", u)\n  if err != nil {\n    return err\n  }\n  u.ID, err = res.LastInsertId()\n  return err\n}\n\nfunc (r *Repo) UpdateEmail(ctx context.Context, u *User) error {\n  _, err := r.db.NamedExecContext(ctx, \"UPDATE users SET email = :email WHERE id = :id\", u)\n  return err\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "LastInsertId is not supported by this driver って出た。insert 自体はされてる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの Create は Postgres では動きません。Postgres は MySQL のように最後に挿入した id を結果に載せないので、database/sql の LastInsertId はこのエラーを返します。行はもう入っているので、同じ呼び出しを再試行すると二重登録になる点に注意することが重要です。RETURNING id を付け、PrepareNamedContext で作ったステートメントの GetContext で受け取ります。",
+          "reading": "もうしわけありません。さきほどの Create は Postgres ではうごきません。Postgres は MySQL のようにさいごにそうにゅうした id をけっかにのせないので、database/sql の LastInsertId はこのエラーをかえします。ぎょうはもうはいっているので、おなじよびだしをさいしこうするとにじゅうとうろくになるてんにちゅういすることがじゅうようです。RETURNING id をつけ、PrepareNamedContext でつくったステートメントの GetContext でうけとります。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (r *Repo) Create(ctx context.Context, u *User) error {\n  stmt, err := r.db.PrepareNamedContext(ctx,\n    \"INSERT INTO users (email, created_at) VALUES (:email, :created_at) RETURNING id\")\n  if err != nil {\n    return err\n  }\n  defer stmt.Close()\n  return stmt.GetContext(ctx, &u.ID, u)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あと UpdateEmail で updated_at も now() で更新しといて。カラムはもうある",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。UPDATE 文に 1 列足すだけです。now() は DB 側で評価されるので、struct にフィールドを足す必要はありません。",
+          "reading": "しょうちしました。UPDATE ぶんに 1 れつたすだけです。now() は DB がわでひょうかされるので、struct にフィールドをたすひつようはありません。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/SET email = :email WHERE/SET email = :email, updated_at = now() WHERE/' internal/repo/user.go"
+        }
+      ]
+    }
+  ]
+}

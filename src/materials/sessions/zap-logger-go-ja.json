@@ -1,0 +1,46 @@
+{
+  "id": "zap-logger-go-ja",
+  "title": "zap の Infof を構造化フィールドにする",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "go",
+  "summary": "SugaredLogger の Infof に埋めていた order_id を zap.String のフィールドに出し、defer logger.Sync() を足す。メッセージを定数にしたらサンプリングで行が消えた。",
+  "files": [
+    {
+      "path": "cmd/import/main.go",
+      "content": "package main\n\nimport (\n  \"os\"\n\n  \"go.uber.org/zap\"\n)\n\nfunc main() {\n  logger, _ := zap.NewProduction()\n  sugar := logger.Sugar()\n\n  orders, err := loadOrders(os.Args[1])\n  if err != nil {\n    sugar.Errorf(\"load failed: %v\", err)\n    os.Exit(1)\n  }\n  for _, o := range orders {\n    sugar.Infof(\"order %s imported amount=%d\", o.ID, o.Amount)\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "インポートバッチのログ、order_id で絞りたいのに Infof で文字列に埋めてるから検索できない。zap のフィールドのやつにして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。Sugar をやめて *zap.Logger を直接使います。zap.String や zap.Int は型の決まったフィールドで、JSON ではそのままキーになります。fmt.Sprintf を通らないので、Infof より割り当ても少なく済みます。Note: zap は出力先によってはバッファするので、main の頭に defer logger.Sync() を置きます。ただし os.Exit は defer を飛ばすので、Errorf と os.Exit の組は logger.Fatal にします。Fatal は書いたあとに Sync してから終了することを保証します。",
+          "reading": "しょうちしました。Sugar をやめて *zap.Logger をちょくせつつかいます。zap.String や zap.Int はかたのきまったふぃーるどで、JSON ではそのままきーになります。fmt.Sprintf をとおらないので、Infof よりわりあてもすくなくすみます。Note: zap はしゅつりょくさきによってはばっふぁするので、main のあたまに defer logger.Sync() をおきます。ただし os.Exit は defer をとばすので、Errorf と os.Exit のくみは logger.Fatal にします。Fatal はかいたあとに Sync してからしゅうりょうすることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func main() {\n  logger, err := zap.NewProduction()\n  if err != nil {\n    panic(err)\n  }\n  defer logger.Sync()\n\n  orders, err := loadOrders(os.Args[1])\n  if err != nil {\n    logger.Fatal(\"load failed\", zap.String(\"path\", os.Args[1]), zap.Error(err))\n  }\n  for _, o := range orders {\n    logger.Info(\"order imported\", zap.String(\"order_id\", o.ID), zap.Int(\"amount\", o.Amount))\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "order_id は出るようになった。けど 3000 件入れたのに imported のログが 130 行くらいしかない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません、見落としていました。zap.NewProduction はサンプリングが有効で、同じレベルで同じメッセージの行は、1 秒あたり最初の 100 件と、そのあと 100 件に 1 件しか書きません。Infof のときは order_id がメッセージに入っていて毎回違う文字列だったので、引っかかっていませんでした。言い換えると、メッセージを定数にしたことで初めて間引かれるようになりました。件数のログは全部欲しいので、設定から Sampling を外します。",
+          "reading": "もうしわけありません、みおとしていました。zap.NewProduction はさんぷりんぐがゆうこうで、おなじれべるでおなじめっせーじのぎょうは、1 びょうあたりさいしょの 100 けんと、そのあと 100 けんに 1 けんしかかきません。Infof のときは order_id がめっせーじにはいっていてまいかいちがうもじれつだったので、ひっかかっていませんでした。いいかえると、めっせーじをていすうにしたことではじめてまびかれるようになりました。けんすうのろぐはぜんぶほしいので、せっていから Sampling をはずします。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func main() {\n  cfg := zap.NewProductionConfig()\n  cfg.Sampling = nil\n  logger, err := cfg.Build()\n  if err != nil {\n    panic(err)\n  }\n  defer logger.Sync()\n  // ...\n}\n"
+        }
+      ]
+    }
+  ]
+}

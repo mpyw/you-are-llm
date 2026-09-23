@@ -1,0 +1,70 @@
+{
+  "id": "vue-watch-cleanup-typescript-ja",
+  "title": "検索の watch で古い結果が後から上書きする",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "typescript",
+  "summary": "入力ごとに fetch する watch が、遅れて返った古いレスポンスで一覧を上書きする。onWatcherCleanup で abort するが、await の後で登録して効かなくなる。",
+  "files": [
+    {
+      "path": "src/pages/SearchPage.vue",
+      "content": "<script setup lang=\"ts\">\nimport { ref, watch } from 'vue'\n\ntype Hit = { id: string; title: string }\n\nconst query = ref('')\nconst hits = ref<Hit[]>([])\n\nwatch(query, async (q) => {\n  const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`)\n  hits.value = await res.json()\n})\n</script>\n\n<template>\n  <input v-model=\"query\" type=\"search\" placeholder=\"Search\" />\n  <ul>\n    <li v-for=\"hit in hits\" :key=\"hit.id\">{{ hit.title }}</li>\n  </ul>\n</template>\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "検索ボックス、速く打つと最後の文字の結果じゃなくて途中の結果が出てることがある。たまに",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ご指摘のとおり、これはレースです。watch は値が変わるたびにコールバックを走らせますが、前回の fetch を待ちも止めもしません。遅いリクエストが後から返ると、新しい結果を古い結果で上書きします。Vue 3.5 の onWatcherCleanup を活用し、次にコールバックが走る直前に前回の AbortController を abort します。abort された fetch は AbortError で reject するので、それだけは握りつぶします。template はそのままです。",
+          "reading": "ごしてきのとおり、これはれーすです。watch はあたいがかわるたびにこーるばっくをはしらせますが、ぜんかいの fetch をまちもとめもしません。おそいりくえすとがあとからかえると、あたらしいけっかをふるいけっかでうわがきします。Vue 3.5 の onWatcherCleanup をかつようし、つぎにこーるばっくがはしるちょくぜんにぜんかいの AbortController を abort します。abort された fetch は AbortError で reject するので、それだけはにぎりつぶします。template はそのままです。"
+        },
+        {
+          "kind": "code",
+          "lang": "vue",
+          "body": "<script setup lang=\"ts\">\nimport { onWatcherCleanup, ref, watch } from 'vue'\n\ntype Hit = { id: string; title: string }\n\nconst query = ref('')\nconst hits = ref<Hit[]>([])\n\nwatch(query, async (q) => {\n  const controller = new AbortController()\n  onWatcherCleanup(() => controller.abort())\n  try {\n    const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`, {\n      signal: controller.signal,\n    })\n    hits.value = await res.json()\n  } catch (error) {\n    if (!(error instanceof DOMException && error.name === 'AbortError')) throw error\n  }\n})\n</script>\n"
+        }
+      ]
+    },
+    {
+      "user": "直った。ついでに 1 文字ごとに叩くのやめて 300ms 待ってから投げて。あと開いた瞬間も空文字で一覧出しといて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。コールバックの頭で 300ms 待ち、immediate: true で初回にも走らせます。watch の部分だけ差し替えます。これでキー入力のたびにリクエストが飛ぶことはなくなり、期待どおりに動作します。",
+          "reading": "しょうちしました。こーるばっくのあたまで 300ms まち、immediate: true でしょかいにもはしらせます。watch のぶぶんだけさしかえます。これできーにゅうりょくのたびにりくえすとがとぶことはなくなり、きたいどおりにどうさします。"
+        },
+        {
+          "kind": "code",
+          "lang": "ts",
+          "body": "watch(\n  query,\n  async (q) => {\n    await new Promise((resolve) => setTimeout(resolve, 300))\n    const controller = new AbortController()\n    onWatcherCleanup(() => controller.abort())\n    try {\n      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`, {\n        signal: controller.signal,\n      })\n      hits.value = await res.json()\n    } catch (error) {\n      if (!(error instanceof DOMException && error.name === 'AbortError')) throw error\n    }\n  },\n  { immediate: true },\n)\n"
+        }
+      ]
+    },
+    {
+      "user": "[Vue warn] onWatcherCleanup() was called when there was no active watcher to associate with. って出てる。古い結果もまた出るようになった",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "重要な訂正があります。onWatcherCleanup が今の watcher を知っているのは、コールバックが同期的に走っている間だけです。先ほどのコードでは 300ms の await の後に呼んでいたので登録先がなく、abort は一度も呼ばれていませんでした。登録を await より前に移し、待っている間に次の入力が来たら fetch せずに抜けます。これで待ち時間ごと打ち切れます。Note: 第 3 引数の onCleanup は watcher に紐付いているので await の後でも警告は出ませんが、登録が遅れた分だけ古いリクエストが並走します。",
+          "reading": "じゅうようなていせいがあります。onWatcherCleanup がいまの watcher をしっているのは、こーるばっくがどうきてきにはしっているあいだだけです。さきほどのこーどでは 300ms の await のあとによんでいたのでとうろくさきがなく、abort はいちどもよばれていませんでした。とうろくを await よりまえにうつし、まっているあいだにつぎのにゅうりょくがきたら fetch せずにぬけます。これでまちじかんごとうちきれます。Note: だい 3 ひきすうの onCleanup は watcher にひもづいているので await のあとでもけいこくはでませんが、とうろくがおくれたぶんだけふるいりくえすとがへいそうします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e '/await new Promise/d' -e '/onWatcherCleanup(() =>/a\\\n    await new Promise((resolve) => setTimeout(resolve, 300))\\\n    if (controller.signal.aborted) return\n' src/pages/SearchPage.vue"
+        }
+      ]
+    },
+    {
+      "user": "watchEffect にしたら query 渡さなくていいし immediate も要らないしスッキリしない？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "良い質問です。watchEffect は最初に 1 回走るので immediate は要りません。ただし依存を集めるのも同期的に走っている間だけです。q を query.value に置き換えただけだと、読むのは 300ms の await の後になり、query は依存に入らず、2 回目以降の入力では二度と走りません。移すなら await より前で query.value を読む必要があります。何に反応するかが引数で見える watch のままにしておくことをお勧めします。",
+          "reading": "よいしつもんです。watchEffect はさいしょに 1 かいはしるので immediate はいりません。ただしいぞんをあつめるのもどうきてきにはしっているあいだだけです。q を query.value におきかえただけだと、よむのは 300ms の await のあとになり、query はいぞんにはいらず、2 かいめいこうのにゅうりょくではにどとはしりません。うつすなら await よりまえで query.value をよむひつようがあります。なににはんのうするかがひきすうでみえる watch のままにしておくことをおすすめします。"
+        }
+      ]
+    }
+  ]
+}

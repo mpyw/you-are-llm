@@ -1,0 +1,65 @@
+{
+  "id": "asio-coroutine-cpp-ja",
+  "title": "Asio のコールバック地獄を co_await に",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "cpp",
+  "summary": "ネストしたコールバックを co_spawn と use_awaitable のコルーチンにする。detached は例外を黙って捨てるので、完了ハンドラで exception_ptr を受ける。読み込みには cancel_after で期限を付ける。",
+  "files": [
+    {
+      "path": "src/tools/ping.cpp",
+      "content": "#include <iostream>\n#include <memory>\n#include <string>\n\n#include <boost/asio.hpp>\n\nusing boost::asio::ip::tcp;\n\nclass Pinger : public std::enable_shared_from_this<Pinger> {\n public:\n  Pinger(boost::asio::io_context& io, std::string host)\n      : resolver_(io), socket_(io), host_(std::move(host)) {}\n\n  void start() {\n    auto self = shared_from_this();\n    resolver_.async_resolve(host_, \"7000\",\n        [self](boost::system::error_code ec, tcp::resolver::results_type endpoints) {\n          if (ec) return self->fail(\"resolve\", ec);\n          boost::asio::async_connect(self->socket_, endpoints,\n              [self](boost::system::error_code ec, const tcp::endpoint&) {\n                if (ec) return self->fail(\"connect\", ec);\n                self->send();\n              });\n        });\n  }\n\n private:\n  void send() {\n    auto self = shared_from_this();\n    boost::asio::async_write(socket_, boost::asio::buffer(request_),\n        [self](boost::system::error_code ec, std::size_t) {\n          if (ec) return self->fail(\"write\", ec);\n          boost::asio::async_read_until(self->socket_, boost::asio::dynamic_buffer(self->line_), '\\n',\n              [self](boost::system::error_code ec, std::size_t) {\n                if (ec) return self->fail(\"read\", ec);\n                std::cout << self->host_ << \": \" << self->line_;\n              });\n        });\n  }\n\n  void fail(const char* what, boost::system::error_code ec) {\n    std::cerr << host_ << \": \" << what << \" failed: \" << ec.message() << \"\\n\";\n  }\n\n  tcp::resolver resolver_;\n  tcp::socket socket_;\n  std::string host_;\n  std::string request_ = \"PING\\r\\n\";\n  std::string line_;\n};\n\nint main() {\n  boost::asio::io_context io;\n  for (const char* host : {\"db1.internal\", \"db2.internal\", \"db3.internal\"}) {\n    std::make_shared<Pinger>(io, host)->start();\n  }\n  io.run();\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "db の死活監視ツール、コールバックのネストが深すぎて読めない。C++20 にしたし co_await で書き直してほしい。挙動は今のままで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい判断です。Boost.Asio の co_spawn と use_awaitable を使うと、resolve、connect、write、read の四段が上から順に並ぶ一つの関数になります。ソケットとリゾルバはコルーチンのフレームに置いたローカル変数なので、shared_from_this で寿命を延ばす必要もなくなります。失敗した操作は error_code の代わりに system_error の例外として投げられるので、エラーを見落とすこともありません。",
+          "reading": "すばらしいはんだんです。Boost.Asio の co_spawn と use_awaitable をつかうと、resolve、connect、write、read のよんだんがうえからじゅんにならぶひとつのかんすうになります。そけっととりぞるばはこるーちんのふれーむにおいたろーかるへんすうなので、shared_from_this でじゅみょうをのばすひつようもなくなります。しっぱいしたそうさは error_code のかわりに system_error のれいがいとしてなげられるので、えらーをみおとすこともありません。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include <iostream>\n#include <string>\n#include <string_view>\n\n#include <boost/asio.hpp>\n\nusing boost::asio::awaitable;\nusing boost::asio::use_awaitable;\nusing boost::asio::ip::tcp;\n\nawaitable<void> ping(std::string host) {\n  auto executor = co_await boost::asio::this_coro::executor;\n  tcp::resolver resolver(executor);\n  tcp::socket socket(executor);\n\n  auto endpoints = co_await resolver.async_resolve(host, \"7000\", use_awaitable);\n  co_await boost::asio::async_connect(socket, endpoints, use_awaitable);\n  co_await boost::asio::async_write(socket, boost::asio::buffer(std::string_view(\"PING\\r\\n\")), use_awaitable);\n\n  std::string line;\n  co_await boost::asio::async_read_until(socket, boost::asio::dynamic_buffer(line), '\\n', use_awaitable);\n  std::cout << host << \": \" << line;\n}\n\nint main() {\n  boost::asio::io_context io;\n  for (const char* host : {\"db1.internal\", \"db2.internal\", \"db3.internal\"}) {\n    boost::asio::co_spawn(io, ping(host), boost::asio::detached);\n  }\n  io.run();\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "Note: host は std::string の値で受け取ります。const std::string& にすると、main で const char* から作った一時オブジェクトを指したままになり、最初の co_await で中断している間にその一時オブジェクトは消えています。コルーチンの引数は値で受けるのがベストプラクティスです。",
+          "reading": "Note: host は std::string のあたいでうけとります。const std::string& にすると、main で const char* からつくったいちじおぶじぇくとをさしたままになり、さいしょの co_await でちゅうだんしているあいだにそのいちじおぶじぇくとはきえています。こるーちんのひきすうはあたいでうけるのがべすとぷらくてぃすです。"
+        }
+      ]
+    },
+    {
+      "user": "db2 わざと落として試したけど何も出ない。前は connect failed って出てたのに",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "重要な訂正があります。コルーチンから漏れた例外は、co_spawn の完了ハンドラに std::exception_ptr として渡されます。detached はその exception_ptr を黙って捨てるので、エラーを見落とさないという先ほどの説明は正しくありませんでした。完了ハンドラを自分で書き、rethrow_exception で投げ直してホスト名と一緒に出します。system_error の what() はファイル名や行番号まで含んで長いので、code().message() だけを出します。言い換えると、コールバック版の fail と同じ役目をここが担います。",
+          "reading": "じゅうようなていせいがあります。こるーちんからもれたれいがいは、co_spawn のかんりょうはんどらに std::exception_ptr としてわたされます。detached はその exception_ptr をだまってすてるので、えらーをみおとさないというさきほどのせつめいはただしくありませんでした。かんりょうはんどらをじぶんでかき、rethrow_exception でなげなおしてほすとめいといっしょにだします。system_error の what() はふぁいるめいやぎょうばんごうまでふくんでながいので、code().message() だけをだします。いいかえると、こーるばっくばんの fail とおなじやくめをここがにないます。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "int main() {\n  boost::asio::io_context io;\n  for (const char* host : {\"db1.internal\", \"db2.internal\", \"db3.internal\"}) {\n    boost::asio::co_spawn(io, ping(host), [host](std::exception_ptr error) {\n      if (!error) return;\n      try {\n        std::rethrow_exception(error);\n      } catch (const boost::system::system_error& e) {\n        std::cerr << host << \": \" << e.code().message() << \"\\n\";\n      }\n    });\n  }\n  io.run();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "出た。ついでに、応答返さないやつがいると終わらないのやめたい。読むとこだけ 3 秒で切って",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "cancel_after を使います。Boost 1.86 で入った完了トークンのアダプタで、時間内に終わらない操作にキャンセルを送ります。ポイントは read_until の行だけを書き換える点で、resolve と connect の待ち方は変わりません。切られた読み込みは operation_aborted の例外になり、先ほどの完了ハンドラが Operation canceled と出します。io_context は 1 スレッドで回しているので、ドキュメントが求める strand の条件も満たしています。",
+          "reading": "cancel_after をつかいます。Boost 1.86 ではいったかんりょうとーくんのあだぷたで、じかんないにおわらないそうさにきゃんせるをおくります。ぽいんとは read_until のぎょうだけをかきかえるてんで、resolve と connect のまちかたはかわりません。きられたよみこみは operation_aborted のれいがいになり、さきほどのかんりょうはんどらが Operation canceled とだします。io_context は 1 すれっどでまわしているので、どきゅめんとがもとめる strand のじょうけんもみたしています。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/async_read_until/s/use_awaitable)/boost::asio::cancel_after(std::chrono::seconds(3), use_awaitable))/' src/tools/ping.cpp"
+        }
+      ]
+    }
+  ]
+}

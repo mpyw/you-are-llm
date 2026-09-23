@@ -1,0 +1,50 @@
+{
+  "id": "gtest-assert-expect-cpp-ja",
+  "title": "nullptr を確かめた次の行でテストが落ちる",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "cpp",
+  "summary": "EXPECT_NE が失敗してもテストは次の行へ進む。後続の前提になる確認は ASSERT_ で止め、ヘルパーの中の ASSERT_ は ASSERT_NO_FATAL_FAILURE で受ける。",
+  "files": [
+    {
+      "path": "tests/parser_test.cpp",
+      "content": "#include <gtest/gtest.h>\n\n#include \"config/parser.h\"\n\nTEST(ParserTest, ReadsPort) {\n  auto config = parse_config(\"port = 8080\\n\");\n  EXPECT_NE(config, nullptr);\n  EXPECT_EQ(config->port, 8080);\n}\n\nTEST(ParserTest, ReadsHosts) {\n  auto config = parse_config(\"hosts = a, b\\n\");\n  EXPECT_EQ(config->hosts.size(), 2u);\n  EXPECT_EQ(config->hosts[0], \"a\");\n}\n\nTEST(ParserTest, RejectsGarbage) {\n  EXPECT_EQ(parse_config(\"port = ???\\n\"), nullptr);\n}\n"
+    },
+    {
+      "path": "src/config/parser.h",
+      "content": "#pragma once\n\n#include <memory>\n#include <string>\n#include <vector>\n\nstruct Config {\n  int port = 0;\n  std::vector<std::string> hosts;\n};\n\nstd::unique_ptr<Config> parse_config(const std::string& text);\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "parse_config いじったらテストが Segmentation fault で止まった。ReadsPort の Failure は出てるけどその先が無い。EXPECT_NE で nullptr チェックしてるのになんで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "良い質問です。EXPECT_ 系は失敗を記録するだけで、テスト関数はそのまま次の行へ進みます。言い換えると、EXPECT_NE(config, nullptr) が失敗したあとも config->port が実行され、nullptr を参照してプロセスごと落ちています。後続の行の前提になる確認は ASSERT_ 系にするのがベストプラクティスです。ASSERT_ は失敗した時点でそのテスト関数から抜けるので、残りのテストも最後まで走ります。ReadsHosts は nullptr の確認も、hosts[0] の前の要素数の確認も ASSERT_ で足します。",
+          "reading": "よいしつもんです。EXPECT_ けいはしっぱいをきろくするだけで、てすとかんすうはそのままつぎのぎょうへすすみます。いいかえると、EXPECT_NE(config, nullptr) がしっぱいしたあとも config->port がじっこうされ、nullptr をさんしょうしてぷろせすごとおちています。こうぞくのぎょうのぜんていになるかくにんは ASSERT_ けいにするのがべすとぷらくてぃすです。ASSERT_ はしっぱいしたじてんでそのてすとかんすうからぬけるので、のこりのてすともさいごまではしります。ReadsHosts は nullptr のかくにんも、hosts[0] のまえのようそすうのかくにんも ASSERT_ でたします。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "TEST(ParserTest, ReadsPort) {\n  auto config = parse_config(\"port = 8080\\n\");\n  ASSERT_NE(config, nullptr);\n  EXPECT_EQ(config->port, 8080);\n}\n\nTEST(ParserTest, ReadsHosts) {\n  auto config = parse_config(\"hosts = a, b\\n\");\n  ASSERT_NE(config, nullptr);\n  ASSERT_EQ(config->hosts.size(), 2u);\n  EXPECT_EQ(config->hosts[0], \"a\");\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "おけ。parse して nullptr チェックするの毎回書くのだるいからヘルパーにしたら、ASSERT_NE のとこでコンパイルエラー。GoogleTest_NotSupported_OnFunctionReturningNonVoid ってなに",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: ASSERT_ 系は失敗したときに値を持たない return を展開するので、戻り値が void の関数の中でしか使えません。ヘルパーは結果を引数のポインタで返す形にします。もう一つ、ヘルパーの中の ASSERT_ が抜けるのはヘルパー関数だけで、呼び出したテストは先へ進む点に注意することが重要です。呼び出しを ASSERT_NO_FATAL_FAILURE で包めば、ヘルパーで致命的な失敗が起きた時点でテストも止まります。",
+          "reading": "Note: ASSERT_ けいはしっぱいしたときにあたいをもたない return をてんかいするので、もどりちが void のかんすうのなかでしかつかえません。へるぱーはけっかをひきすうのぽいんたでかえすかたちにします。もうひとつ、へるぱーのなかの ASSERT_ がぬけるのはへるぱーかんすうだけで、よびだしたてすとはさきへすすむてんにちゅういすることがじゅうようです。よびだしを ASSERT_NO_FATAL_FAILURE でつつめば、へるぱーでちめいてきなしっぱいがおきたじてんでてすともとまります。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "void ParseOrFail(const std::string& text, std::unique_ptr<Config>* out) {\n  *out = parse_config(text);\n  ASSERT_NE(*out, nullptr) << \"input: \" << text;\n}\n\nTEST(ParserTest, ReadsHosts) {\n  std::unique_ptr<Config> config;\n  ASSERT_NO_FATAL_FAILURE(ParseOrFail(\"hosts = a, b\\n\", &config));\n  ASSERT_EQ(config->hosts.size(), 2u);\n  EXPECT_EQ(config->hosts[0], \"a\");\n}\n"
+        }
+      ]
+    }
+  ]
+}

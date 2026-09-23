@@ -1,0 +1,44 @@
+{
+  "id": "blazor-bind-csharp-en",
+  "title": "Make a Blazor search box filter as you type",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "csharp",
+  "summary": "@bind writes back only when the field loses focus. @bind:event=\"oninput\" makes it per keystroke, and @bind:after runs the server search.",
+  "files": [
+    {
+      "path": "Components/Pages/Products.razor",
+      "content": "@page \"/products\"\n@rendermode InteractiveServer\n@inject ProductService Products\n\n<input @bind=\"query\" placeholder=\"Search\" />\n\n<ul>\n    @foreach (var product in Filtered)\n    {\n        <li>@product.Name</li>\n    }\n</ul>\n\n@code {\n    private string query = \"\";\n    private List<Product> all = [];\n\n    protected override async Task OnInitializedAsync()\n    {\n        all = await Products.ListAsync();\n    }\n\n    private IEnumerable<Product> Filtered =>\n        all.Where(p => p.Name.Contains(query, StringComparison.OrdinalIgnoreCase));\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "product search doesnt filter while typing. only after enter or clicking outside the box. want it live",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great observation! With only @bind on an <input>, the value is written back to query on the onchange event. For a text input, onchange fires only when the field loses focus or you press Enter. In other words, the characters you are typing have not reached the C# side yet. Add @bind:event=\"oninput\" and query updates on every keystroke, so Filtered is recomputed on each render."
+        },
+        {
+          "kind": "code",
+          "lang": "razor",
+          "body": "<input @bind=\"query\" @bind:event=\"oninput\" placeholder=\"Search\" />\n"
+        }
+      ]
+    },
+    {
+      "user": "works. but we have 50k products and they want it off the client memory. search on the server every keystroke. also i added @oninput and now it wont build",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. Putting @oninput next to @bind:event=\"oninput\" writes the same oninput attribute twice on one element, so the build fails. To run code after the value is written back, use @bind:after, added in .NET 7. It accepts a method that returns Task, so the server search is awaited there. Note: this searches on every keystroke. With that many products, a debounce is worth adding."
+        },
+        {
+          "kind": "code",
+          "lang": "razor",
+          "body": "<input @bind=\"query\" @bind:event=\"oninput\" @bind:after=\"SearchAsync\" placeholder=\"Search\" />\n\n<ul>\n    @foreach (var product in results)\n    {\n        <li>@product.Name</li>\n    }\n</ul>\n\n@code {\n    private string query = \"\";\n    private List<Product> results = [];\n\n    private async Task SearchAsync()\n    {\n        results = await Products.SearchAsync(query);\n    }\n}\n"
+        }
+      ]
+    }
+  ]
+}

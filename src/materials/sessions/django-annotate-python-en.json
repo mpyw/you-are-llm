@@ -1,0 +1,75 @@
+{
+  "id": "django-annotate-python-en",
+  "title": "Move per row aggregation into annotate and Subquery",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "python",
+  "summary": "Turn per customer count() and sum() into Count and Sum annotations, multiply the numbers by stacking two joins, fix it with distinct=True and a Subquery, then attach the latest order with OuterRef.",
+  "files": [
+    {
+      "path": "shop/models.py",
+      "content": "from django.db import models\n\n\nclass Customer(models.Model):\n    name = models.CharField(max_length=100)\n\n\nclass Order(models.Model):\n    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name=\"orders\")\n    total = models.DecimalField(max_digits=10, decimal_places=0)\n    status = models.CharField(max_length=20)\n    created_at = models.DateTimeField()\n\n\nclass Ticket(models.Model):\n    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name=\"tickets\")\n    subject = models.CharField(max_length=200)\n"
+    },
+    {
+      "path": "shop/views.py",
+      "content": "from django.http import JsonResponse\n\nfrom .models import Customer\n\n\ndef customer_report(request):\n    rows = []\n    for customer in Customer.objects.order_by(\"name\"):\n        orders = customer.orders.all()\n        rows.append(\n            {\n                \"name\": customer.name,\n                \"order_count\": orders.count(),\n                \"total_spent\": sum(order.total for order in orders),\n            }\n        )\n    return JsonResponse({\"customers\": rows})\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "the customer report API is super slow. over 10 seconds with about 3000 customers",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: every customer runs two queries, one for orders.count() and one for sum(), so 3000 customers is 6001 queries. Let's push the aggregation into the database. Passing Count and Sum to annotate gives each customer its count and total from a single query with GROUP BY. Sum is None for a customer with no orders, so it gets default=0."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from django.db.models import Count, Sum\nfrom django.http import JsonResponse\n\nfrom .models import Customer\n\n\ndef customer_report(request):\n    customers = Customer.objects.annotate(\n        order_count=Count(\"orders\"),\n        total_spent=Sum(\"orders__total\", default=0),\n    ).order_by(\"name\")\n    rows = [\n        {\n            \"name\": c.name,\n            \"order_count\": c.order_count,\n            \"total_spent\": c.total_spent,\n        }\n        for c in customers\n    ]\n    return JsonResponse({\"customers\": rows})\n"
+        }
+      ]
+    },
+    {
+      "user": "fast! one query now. i also want the number of support tickets next to it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. It is one more Count(\"tickets\") line in the same annotate. tickets is also a reverse relation from the customer, so it only adds one JOIN and leaves the existing aggregates alone. The sed captures the leading spaces in a group and inserts the new line at the same depth."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/^\\( *\\)order_count=Count(\"orders\"),$/&\\n\\1ticket_count=Count(\"tickets\"),/' -e 's/^\\( *\\)\"order_count\": c.order_count,$/&\\n\\1\"ticket_count\": c.ticket_count,/' shop/views.py"
+        }
+      ]
+    },
+    {
+      "user": "numbers look wrong. tanaka should have 2 orders and 3 tickets but shows order_count 6, ticket_count 6, total_spent 6000",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect: the new JOIN does affect the existing aggregates. Joining orders and tickets in one query pairs 2 order rows with 3 ticket rows into 6, and Count and Sum both see those 6. For the counts, distinct=True on Count counts each ID once. Putting distinct=True on Sum is a trap, though, because it removes duplicate values, not duplicate rows. Both of tanaka's orders are 1000, so the total would come out as 1000. The total moves into a Subquery and adds up the orders outside the JOIN."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from django.db.models import Count, OuterRef, Subquery, Sum\nfrom django.http import JsonResponse\n\nfrom .models import Customer, Order\n\n\ndef customer_report(request):\n    order_totals = (\n        Order.objects.filter(customer=OuterRef(\"pk\"))\n        .values(\"customer\")\n        .annotate(total=Sum(\"total\"))\n        .values(\"total\")\n    )\n    customers = Customer.objects.annotate(\n        order_count=Count(\"orders\", distinct=True),\n        ticket_count=Count(\"tickets\", distinct=True),\n        total_spent=Subquery(order_totals),\n    ).order_by(\"name\")\n    rows = [\n        {\n            \"name\": c.name,\n            \"order_count\": c.order_count,\n            \"ticket_count\": c.ticket_count,\n            \"total_spent\": c.total_spent or 0,\n        }\n        for c in customers\n    ]\n    return JsonResponse({\"customers\": rows})\n"
+        }
+      ]
+    },
+    {
+      "user": "matches now. also the last order time and its status. i know Max gets the date but the status has to be from that same order",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great point! Max only returns the date, so it cannot be paired with the status of the same order. Build a query that refers to the outer customer with OuterRef(\"pk\"), sort by created_at descending, take the first row with [:1], and attach each column with its own Subquery. Two orders with the same created_at would make the first row nondeterministic, so -pk is added as a tie breaker. Both are scalar subqueries and do not change the JOIN row count. A customer with no orders gets None."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from django.db.models import Count, OuterRef, Subquery, Sum\nfrom django.http import JsonResponse\n\nfrom .models import Customer, Order\n\n\ndef customer_report(request):\n    order_totals = (\n        Order.objects.filter(customer=OuterRef(\"pk\"))\n        .values(\"customer\")\n        .annotate(total=Sum(\"total\"))\n        .values(\"total\")\n    )\n    latest = Order.objects.filter(customer=OuterRef(\"pk\")).order_by(\"-created_at\", \"-pk\")\n    customers = Customer.objects.annotate(\n        order_count=Count(\"orders\", distinct=True),\n        ticket_count=Count(\"tickets\", distinct=True),\n        total_spent=Subquery(order_totals),\n        last_ordered_at=Subquery(latest.values(\"created_at\")[:1]),\n        last_status=Subquery(latest.values(\"status\")[:1]),\n    ).order_by(\"name\")\n    rows = [\n        {\n            \"name\": c.name,\n            \"order_count\": c.order_count,\n            \"ticket_count\": c.ticket_count,\n            \"total_spent\": c.total_spent or 0,\n            \"last_ordered_at\": c.last_ordered_at,\n            \"last_status\": c.last_status,\n        }\n        for c in customers\n    ]\n    return JsonResponse({\"customers\": rows})\n"
+        }
+      ]
+    }
+  ]
+}

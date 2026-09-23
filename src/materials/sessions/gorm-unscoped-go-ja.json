@@ -2,7 +2,7 @@
   "id": "gorm-unscoped-go-ja",
   "title": "ソフトデリートした行がユニーク制約と集計の邪魔をする",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "go",
   "summary": "複合ユニークは NULL 同士で素通りすると認めて部分インデックスにし、集計と復活には Unscoped を使う。",
   "files": [

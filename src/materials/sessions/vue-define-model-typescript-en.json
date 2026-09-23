@@ -1,0 +1,44 @@
+{
+  "id": "vue-define-model-typescript-en",
+  "title": "Move a child v-model to defineModel",
+  "language": "en",
+  "codeLanguage": "typescript",
+  "difficulty": "normal",
+  "files": [
+    {
+      "path": "src/components/SearchBox.vue",
+      "content": "<script setup lang=\"ts\">\nconst props = defineProps<{ modelValue: string }>()\n</script>\n\n<template>\n  <input v-model=\"props.modelValue\" type=\"search\" placeholder=\"Search\" />\n</template>\n"
+    }
+  ],
+  "summary": "SearchBox writes to props.modelValue and gets a readonly warning. Wire it back to the parent with defineModel.",
+  "turns": [
+    {
+      "user": "typing in SearchBox logs Set operation on key \"modelValue\" failed: target is readonly. parent just does <SearchBox v-model=\"query\" />",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Got it. Props are read only from the child's side, so the v-model on the input tries to write to props.modelValue and gets refused. On Vue 3.4 or later, let's reach for defineModel. It folds receiving the prop and emitting update:modelValue into a single ref, which you hand straight to the input. Note: without required: true the type is string | undefined. The parent's v-model keeps working as it is."
+        },
+        {
+          "kind": "code",
+          "lang": "vue",
+          "body": "<script setup lang=\"ts\">\nconst model = defineModel<string>({ required: true })\n</script>\n\n<template>\n  <input v-model=\"model\" type=\"search\" placeholder=\"Search\" />\n</template>\n"
+        }
+      ]
+    },
+    {
+      "user": "oh wait, another repo is still on 3.3 so no defineModel there. how does that one look",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Up to 3.3 you declare the prop and the emit yourself and wire them up. In other words, all defineModel does is bundle those two. Pass the value in with :value and emit update:modelValue on the input event. The flow is the same either way: the child never writes to props, it hands the new value to the parent and the parent writes it."
+        },
+        {
+          "kind": "code",
+          "lang": "vue",
+          "body": "<script setup lang=\"ts\">\ndefineProps<{ modelValue: string }>()\n\nconst emit = defineEmits<{\n  'update:modelValue': [value: string]\n}>()\n\nfunction onInput(event: Event) {\n  emit('update:modelValue', (event.target as HTMLInputElement).value)\n}\n</script>\n\n<template>\n  <input :value=\"modelValue\" type=\"search\" placeholder=\"Search\" @input=\"onInput\" />\n</template>\n"
+        }
+      ]
+    }
+  ]
+}

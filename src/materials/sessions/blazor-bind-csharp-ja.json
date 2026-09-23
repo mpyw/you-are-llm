@@ -1,0 +1,46 @@
+{
+  "id": "blazor-bind-csharp-ja",
+  "title": "Blazor の検索欄が打つたびに絞り込まれない",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "csharp",
+  "summary": "@bind はフォーカスが外れたときにしか書き戻さない。@bind:event=\"oninput\" で打鍵ごとにし、サーバー検索は @bind:after で走らせる。",
+  "files": [
+    {
+      "path": "Components/Pages/Products.razor",
+      "content": "@page \"/products\"\n@rendermode InteractiveServer\n@inject ProductService Products\n\n<input @bind=\"query\" placeholder=\"Search\" />\n\n<ul>\n    @foreach (var product in Filtered)\n    {\n        <li>@product.Name</li>\n    }\n</ul>\n\n@code {\n    private string query = \"\";\n    private List<Product> all = [];\n\n    protected override async Task OnInitializedAsync()\n    {\n        all = await Products.ListAsync();\n    }\n\n    private IEnumerable<Product> Filtered =>\n        all.Where(p => p.Name.Contains(query, StringComparison.OrdinalIgnoreCase));\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "商品検索、文字打っても一覧が変わらない。Enter 押すか欄の外クリックすると絞られる。打ってる途中で絞りたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい観察です。<input> に @bind だけを書くと、値が query に書き戻されるのは onchange イベントのときです。テキスト入力の onchange は、フォーカスが外れたときか Enter を押したときにしか発火しません。言い換えると、打っている途中の文字はまだ C# 側に届いていません。@bind:event=\"oninput\" を足せば、キーを打つたびに query が更新され、Filtered も描画のたびに計算し直されます。",
+          "reading": "すばらしいかんさつです。<input> に @bind だけをかくと、あたいが query にかきもどされるのは onchange いべんとのときです。てきすとにゅうりょくの onchange は、ふぉーかすがはずれたときか Enter をおしたときにしかはっかしません。いいかえると、うっているとちゅうのもじはまだ C# がわにとどいていません。@bind:event=\"oninput\" をたせば、きーをうつたびに query がこうしんされ、Filtered もびょうがのたびにけいさんしなおされます。"
+        },
+        {
+          "kind": "code",
+          "lang": "razor",
+          "body": "<input @bind=\"query\" @bind:event=\"oninput\" placeholder=\"Search\" />\n"
+        }
+      ]
+    },
+    {
+      "user": "できた。けど商品5万件あるから全部メモリに持つのやめろって言われた。打つたびにサーバーで検索して。あと @oninput 足したらビルド通らなくなった",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。@bind:event=\"oninput\" を付けた要素に @oninput を並べると、同じ oninput 属性を 2 回書いたことになり、ビルドが通りません。値が書き戻された後に処理を足したいときは、.NET 7 で入った @bind:after を使います。Task を返すメソッドも渡せるので、ここでサーバー検索を await します。キーを打つたびに検索が走るので、件数が多いならデバウンスを挟むことをお勧めします。",
+          "reading": "しょうちしました。@bind:event=\"oninput\" をつけたようそに @oninput をならべると、おなじ oninput ぞくせいを 2 かいかいたことになり、びるどがとおりません。あたいがかきもどされたあとにしょりをたしたいときは、.NET 7 ではいった @bind:after をつかいます。Task をかえすめそっどもわたせるので、ここでさーばーけんさくを await します。きーをうつたびにけんさくがはしるので、けんすうがおおいならでばうんすをはさむことをおすすめします。"
+        },
+        {
+          "kind": "code",
+          "lang": "razor",
+          "body": "<input @bind=\"query\" @bind:event=\"oninput\" @bind:after=\"SearchAsync\" placeholder=\"Search\" />\n\n<ul>\n    @foreach (var product in results)\n    {\n        <li>@product.Name</li>\n    }\n</ul>\n\n@code {\n    private string query = \"\";\n    private List<Product> results = [];\n\n    private async Task SearchAsync()\n    {\n        results = await Products.SearchAsync(query);\n    }\n}\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "id": "otel-span-go-en",
+  "title": "OpenTelemetry spans missing from Jaeger and traces cut in two",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "go",
+  "summary": "Fix a span that was never ended and whose ctx was thrown away, then record errors with RecordError and SetStatus. RecordError alone leaves the status unset.",
+  "files": [
+    {
+      "path": "internal/checkout/service.go",
+      "content": "package checkout\n\nimport (\n  \"context\"\n\n  \"go.opentelemetry.io/otel\"\n  \"go.opentelemetry.io/otel/attribute\"\n)\n\nvar tracer = otel.Tracer(\"checkout\")\n\ntype Service struct {\n  carts    CartStore\n  payments Payments\n  orders   OrderStore\n}\n\nfunc (s *Service) PlaceOrder(ctx context.Context, cartID string) (string, error) {\n  _, span := tracer.Start(ctx, \"checkout.PlaceOrder\")\n  span.SetAttributes(attribute.String(\"cart.id\", cartID))\n\n  cart, err := s.carts.Load(ctx, cartID)\n  if err != nil {\n    return \"\", err\n  }\n  if err := s.payments.Charge(ctx, cart.Total); err != nil {\n    return \"\", err\n  }\n  return s.orders.Create(ctx, cart)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "added a span to PlaceOrder but it never shows up in jaeger. payments.Charge spans show up but each one is its own root, not under PlaceOrder",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's go through it step by step. First, span.End() is never called, so the span never finishes and never reaches the exporter. OpenTelemetry Go only exports finished spans, so Jaeger gets nothing. Second, the ctx returned by tracer.Start is thrown away with _. The new span lives in that ctx, so Charge receives the original ctx, finds no parent, and starts a new trace as its root. Assign the returned ctx back to ctx and put defer span.End() right after, which guarantees End runs on every return."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (s *Service) PlaceOrder(ctx context.Context, cartID string) (string, error) {\n  ctx, span := tracer.Start(ctx, \"checkout.PlaceOrder\")\n  defer span.End()\n  span.SetAttributes(attribute.String(\"cart.id\", cartID))\n\n  cart, err := s.carts.Load(ctx, cartID)\n  if err != nil {\n    return \"\", err\n  }\n  if err := s.payments.Charge(ctx, cart.Total); err != nil {\n    return \"\", err\n  }\n  return s.orders.Create(ctx, cart)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "connected now. also want it red in jaeger when payment fails",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! Calling span.RecordError(err) marks the span as failed, and Jaeger shows it in red. Writing that at every return is easy to miss, so I put it in a small fail function that records the error and hands it back. The result of Create is now checked before returning too. Add go.opentelemetry.io/otel/trace to the imports."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (s *Service) PlaceOrder(ctx context.Context, cartID string) (string, error) {\n  ctx, span := tracer.Start(ctx, \"checkout.PlaceOrder\")\n  defer span.End()\n  span.SetAttributes(attribute.String(\"cart.id\", cartID))\n\n  cart, err := s.carts.Load(ctx, cartID)\n  if err != nil {\n    return \"\", fail(span, err)\n  }\n  if err := s.payments.Charge(ctx, cart.Total); err != nil {\n    return \"\", fail(span, err)\n  }\n  orderID, err := s.orders.Create(ctx, cart)\n  if err != nil {\n    return \"\", fail(span, err)\n  }\n  return orderID, nil\n}\n\nfunc fail(span trace.Span, err error) error {\n  span.RecordError(err)\n  return err\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "got an exception event but still not red. status is Unset",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. RecordError only adds an event named exception to the span. It does not touch the span status. Jaeger paints a span red when its status is Error, so span.SetStatus(codes.Error, ...) has to be called as well. Note: codes here is go.opentelemetry.io/otel/codes, not the gRPC codes package."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func fail(span trace.Span, err error) error {\n  span.RecordError(err)\n  span.SetStatus(codes.Error, err.Error())\n  return err\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "review says tracer name should be the package import path, not checkout. example.com/shop/internal/checkout",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Good point. The name passed to otel.Tracer identifies the instrumentation, and the convention is the package import path. It appears once, so sed can replace it."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's#otel.Tracer(\"checkout\")#otel.Tracer(\"example.com/shop/internal/checkout\")#' internal/checkout/service.go"
+        }
+      ]
+    }
+  ]
+}

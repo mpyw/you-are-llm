@@ -1,0 +1,71 @@
+{
+  "id": "prisma-transaction-typescript-en",
+  "title": "Pass tx through a Prisma interactive transaction",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "typescript",
+  "summary": "A point transfer moved into a $transaction callback, but writeLedger still used the outer prisma. Pass a Prisma.TransactionClient, raise maxWait for P2028, and send mail after the commit.",
+  "files": [
+    {
+      "path": "src/points/transfer.ts",
+      "content": "import { prisma } from '../db'\nimport { writeLedger } from './ledger'\n\nexport async function transferPoints(fromId: string, toId: string, amount: number) {\n  const from = await prisma.wallet.findUniqueOrThrow({ where: { userId: fromId } })\n  if (from.balance < amount) {\n    throw new Error('Insufficient balance')\n  }\n  await writeLedger(fromId, toId, amount)\n  await prisma.wallet.update({\n    where: { userId: fromId },\n    data: { balance: { decrement: amount } },\n  })\n  await prisma.wallet.update({\n    where: { userId: toId },\n    data: { balance: { increment: amount } },\n  })\n}\n"
+    },
+    {
+      "path": "src/points/ledger.ts",
+      "content": "import { prisma } from '../db'\n\nexport async function writeLedger(fromId: string, toId: string, amount: number) {\n  await prisma.ledgerEntry.create({ data: { fromId, toId, amount } })\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "point transfers: if it dies halfway the sender loses points and nobody gets them. make it a transaction. prisma",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's use an interactive transaction rather than the array form, $transaction([...]). The array form only runs the queries you hand it in order, so nothing can branch on an earlier result. Reading the balance first also leaves a gap where another transfer can slip in. Decrement first, and throw if the result is negative, which rolls the whole thing back. writeLedger is called inside the callback too, so it is atomic along with the rest."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { prisma } from '../db'\nimport { writeLedger } from './ledger'\n\nexport async function transferPoints(fromId: string, toId: string, amount: number) {\n  await prisma.$transaction(async (tx) => {\n    await writeLedger(fromId, toId, amount)\n    const from = await tx.wallet.update({\n      where: { userId: fromId },\n      data: { balance: { decrement: amount } },\n    })\n    if (from.balance < 0) {\n      throw new Error('Insufficient balance')\n    }\n    await tx.wallet.update({\n      where: { userId: toId },\n      data: { balance: { increment: amount } },\n    })\n  })\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "a transfer that failed for low balance is still in the ledger. the balance itself rolled back",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. writeLedger uses the prisma it imports in ledger.ts and never receives tx. Calling it inside the callback does not change that, so its query commits at once on a separate connection. Only queries that go through tx are part of the transaction. writeLedger now takes a Prisma.TransactionClient. With the Prisma 7 prisma-client generator, import it from the output path you configured instead of @prisma/client. I also spelled out the default maxWait and timeout."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import type { Prisma } from '@prisma/client'\n\nexport async function writeLedger(\n  db: Prisma.TransactionClient,\n  fromId: string,\n  toId: string,\n  amount: number,\n) {\n  await db.ledgerEntry.create({ data: { fromId, toId, amount } })\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { prisma } from '../db'\nimport { writeLedger } from './ledger'\n\nexport async function transferPoints(fromId: string, toId: string, amount: number) {\n  await prisma.$transaction(\n    async (tx) => {\n      await writeLedger(tx, fromId, toId, amount)\n      const from = await tx.wallet.update({\n        where: { userId: fromId },\n        data: { balance: { decrement: amount } },\n      })\n      if (from.balance < 0) {\n        throw new Error('Insufficient balance')\n      }\n      await tx.wallet.update({\n        where: { userId: toId },\n        data: { balance: { increment: amount } },\n      })\n    },\n    { maxWait: 2000, timeout: 5000 },\n  )\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "want to email the recipient after a transfer. inside transferPoints. also apparently P2028 shows up at peak sometimes, related?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question. TL;DR: an interactive transaction holds one connection until its callback returns. By default maxWait, the wait for a connection, is 2 seconds and the whole timeout is 5 seconds. Going past either gives P2028. Sending mail inside the callback holds the connection that much longer, and a mail that went out cannot be taken back if the transaction then rolls back. Send it after the awaited $transaction, once it has committed. Raise maxWait to 5 seconds so a busy pool has time to free a connection. Until the last fix, writeLedger was also taking a second connection through the outer prisma, which drained the pool further."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/maxWait: 2000/maxWait: 5000/' src/points/transfer.ts"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { prisma } from '../db'\nimport { sendTransferMail } from '../mail'\nimport { writeLedger } from './ledger'\n\nexport async function transferPoints(fromId: string, toId: string, amount: number) {\n  await prisma.$transaction(\n    async (tx) => {\n      // ... unchanged\n    },\n    { maxWait: 5000, timeout: 5000 },\n  )\n  await sendTransferMail(fromId, toId, amount)\n}\n"
+        }
+      ]
+    }
+  ]
+}

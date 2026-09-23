@@ -1,0 +1,59 @@
+{
+  "id": "tower-http-layers-rust-ja",
+  "title": "tower-http の CorsLayer でプリフライトを通す",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "rust",
+  "summary": "CorsLayer と TraceLayer を足したら Any と allow_credentials の併用で起動時に panic したので、オリジンを明示して列挙する。",
+  "files": [
+    {
+      "path": "src/main.rs",
+      "content": "use axum::routing::get;\nuse axum::{Json, Router};\nuse serde::{Deserialize, Serialize};\n\n#[derive(Clone, Serialize, Deserialize)]\nstruct Item {\n    name: String,\n}\n\nasync fn list_items() -> Json<Vec<Item>> {\n    Json(Vec::new())\n}\n\nasync fn create_item(Json(item): Json<Item>) -> Json<Item> {\n    Json(item)\n}\n\n#[tokio::main]\nasync fn main() {\n    let app = Router::new().route(\"/api/items\", get(list_items).post(create_item));\n    let listener = tokio::net::TcpListener::bind(\"0.0.0.0:3000\").await.unwrap();\n    axum::serve(listener, app).await.unwrap();\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "フロント (localhost:5173) から叩くと CORS で死ぬ。tower-http 入れたから CorsLayer 足して。cookie 認証なので credentials: 'include' で送ってる。あとアクセスログほしい、TraceLayer で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい構成です！ CorsLayer でプリフライトに答え、TraceLayer でリクエストごとの span を出します。application/json の Content-Type は CORS で安全とされるヘッダに入らないので、allow_headers に明示します。cookie を送るので allow_credentials(true) も付けます。TraceLayer は DEBUG レベルで書くので、subscriber の上限を DEBUG にしておかないと何も出ません。",
+          "reading": "すばらしいこうせいです！ CorsLayer でぷりふらいとにこたえ、TraceLayer でりくえすとごとの span をだします。application/json の Content-Type は CORS であんぜんとされるへっだにはいらないので、allow_headers にめいじします。cookie をおくるので allow_credentials(true) もつけます。TraceLayer は DEBUG れべるでかくので、subscriber のじょうげんを DEBUG にしておかないとなにもでません。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use axum::http::{header, Method};\nuse axum::routing::get;\nuse axum::{Json, Router};\nuse serde::{Deserialize, Serialize};\nuse tower_http::cors::{Any, CorsLayer};\nuse tower_http::trace::TraceLayer;\n\n#[tokio::main]\nasync fn main() {\n    tracing_subscriber::fmt()\n        .with_max_level(tracing::Level::DEBUG)\n        .init();\n\n    let cors = CorsLayer::new()\n        .allow_origin(Any)\n        .allow_methods([Method::GET, Method::POST])\n        .allow_headers([header::CONTENT_TYPE])\n        .allow_credentials(true);\n\n    let app = Router::new()\n        .route(\"/api/items\", get(list_items).post(create_item))\n        .layer(TraceLayer::new_for_http())\n        .layer(cors);\n    let listener = tokio::net::TcpListener::bind(\"0.0.0.0:3000\").await.unwrap();\n    axum::serve(listener, app).await.unwrap();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "起動した瞬間 panic した\nInvalid CORS configuration: Cannot combine `Access-Control-Allow-Credentials: true` with `Access-Control-Allow-Origin: *`",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの Any と allow_credentials(true) は併用できません。資格情報付きのリクエストに対してブラウザは Access-Control-Allow-Origin: * を受け付けないので、tower-http は layer を組み立てる時点で panic して知らせます。言い換えると、cookie を許すならオリジンは名前で書くしかありません。Any をやめて HeaderValue で明示します。",
+          "reading": "もうしわけありません。さきほどの Any と allow_credentials(true) はへいようできません。しかくじょうほうつきのりくえすとにたいしてぶらうざは Access-Control-Allow-Origin: * をうけつけないので、tower-http は layer をくみたてるじてんで panic してしらせます。いいかえると、cookie をゆるすならおりじんはなまえでかくしかありません。Any をやめて HeaderValue でめいじします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/use axum::http::{header, Method};/use axum::http::{header, HeaderValue, Method};/' -e 's/use tower_http::cors::{Any, CorsLayer};/use tower_http::cors::CorsLayer;/' -e 's|\\.allow_origin(Any)|.allow_origin(HeaderValue::from_static(\"http://localhost:5173\"))|' src/main.rs"
+        }
+      ]
+    },
+    {
+      "user": "staging (https://staging.example.com) からも叩けるようにしといて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。allow_origin は HeaderValue の配列も受け取るので、2 つ並べます。一致したオリジンだけがそのまま返り、Vary: origin は CorsLayer が付けます。リストにないオリジンには許可のヘッダが返らず、ブラウザ側で弾かれることを保証します。",
+          "reading": "かしこまりました。allow_origin は HeaderValue のはいれつもうけとるので、2 つならべます。いっちしたおりじんだけがそのままかえり、Vary: origin は CorsLayer がつけます。りすとにないおりじんにはきょかのへっだがかえらず、ぶらうざがわではじかれることをほしょうします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's|\\.allow_origin(HeaderValue::from_static(\"http://localhost:5173\"))|.allow_origin([HeaderValue::from_static(\"http://localhost:5173\"), HeaderValue::from_static(\"https://staging.example.com\")])|' src/main.rs"
+        }
+      ]
+    }
+  ]
+}

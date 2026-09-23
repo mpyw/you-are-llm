@@ -1,0 +1,60 @@
+{
+  "id": "pytest-monkeypatch-python-ja",
+  "title": "mock.patch(\"requests.get\") が効かないのを直して monkeypatch と比べる",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "python",
+  "summary": "from requests import get しているモジュールで requests.get を patch して本物の通信が走り、使う側の名前を patch し直してから monkeypatch に寄せる。",
+  "files": [
+    {
+      "path": "app/weather.py",
+      "content": "from requests import get\n\nAPI_URL = \"https://api.example.com/weather\"\n\n\ndef current_temp(city):\n    response = get(API_URL, params={\"q\": city}, timeout=5)\n    response.raise_for_status()\n    return response.json()[\"temp\"]\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "app/weather.py の current_temp にテスト書いて。CI からは外に出られないから requests は mock で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。unittest.mock.patch で requests.get を差し替え、戻り値の json() が決まった辞書を返すように組みます。呼び出し引数も assert_called_once_with で確かめるので、URL やタイムアウトの渡し忘れも検出できます。",
+          "reading": "かしこまりました。unittest.mock.patch で requests.get をさしかえ、もどりちの json() がきまったじしょをかえすようにくみます。よびだしひきすうも assert_called_once_with でたしかめるので、URL やたいむあうとのわたしわすれもけんしゅつできます。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from unittest import mock\n\nfrom app.weather import current_temp\n\n\n@mock.patch(\"requests.get\")\ndef test_current_temp(mock_get):\n    mock_get.return_value.json.return_value = {\"temp\": 21.5}\n    assert current_temp(\"Tokyo\") == 21.5\n    mock_get.assert_called_once_with(\n        \"https://api.example.com/weather\", params={\"q\": \"Tokyo\"}, timeout=5\n    )\n"
+        }
+      ]
+    },
+    {
+      "user": "ConnectionError で落ちるんだけど。mock 効いてなくない？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、先ほどの patch の対象は正確ではありませんでした。app/weather.py は from requests import get と書いているので、import した時点で get という名前が app.weather の中に作られ、本物の関数を指したままになります。mock.patch(\"requests.get\") が差し替えるのは requests モジュールの属性だけで、app.weather.get には届きません。ポイントは、patch するのは定義された場所ではなく使われている場所だという点です。",
+          "reading": "あらためてかくにんしたところ、さきほどの patch のたいしょうはせいかくではありませんでした。app/weather.py は from requests import get とかいているので、import したじてんで get というなまえが app.weather のなかにつくられ、ほんもののかんすうをさしたままになります。mock.patch(\"requests.get\") がさしかえるのは requests もじゅーるのぞくせいだけで、app.weather.get にはとどきません。ぽいんとは、patch するのはていぎされたばしょではなくつかわれているばしょだというてんです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/mock.patch(\"requests.get\")/mock.patch(\"app.weather.get\")/' tests/test_weather.py"
+        }
+      ]
+    },
+    {
+      "user": "通った。けど pytest なら monkeypatch あるじゃん、そっちのがよくない？あとエラーのときのテストもほしい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、pytest 流に寄せます。monkeypatch.setattr に weather モジュールそのものと名前を渡すと、どの名前空間を書き換えるのかがコードの上で明示されます。規則は先ほどと同じなので、ここに requests を渡すとやはり素通りします。MagicMock と違って呼び出しは記録されないので、偽の get が自分で calls に積みます。その代わり、存在しない属性を読んだときに黙って通ることもありません。テストが終わるたびに monkeypatch が自動で元に戻すので、テスト間の汚染がないことを保証します。",
+          "reading": "Now、pytest りゅうによせます。monkeypatch.setattr に weather もじゅーるそのものとなまえをわたすと、どのなまえくうかんをかきかえるのかがこーどのうえでめいじされます。きそくはさきほどとおなじなので、ここに requests をわたすとやはりすどおりします。MagicMock とちがってよびだしはきろくされないので、にせの get がじぶんで calls につみます。そのかわり、そんざいしないぞくせいをよんだときにだまってとおることもありません。てすとがおわるたびに monkeypatch がじどうでもとにもどすので、てすとかんのおせんがないことをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "import pytest\nimport requests\n\nfrom app import weather\n\n\nclass FakeResponse:\n    def __init__(self, payload, status=200):\n        self.payload = payload\n        self.status = status\n\n    def raise_for_status(self):\n        if self.status >= 400:\n            raise requests.HTTPError(f\"{self.status} error\")\n\n    def json(self):\n        return self.payload\n\n\ndef test_current_temp(monkeypatch):\n    calls = []\n\n    def fake_get(url, **kwargs):\n        calls.append((url, kwargs))\n        return FakeResponse({\"temp\": 21.5})\n\n    monkeypatch.setattr(weather, \"get\", fake_get)\n    assert weather.current_temp(\"Tokyo\") == 21.5\n    assert calls == [(weather.API_URL, {\"params\": {\"q\": \"Tokyo\"}, \"timeout\": 5})]\n\n\ndef test_current_temp_raises_on_error(monkeypatch):\n    monkeypatch.setattr(weather, \"get\", lambda url, **kwargs: FakeResponse({}, 503))\n    with pytest.raises(requests.HTTPError):\n        weather.current_temp(\"Tokyo\")\n"
+        }
+      ]
+    }
+  ]
+}

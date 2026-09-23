@@ -1,0 +1,59 @@
+{
+  "id": "local-scope-php-ja",
+  "title": "公開済みの where をローカルスコープにまとめる",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "php",
+  "summary": "3 か所にコピペされた公開条件を Post::published() に寄せ、#[Scope] 属性の書き方も比べる。",
+  "files": [
+    {
+      "path": "app/Models/Post.php",
+      "content": "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass Post extends Model\n{\n    protected $fillable = ['title', 'slug', 'body', 'status', 'published_at'];\n\n    protected function casts(): array\n    {\n        return [\n            'published_at' => 'datetime',\n        ];\n    }\n}\n"
+    },
+    {
+      "path": "app/Http/Controllers/PostController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse App\\Models\\Post;\n\nclass PostController extends Controller\n{\n    public function index()\n    {\n        $posts = Post::query()\n            ->where('status', 'published')\n            ->where('published_at', '<=', now())\n            ->latest('published_at')\n            ->paginate(20);\n\n        return view('posts.index', ['posts' => $posts]);\n    }\n\n    public function show(string $slug)\n    {\n        $post = Post::query()\n            ->where('status', 'published')\n            ->where('published_at', '<=', now())\n            ->where('slug', $slug)\n            ->firstOrFail();\n\n        return view('posts.show', ['post' => $post]);\n    }\n}\n"
+    },
+    {
+      "path": "app/Http/Controllers/SitemapController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse App\\Models\\Post;\n\nclass SitemapController extends Controller\n{\n    public function __invoke()\n    {\n        $posts = Post::query()\n            ->where('status', 'published')\n            ->get(['slug', 'updated_at']);\n\n        return response()\n            ->view('sitemap', ['posts' => $posts])\n            ->header('Content-Type', 'application/xml');\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "where('status', 'published')->where('published_at', '<=', now()) がコントローラのあちこちにコピペされてる。サイトマップにだけ予約投稿が出てたことあって、見たら片方抜けてた。まとめといて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。Post にローカルスコープ scopePublished を定義し、呼ぶ側は接頭辞の scope を外して Post::published() と書きます。公開条件の正本がモデルの 1 か所になるので、サイトマップのように片方だけ抜ける事故は起きません。",
+          "reading": "しょうちしました。Post にローカルスコープ scopePublished をていぎし、よぶがわはせっとうじの scope をはずして Post::published() とかきます。こうかいじょうけんのせいほんがモデルの 1 かしょになるので、サイトマップのようにかたほうだけぬけるじこはおきません。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Illuminate\\Database\\Eloquent\\Builder;\n\npublic function scopePublished(Builder $query): void\n{\n    $query->where('status', 'published')\n        ->where('published_at', '<=', now());\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "$posts = Post::published()\n    ->latest('published_at')\n    ->paginate(20);\n\n$post = Post::published()\n    ->where('slug', $slug)\n    ->firstOrFail();\n\n$posts = Post::published()->get(['slug', 'updated_at']);\n"
+        }
+      ]
+    },
+    {
+      "user": "Laravel 12 だと #[Scope] ってのもあるって聞いた。どっちがいいの。あと orWhere の後ろに付けたら壊れない？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい質問です。最近の Laravel 12 では、#[Scope] 属性を付けた protected メソッドもスコープになり、メソッド名がそのまま呼び出し名になります。scope という接頭辞のボイラープレートが消えるだけで、動きは同じです。orWhere の後ろに付けても、それまでの条件とスコープの条件はそれぞれ括弧でくくられるので、公開条件が or に飲まれないことを保証します。",
+          "reading": "すばらしいしつもんです。さいきんの Laravel 12 では、#[Scope] ぞくせいをつけた protected メソッドもスコープになり、メソッドめいがそのままよびだしめいになります。scope というせっとうじのボイラープレートがきえるだけで、うごきはおなじです。orWhere のうしろにつけても、それまでのじょうけんとスコープのじょうけんはそれぞれかっこでくくられるので、こうかいじょうけんが or にのまれないことをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Illuminate\\Database\\Eloquent\\Attributes\\Scope;\nuse Illuminate\\Database\\Eloquent\\Builder;\n\n#[Scope]\nprotected function published(Builder $query): void\n{\n    $query->where('status', 'published')\n        ->where('published_at', '<=', now());\n}\n"
+        }
+      ]
+    }
+  ]
+}

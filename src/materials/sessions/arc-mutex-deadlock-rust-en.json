@@ -2,7 +2,7 @@
   "id": "arc-mutex-deadlock-rust-en",
   "title": "bump takes the lock twice and parks",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "rust",
   "summary": "Logging the total inside an Arc<Mutex<HashMap>> deadlocks until the sum comes off the guard.",
   "files": [

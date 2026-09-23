@@ -2,7 +2,7 @@
   "id": "libuv-close-cb-c-en",
   "title": "Free libuv handles in the close callback",
   "language": "en",
-  "difficulty": "expert",
+  "difficulty": "hard",
   "codeLanguage": "c",
   "summary": "Free clients in the close callback instead of right after uv_close, then shut down on Ctrl-C all the way to uv_loop_close.",
   "files": [

@@ -1,0 +1,61 @@
+{
+  "id": "axum-websocket-rust-en",
+  "title": "Broadcast a chat over axum WebSockets",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "rust",
+  "summary": "Turn an echo handler into a chat with split and broadcast, then stop slow clients from being dropped silently on Lagged.",
+  "files": [
+    {
+      "path": "src/main.rs",
+      "content": "use axum::extract::State;\nuse axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};\nuse axum::response::Response;\nuse axum::routing::get;\nuse axum::Router;\nuse tokio::sync::broadcast;\n\n#[derive(Clone)]\nstruct AppState {\n    tx: broadcast::Sender<String>,\n}\n\nasync fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {\n    ws.on_upgrade(move |socket| chat(socket, state))\n}\n\nasync fn chat(mut socket: WebSocket, _state: AppState) {\n    while let Some(Ok(message)) = socket.recv().await {\n        if let Message::Text(text) = message {\n            if socket.send(Message::Text(text)).await.is_err() {\n                break;\n            }\n        }\n    }\n}\n\n#[tokio::main]\nasync fn main() {\n    let (tx, _rx) = broadcast::channel(16);\n    let app = Router::new()\n        .route(\"/ws\", get(ws_handler))\n        .with_state(AppState { tx });\n    let listener = tokio::net::TcpListener::bind(\"0.0.0.0:3000\").await.unwrap();\n    axum::serve(listener, app).await.unwrap();\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "/ws just echoes right now. make it a chat, anything someone sends goes to everyone connected. theres already a broadcast sender in AppState",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's split the socket in two. WebSocket::split gives a SplitSink and a SplitStream, and each can be moved into its own task. The send task reads from a broadcast subscription and writes to this client. The receive task takes text from the client and pushes it into tx. rx.recv only fails once every Sender is dropped, so a while let Ok loop is enough there. When either task finishes, tokio::select! aborts the other one, so nothing is left running after a disconnect."
+        },
+        {
+          "kind": "command",
+          "body": "cargo add futures-util"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use futures_util::{SinkExt, StreamExt};\n\nasync fn chat(socket: WebSocket, state: AppState) {\n    let (mut sender, mut receiver) = socket.split();\n    let mut rx = state.tx.subscribe();\n\n    let mut send_task = tokio::spawn(async move {\n        while let Ok(text) = rx.recv().await {\n            if sender.send(Message::text(text)).await.is_err() {\n                break;\n            }\n        }\n    });\n\n    let tx = state.tx.clone();\n    let mut recv_task = tokio::spawn(async move {\n        while let Some(Ok(message)) = receiver.next().await {\n            if let Message::Text(text) = message {\n                let _ = tx.send(text.to_string());\n            }\n        }\n    });\n\n    tokio::select! {\n        _ = &mut send_task => recv_task.abort(),\n        _ = &mut recv_task => send_task.abort(),\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "works. but in busy rooms some people just get dropped. nothing in the server logs",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Correction: I was wrong about recv only failing on close. A broadcast channel shares one ring buffer, and a receiver that falls more than its capacity behind gets RecvError::Lagged and skips the oldest messages. while let Ok treats that as the end, so the send task returned, select! aborted the receive task, and the connection closed. Lagged now tells the client how many messages it missed and carries on. Only Closed ends the loop."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use tokio::sync::broadcast::error::RecvError;\n\nlet mut send_task = tokio::spawn(async move {\n    loop {\n        let text = match rx.recv().await {\n            Ok(text) => text,\n            Err(RecvError::Lagged(skipped)) => format!(\"({skipped} messages skipped)\"),\n            Err(RecvError::Closed) => break,\n        };\n        if sender.send(Message::text(text)).await.is_err() {\n            break;\n        }\n    }\n});\n"
+        }
+      ]
+    },
+    {
+      "user": "fixed. someone said 16 is way too small, make it 256. also the skip notice looks like a normal message, prefix it with system:",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "The capacity is set on the one line that creates the channel, and it is how far behind a slow receiver may fall. One sed changes that and the notice text together."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/broadcast::channel(16)/broadcast::channel(256)/' -e 's/format!(\"({skipped} messages skipped)\")/format!(\"system: {skipped} messages skipped\")/' src/main.rs"
+        }
+      ]
+    }
+  ]
+}

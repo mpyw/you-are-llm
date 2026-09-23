@@ -1,0 +1,60 @@
+{
+  "id": "express-async-error-typescript-ja",
+  "title": "async ハンドラのエラーを Express に届ける",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "typescript",
+  "summary": "Express 4 で reject が届かず固まる async ハンドラを catch(next) で包み、整理のつもりで消した next を戻す。Express 5 での違いも確かめる。",
+  "files": [
+    {
+      "path": "src/server.ts",
+      "content": "import express, { type NextFunction, type Request, type Response } from 'express'\nimport { findOrder } from './orders'\n\nconst app = express()\n\napp.get('/orders/:id', async (req, res) => {\n  const order = await findOrder(req.params.id)\n  if (!order) {\n    res.status(404).json({ error: 'not found' })\n    return\n  }\n  res.json(order)\n})\n\napp.use((err: Error, req: Request, res: Response, next: NextFunction) => {\n  console.error(err)\n  res.status(500).json({ error: 'internal' })\n})\n\nprocess.on('unhandledRejection', (reason) => {\n  console.error('unhandled', reason)\n})\n\napp.listen(3000)\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "注文 API、DB 落ちてるとき /orders/:id が返ってこなくてタイムアウトまで固まる。エラーミドルウェアあるのに 500 にならない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。Express 4 は async ハンドラが返す Promise を見ていません。findOrder が reject しても next(err) は呼ばれず、unhandledRejection のハンドラがログを出して終わるので、レスポンスを返さないまま接続だけが残ります。asyncHandler で包んで catch(next) につなぎ、reject が必ずエラーミドルウェアに届くことを保証します。握りつぶすだけの unhandledRejection は消し、エラーミドルウェアの使われていない next も消して整理します。",
+          "reading": "するどいごしてきです。Express 4 は async はんどらがかえす Promise をみていません。findOrder が reject しても next(err) はよばれず、unhandledRejection のはんどらがろぐをだしておわるので、れすぽんすをかえさないまませつぞくだけがのこります。asyncHandler でつつんで catch(next) につなぎ、reject がかならずえらーみどるうぇあにとどくことをほしょうします。にぎりつぶすだけの unhandledRejection はけし、えらーみどるうぇあのつかわれていない next もけしてせいりします。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import express, { type NextFunction, type Request, type RequestHandler, type Response } from 'express'\nimport { findOrder } from './orders'\n\ntype AsyncHandler = (req: Request, res: Response, next: NextFunction) => Promise<void>\n\nconst asyncHandler =\n  (fn: AsyncHandler): RequestHandler =>\n  (req, res, next) => {\n    fn(req, res, next).catch(next)\n  }\n\nconst app = express()\n\napp.get(\n  '/orders/:id',\n  asyncHandler(async (req, res) => {\n    const order = await findOrder(req.params.id)\n    if (!order) {\n      res.status(404).json({ error: 'not found' })\n      return\n    }\n    res.json(order)\n  }),\n)\n\napp.use((err: Error, _req: Request, res: Response) => {\n  console.error(err)\n  res.status(500).json({ error: 'internal' })\n})\n\napp.listen(3000)\n"
+        }
+      ]
+    },
+    {
+      "user": "固まらなくはなった。けど JSON じゃなくて HTML のスタックトレースが返ってくる。フロントが JSON.parse で死んでる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。next を消したのは私の誤りでした。Express はエラーミドルウェアを引数の数、つまり fn.length が 4 かどうかで見分けます。3 つにすると普通のミドルウェア扱いになり、エラーは素通りして既定のハンドラが HTML を返します。3 引数の関数も ErrorRequestHandler に代入できてしまうので、tsc では防げない点に注意することが重要です。_next として戻します。",
+          "reading": "もうしわけありません。next をけしたのはわたしのあやまりでした。Express はえらーみどるうぇあをひきすうのかず、つまり fn.length が 4 かどうかでみわけます。3 つにするとふつうのみどるうぇああつかいになり、えらーはすどおりしてきていのはんどらが HTML をかえします。3 ひきすうのかんすうも ErrorRequestHandler にだいにゅうできてしまうので、tsc ではふせげないてんにちゅういすることがじゅうようです。_next としてもどします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/_req: Request, res: Response) => {/_req: Request, res: Response, _next: NextFunction) => {/' src/server.ts"
+        }
+      ]
+    },
+    {
+      "user": "そういえば Express 5 だとこのラッパー要らないってほんと？ 上げるなら今かも",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、Express 5 ではハンドラが返した Promise が reject されると、自動で next(err) に渡されます。asyncHandler は外して、async 関数をそのまま渡せます。引数 4 つの規則は 5 でも変わりません。ただし 5 はパスの書き方も変わっていて、ワイルドカードの '/*' には '/*splat' のように名前が要ります。@types/express も 5 系に揃えます。",
+          "reading": "Now、Express 5 でははんどらがかえした Promise が reject されると、じどうで next(err) にわたされます。asyncHandler ははずして、async かんすうをそのままわたせます。ひきすう 4 つのきそくは 5 でもかわりません。ただし 5 はぱすのかきかたもかわっていて、わいるどかーどの '/*' には '/*splat' のようになまえがいります。@types/express も 5 けいにそろえます。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "app.get('/orders/:id', async (req, res) => {\n  const order = await findOrder(req.params.id)\n  if (!order) {\n    res.status(404).json({ error: 'not found' })\n    return\n  }\n  res.json(order)\n})\n\napp.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {\n  console.error(err)\n  res.status(500).json({ error: 'internal' })\n})\n"
+        }
+      ]
+    }
+  ]
+}

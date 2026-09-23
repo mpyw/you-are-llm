@@ -1,0 +1,61 @@
+{
+  "id": "pinia-store-refs-typescript-en",
+  "title": "Destructuring a Pinia store froze the total",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "typescript",
+  "summary": "Destructuring useCartStore() leaves total stuck at 0. storeToRefs fixes it, until the action goes in there too.",
+  "files": [
+    {
+      "path": "src/stores/cart.ts",
+      "content": "import { defineStore } from 'pinia'\nimport { computed, ref } from 'vue'\n\ntype Item = { id: string; price: number; qty: number }\n\nexport const useCartStore = defineStore('cart', () => {\n  const items = ref<Item[]>([])\n  const total = computed(() => items.value.reduce((sum, item) => sum + item.price * item.qty, 0))\n\n  function add(id: string, price: number) {\n    const found = items.value.find((item) => item.id === id)\n    if (found) found.qty += 1\n    else items.value.push({ id, price, qty: 1 })\n  }\n\n  return { items, total, add }\n})\n"
+    },
+    {
+      "path": "src/components/CartSummary.vue",
+      "content": "<script setup lang=\"ts\">\nimport { useCartStore } from '@/stores/cart'\n\nconst { items, total, add } = useCartStore()\n</script>\n\n<template>\n  <p>{{ items.length }} items, {{ total }} yen</p>\n  <button type=\"button\" @click=\"add('sku-1', 500)\">Add</button>\n</template>\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "hitting Add in the cart leaves the total at 0 yen. the count goes to 1 though. the store computes total fine, pretty sure",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great observation. The store is fine. The destructuring in the component is the problem. A Pinia store is a reactive object, so destructuring it copies out the values as they are at that moment and the reactivity is gone. total becomes the plain number 0 and stays there. The count only looks alive because items comes out as the reactive proxy of the array. Pass the store through storeToRefs and each piece of state and each getter comes back as its own ref."
+        },
+        {
+          "kind": "code",
+          "lang": "vue",
+          "body": "<script setup lang=\"ts\">\nimport { storeToRefs } from 'pinia'\nimport { useCartStore } from '@/stores/cart'\n\nconst cart = useCartStore()\nconst { items, total, add } = storeToRefs(cart)\n</script>\n\n<template>\n  <p>{{ items.length }} items, {{ total }} yen</p>\n  <button type=\"button\" @click=\"add('sku-1', 500)\">Add</button>\n</template>\n"
+        }
+      ]
+    },
+    {
+      "user": "vue-tsc says Property 'add' does not exist",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, putting add through storeToRefs in my previous answer was my mistake. storeToRefs turns only state and getters into refs and skips actions. An action is a plain function bound to the store and has no need to be reactive, so destructuring it straight from the store is fine."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/{ items, total, add } = storeToRefs/{ items, total } = storeToRefs/' -e '/= storeToRefs(cart)$/a\\\nconst { add } = cart\n' src/components/CartSummary.vue"
+        }
+      ]
+    },
+    {
+      "user": "also free shipping kicks in at 5000, want to show how much is left. don't want the math in the template",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the addition. Inside script, total is a ref, so you read it with .value. The template unwraps it for you, which is why .value is not needed there but is needed here. If other screens want the same number, a getter in the store is the best practice."
+        },
+        {
+          "kind": "code",
+          "lang": "vue",
+          "body": "<script setup lang=\"ts\">\nimport { computed } from 'vue'\nimport { storeToRefs } from 'pinia'\nimport { useCartStore } from '@/stores/cart'\n\nconst FREE_SHIPPING = 5000\n\nconst cart = useCartStore()\nconst { items, total } = storeToRefs(cart)\nconst { add } = cart\n\nconst remaining = computed(() => Math.max(0, FREE_SHIPPING - total.value))\n</script>\n\n<template>\n  <p>{{ items.length }} items, {{ total }} yen</p>\n  <p v-if=\"remaining > 0\">{{ remaining }} yen to free shipping</p>\n  <button type=\"button\" @click=\"add('sku-1', 500)\">Add</button>\n</template>\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "id": "express-async-error-typescript-en",
+  "title": "Get async handler errors to Express",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "typescript",
+  "summary": "Wrap an Express 4 async handler whose rejection never reached the error middleware, put back the next that a tidy up removed, and see what Express 5 changes.",
+  "files": [
+    {
+      "path": "src/server.ts",
+      "content": "import express, { type NextFunction, type Request, type Response } from 'express'\nimport { findOrder } from './orders'\n\nconst app = express()\n\napp.get('/orders/:id', async (req, res) => {\n  const order = await findOrder(req.params.id)\n  if (!order) {\n    res.status(404).json({ error: 'not found' })\n    return\n  }\n  res.json(order)\n})\n\napp.use((err: Error, req: Request, res: Response, next: NextFunction) => {\n  console.error(err)\n  res.status(500).json({ error: 'internal' })\n})\n\nprocess.on('unhandledRejection', (reason) => {\n  console.error('unhandled', reason)\n})\n\napp.listen(3000)\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "orders api: when the db is down /orders/:id just hangs until timeout. there is an error middleware, still no 500",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch. Express 4 ignores the Promise an async handler returns. When findOrder rejects, nobody calls next(err). The unhandledRejection hook logs it and stops there, so the connection stays open with no response. Wrap the handler in asyncHandler and chain catch(next), which guarantees a rejection reaches the error middleware. I also removed the unhandledRejection hook that only swallowed errors, and dropped the unused next from the error middleware to tidy it up."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import express, { type NextFunction, type Request, type RequestHandler, type Response } from 'express'\nimport { findOrder } from './orders'\n\ntype AsyncHandler = (req: Request, res: Response, next: NextFunction) => Promise<void>\n\nconst asyncHandler =\n  (fn: AsyncHandler): RequestHandler =>\n  (req, res, next) => {\n    fn(req, res, next).catch(next)\n  }\n\nconst app = express()\n\napp.get(\n  '/orders/:id',\n  asyncHandler(async (req, res) => {\n    const order = await findOrder(req.params.id)\n    if (!order) {\n      res.status(404).json({ error: 'not found' })\n      return\n    }\n    res.json(order)\n  }),\n)\n\napp.use((err: Error, _req: Request, res: Response) => {\n  console.error(err)\n  res.status(500).json({ error: 'internal' })\n})\n\napp.listen(3000)\n"
+        }
+      ]
+    },
+    {
+      "user": "no more hanging. but now it returns an HTML stack trace instead of JSON and the frontend dies in JSON.parse",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, removing next was my mistake. Express tells an error middleware apart by its argument count, that is whether fn.length is 4. With three it is treated as ordinary middleware, the error skips past it, and the default handler answers with HTML. A three argument function still type checks as an ErrorRequestHandler, so tsc cannot catch this. Put it back as _next."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/_req: Request, res: Response) => {/_req: Request, res: Response, _next: NextFunction) => {/' src/server.ts"
+        }
+      ]
+    },
+    {
+      "user": "wait, someone said Express 5 does not need the wrapper at all? might be the time to upgrade",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "That's right. In Express 5 a rejected Promise from a handler is passed to next(err) automatically, so asyncHandler can go and the async function is passed as is. The four argument rule is the same in 5. Note: 5 also changes path syntax, so a wildcard like '/*' needs a name, as in '/*splat'. Move @types/express to 5 as well."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "app.get('/orders/:id', async (req, res) => {\n  const order = await findOrder(req.params.id)\n  if (!order) {\n    res.status(404).json({ error: 'not found' })\n    return\n  }\n  res.json(order)\n})\n\napp.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {\n  console.error(err)\n  res.status(500).json({ error: 'internal' })\n})\n"
+        }
+      ]
+    }
+  ]
+}

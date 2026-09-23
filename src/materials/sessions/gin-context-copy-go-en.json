@@ -2,7 +2,7 @@
   "id": "gin-context-copy-go-en",
   "title": "Do not hand *gin.Context to a goroutine",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "go",
   "summary": "A goroutine read a Context that Gin had already recycled. Pass c.Copy() instead, and a ctx with the cancel taken off.",
   "files": [

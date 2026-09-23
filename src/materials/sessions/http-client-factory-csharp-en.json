@@ -2,7 +2,7 @@
   "id": "http-client-factory-csharp-en",
   "title": "Stop creating an HttpClient per call",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "csharp",
   "summary": "A new HttpClient per call exhausts sockets. Move to a typed client with AddHttpClient, then give the one a singleton captures a PooledConnectionLifetime so it follows DNS changes.",
   "files": [

@@ -1,0 +1,56 @@
+{
+  "id": "cjson-parse-c-en",
+  "title": "Check cJSON types before reading values",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "c",
+  "summary": "Check types with cJSON_IsString, free the tree with cJSON_Delete, and stop holding a valuestring after it is freed.",
+  "files": [
+    {
+      "path": "src/config.c",
+      "content": "#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n#include <cjson/cJSON.h>\n#include \"config.h\"\n\nint load_config(const char *text, struct config *cfg) {\n  cJSON *root = cJSON_Parse(text);\n  cJSON *name = cJSON_GetObjectItemCaseSensitive(root, \"name\");\n  cJSON *port = cJSON_GetObjectItemCaseSensitive(root, \"port\");\n  cfg->name = name->valuestring;\n  cfg->port = port->valueint;\n  return 0;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "put name: 42 in the config and it segfaulted. valgrind also shows a leak",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! cJSON_GetObjectItemCaseSensitive returns NULL when the key is missing, but it never looks at the type. If name is a number, valuestring is NULL, and whatever uses it next crashes. We check with cJSON_IsString and cJSON_IsNumber before reading. Both return false for NULL, so a missing key is caught by the same test. The leak is the result of cJSON_Parse never being passed to cJSON_Delete. A single exit through goto guarantees it is always freed."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "int load_config(const char *text, struct config *cfg) {\n  int rc = -1;\n  cJSON *root = cJSON_Parse(text);\n  if (root == NULL) {\n    fprintf(stderr, \"parse error near: %s\\n\", cJSON_GetErrorPtr());\n    return -1;\n  }\n  cJSON *name = cJSON_GetObjectItemCaseSensitive(root, \"name\");\n  cJSON *port = cJSON_GetObjectItemCaseSensitive(root, \"port\");\n  if (!cJSON_IsString(name) || name->valuestring == NULL) goto done;\n  if (!cJSON_IsNumber(port)) goto done;\n  cfg->name = name->valuestring;\n  cfg->port = port->valueint;\n  rc = 0;\ndone:\n  cJSON_Delete(root);\n  return rc;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "type check works. now ASan says heap-use-after-free right at startup where we print name",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. valuestring belongs to the cJSON node, and cJSON_Delete frees it along with the rest of the tree. The pointer went straight into cfg, so it was pointing at freed memory as soon as the function returned. strdup makes a copy. The caller now owns cfg->name and has to free it."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/cfg->name = name->valuestring;/cfg->name = strdup(name->valuestring);/' src/config.c"
+        }
+      ]
+    },
+    {
+      "user": "oh, port should be optional. 8080 if missing. if its a string thats still an error",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. A missing key comes back from cJSON_GetObjectItemCaseSensitive as NULL, so only NULL falls through to the default. A value of the wrong type is rejected as before. In other words, an omission and a typo stay two different things."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/if (!cJSON_IsNumber(port))/if (port != NULL \\&\\& !cJSON_IsNumber(port))/; s/cfg->port = port->valueint;/cfg->port = port != NULL ? port->valueint : 8080;/' src/config.c"
+        }
+      ]
+    }
+  ]
+}

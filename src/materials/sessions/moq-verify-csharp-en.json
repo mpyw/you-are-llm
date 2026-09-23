@@ -1,0 +1,65 @@
+{
+  "id": "moq-verify-csharp-en",
+  "title": "Add Verify to a Moq test that only calls Setup",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "csharp",
+  "summary": "Setup never checks that a call happened. Verify with Times.Once counts it, It.Is<T> matches a class argument that Equals cannot, and VerifyNoOtherCalls catches the extra mail.",
+  "files": [
+    {
+      "path": "src/Orders/Mail.cs",
+      "content": "namespace Acme.Orders;\n\npublic class Mail(string to, string subject)\n{\n    public string To { get; } = to;\n    public string Subject { get; } = subject;\n}\n\npublic interface IMailer\n{\n    Task SendAsync(Mail mail, CancellationToken ct);\n}\n"
+    },
+    {
+      "path": "tests/Orders.Tests/OrderServiceTests.cs",
+      "content": "using Acme.Orders;\nusing Moq;\nusing Xunit;\n\nnamespace Acme.Orders.Tests;\n\npublic class OrderServiceTests\n{\n    [Fact]\n    public async Task PlaceAsync_SendsConfirmation()\n    {\n        var mailer = new Mock<IMailer>();\n        mailer\n            .Setup(m => m.SendAsync(It.IsAny<Mail>(), It.IsAny<CancellationToken>()))\n            .Returns(Task.CompletedTask);\n        var service = new OrderService(mailer.Object);\n\n        await service.PlaceAsync(new Order(42, \"a@example.com\"), CancellationToken.None);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "i commented out the confirmation mail in OrderService and this test still passes. whats the point of it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch! Setup only says how the mock behaves when it is called. It never checks that the call happened. And new Mock<IMailer>() is MockBehavior.Loose by default, so a call with no setup returns a default value instead of throwing. Right now the test proves only that PlaceAsync does not throw. Verify is what checks a call, and Times says how many."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "        await service.PlaceAsync(new Order(42, \"a@example.com\"), CancellationToken.None);\n\n        mailer.Verify(\n            m => m.SendAsync(\n                new Mail(\"a@example.com\", \"Order 42 confirmed\"),\n                It.IsAny<CancellationToken>()),\n            Times.Once());\n"
+        },
+        {
+          "kind": "text",
+          "body": "With Times.Once(), the test fails when the mail is forgotten and also when it is sent twice."
+        }
+      ]
+    },
+    {
+      "user": "put the mail back and now it fails. Expected invocation on the mock once, but was 0 times. the log says it sent",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. When you pass a plain value to Verify, Moq compares it with the real argument using Equals. Mail is an ordinary class, not a record, so Equals compares references, and the instance the test creates never matches even with the same contents. It.Is<Mail> takes a condition and compares contents instead. Pinning the exact subject makes the test brittle, so it checks only the recipient and the order number."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/new Mail(\"a@example.com\", \"Order 42 confirmed\"),/It.Is<Mail>(x => x.To == \"a@example.com\" \\&\\& x.Subject.Contains(\"42\")),/' tests/Orders.Tests/OrderServiceTests.cs"
+        }
+      ]
+    },
+    {
+      "user": "passes. oh we once had a bug where the admin got the same confirmation too. does this catch that",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: not yet. Verify counts the calls that match the It.Is<Mail> condition, so a second call addressed to the admin still passes. Add VerifyNoOtherCalls at the end and the test fails if any call is left that no Verify accounted for. Note: a call that only matched a Setup does not count as verified."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "        mailer.Verify(\n            m => m.SendAsync(\n                It.Is<Mail>(x => x.To == \"a@example.com\" && x.Subject.Contains(\"42\")),\n                It.IsAny<CancellationToken>()),\n            Times.Once());\n        mailer.VerifyNoOtherCalls();\n"
+        }
+      ]
+    }
+  ]
+}

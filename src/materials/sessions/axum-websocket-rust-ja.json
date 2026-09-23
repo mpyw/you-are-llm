@@ -1,0 +1,64 @@
+{
+  "id": "axum-websocket-rust-ja",
+  "title": "axum の WebSocket で全員にチャットを配る",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "rust",
+  "summary": "エコーだけのハンドラを split と broadcast で全員に配るチャットにし、遅いクライアントが Lagged で黙って切れるのを直す。",
+  "files": [
+    {
+      "path": "src/main.rs",
+      "content": "use axum::extract::State;\nuse axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};\nuse axum::response::Response;\nuse axum::routing::get;\nuse axum::Router;\nuse tokio::sync::broadcast;\n\n#[derive(Clone)]\nstruct AppState {\n    tx: broadcast::Sender<String>,\n}\n\nasync fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {\n    ws.on_upgrade(move |socket| chat(socket, state))\n}\n\nasync fn chat(mut socket: WebSocket, _state: AppState) {\n    while let Some(Ok(message)) = socket.recv().await {\n        if let Message::Text(text) = message {\n            if socket.send(Message::Text(text)).await.is_err() {\n                break;\n            }\n        }\n    }\n}\n\n#[tokio::main]\nasync fn main() {\n    let (tx, _rx) = broadcast::channel(16);\n    let app = Router::new()\n        .route(\"/ws\", get(ws_handler))\n        .with_state(AppState { tx });\n    let listener = tokio::net::TcpListener::bind(\"0.0.0.0:3000\").await.unwrap();\n    axum::serve(listener, app).await.unwrap();\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "/ws いまエコーしかしてない。チャットにしたい。誰かが送ったら接続してる全員に届く感じで。AppState に broadcast はもう置いてある",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、ソケットを送信と受信に分けましょう！ WebSocket を split すると SplitSink と SplitStream になり、それぞれを別のタスクへ move できます。送信側のタスクは subscribe した broadcast を読んで自分のクライアントへ書き、受信側のタスクはクライアントから来たテキストを tx に流します。rx.recv が Err を返すのは Sender がすべて drop されたときだけなので、while let Ok で回せば十分です。どちらかが終わったら tokio::select! でもう片方を abort します。言い換えると、切断後にタスクが取り残されません。",
+          "reading": "Now、そけっとをそうしんとじゅしんにわけましょう！ WebSocket を split すると SplitSink と SplitStream になり、それぞれをべつのたすくへ move できます。そうしんがわのたすくは subscribe した broadcast をよんでじぶんのくらいあんとへかき、じゅしんがわのたすくはくらいあんとからきたてきすとを tx にながします。rx.recv が Err をかえすのは Sender がすべて drop されたときだけなので、while let Ok でまわせばじゅうぶんです。どちらかがおわったら tokio::select! でもうかたほうを abort します。いいかえると、せつだんごにたすくがとりのこされません。"
+        },
+        {
+          "kind": "command",
+          "body": "cargo add futures-util"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use futures_util::{SinkExt, StreamExt};\n\nasync fn chat(socket: WebSocket, state: AppState) {\n    let (mut sender, mut receiver) = socket.split();\n    let mut rx = state.tx.subscribe();\n\n    let mut send_task = tokio::spawn(async move {\n        while let Ok(text) = rx.recv().await {\n            if sender.send(Message::text(text)).await.is_err() {\n                break;\n            }\n        }\n    });\n\n    let tx = state.tx.clone();\n    let mut recv_task = tokio::spawn(async move {\n        while let Some(Ok(message)) = receiver.next().await {\n            if let Message::Text(text) = message {\n                let _ = tx.send(text.to_string());\n            }\n        }\n    });\n\n    tokio::select! {\n        _ = &mut send_task => recv_task.abort(),\n        _ = &mut recv_task => send_task.abort(),\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "動いた。けど人多い部屋だと何人か勝手に切れる。サーバのログにはなにも出てない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "重要な訂正があります。先ほどの「Err は Sender が消えたときだけ」は誤りでした。broadcast は全員で一つのリングバッファを共有するので、容量より遅れた受信者には RecvError::Lagged を返し、古いメッセージは飛ばします。while let Ok はこれも終わりと見なすので、送信タスクが抜け、select! が受信タスクまで abort して接続が閉じていました。Lagged は何件落ちたかを本人に伝えて続け、Closed のときだけ抜けます。",
+          "reading": "じゅうようなていせいがあります。さきほどの「Err は Sender がきえたときだけ」はあやまりでした。broadcast はぜんいんでひとつのりんぐばっふぁをきょうゆうするので、ようりょうよりおくれたじゅしんしゃには RecvError::Lagged をかえし、ふるいめっせーじはとばします。while let Ok はこれもおわりとみなすので、そうしんたすくがぬけ、select! がじゅしんたすくまで abort してせつぞくがとじていました。Lagged はなんけんおちたかをほんにんにつたえてつづけ、Closed のときだけぬけます。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use tokio::sync::broadcast::error::RecvError;\n\nlet mut send_task = tokio::spawn(async move {\n    loop {\n        let text = match rx.recv().await {\n            Ok(text) => text,\n            Err(RecvError::Lagged(skipped)) => format!(\"({skipped} messages skipped)\"),\n            Err(RecvError::Closed) => break,\n        };\n        if sender.send(Message::text(text)).await.is_err() {\n            break;\n        }\n    }\n});\n"
+        }
+      ]
+    },
+    {
+      "user": "直った。16 は小さすぎって言われたから 256 で。あとスキップの通知、普通の発言と見分けつかないから頭に system: 付けて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。容量はチャネルを作る一行だけで決まり、遅い受信者がどこまで遅れてよいかの上限になります。通知の文言と一緒に、sed で二箇所だけ書き換えます。以上で変更は終わりです。",
+          "reading": "かしこまりました。ようりょうはちゃねるをつくるいちぎょうだけできまり、おそいじゅしんしゃがどこまでおくれてよいかのじょうげんになります。つうちのもんごんといっしょに、sed でにかしょだけかきかえます。いじょうでへんこうはおわりです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/broadcast::channel(16)/broadcast::channel(256)/' -e 's/format!(\"({skipped} messages skipped)\")/format!(\"system: {skipped} messages skipped\")/' src/main.rs"
+        }
+      ]
+    }
+  ]
+}

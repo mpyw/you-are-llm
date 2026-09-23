@@ -1,0 +1,82 @@
+{
+  "id": "qt-concurrent-cpp-en",
+  "title": "The window stops responding during a scan",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "cpp",
+  "summary": "Send the heavy work to the thread pool with QtConcurrent::run and collect the result on the GUI thread through a QFutureWatcher. Keep the watcher off the stack, and keep the worker away from widgets.",
+  "files": [
+    {
+      "path": "src/ui/mainwindow.h",
+      "content": "#pragma once\n\n#include <QLabel>\n#include <QLineEdit>\n#include <QMainWindow>\n#include <QPushButton>\n\nclass MainWindow : public QMainWindow\n{\n    Q_OBJECT\npublic:\n    explicit MainWindow(QWidget *parent = nullptr);\n\nprivate:\n    void onScanClicked();\n\n    QLineEdit *m_pathEdit;\n    QPushButton *m_scanButton;\n    QLabel *m_statusLabel;\n};\n"
+    },
+    {
+      "path": "src/ui/mainwindow.cpp",
+      "content": "#include \"mainwindow.h\"\n\n#include \"scan/scanner.h\"\n\nvoid MainWindow::onScanClicked()\n{\n    const QString dir = m_pathEdit->text();\n    m_statusLabel->setText(tr(\"Scanning...\"));\n    const ScanResult result = scanDirectory(dir);\n    m_statusLabel->setText(tr(\"%1 files, %2 duplicates\").arg(result.files).arg(result.duplicates));\n}\n"
+    },
+    {
+      "path": "src/scan/scanner.h",
+      "content": "#pragma once\n\n#include <QString>\n\nstruct ScanResult {\n    int files = 0;\n    int duplicates = 0;\n};\n\nScanResult scanDirectory(const QString &dir);\n"
+    },
+    {
+      "path": "src/scan/scanner.cpp",
+      "content": "#include \"scanner.h\"\n\n#include <QCryptographicHash>\n#include <QDirIterator>\n#include <QFile>\n#include <QSet>\n\nScanResult scanDirectory(const QString &dir)\n{\n    QSet<QByteArray> seen;\n    ScanResult result;\n    QDirIterator it(dir, QDir::Files, QDirIterator::Subdirectories);\n    while (it.hasNext()) {\n        QFile file(it.next());\n        if (!file.open(QIODevice::ReadOnly))\n            continue;\n        QCryptographicHash hash(QCryptographicHash::Sha256);\n        hash.addData(&file);\n        const QByteArray digest = hash.result();\n        ++result.files;\n        if (seen.contains(digest))\n            ++result.duplicates;\n        else\n            seen.insert(digest);\n    }\n    return result;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "the duplicate file finder goes \"not responding\" for like 30s when i hit scan. doesnt even show Scanning...",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's walk through it. onScanClicked runs on the GUI thread and does not return until scanDirectory is done. The event loop is stuck for that whole time, so neither the repaint that setText asked for nor any click gets handled. That is also why Scanning... never shows: painting happens after the function returns, and by then the text has already been replaced with the result. The standard fix is to hand the work to the thread pool with QtConcurrent::run and receive QFutureWatcher::finished back on the GUI thread. dir is captured by value, and setFuture comes after the connect."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include \"mainwindow.h\"\n\n#include <QFutureWatcher>\n#include <QtConcurrent/QtConcurrentRun>\n\n#include \"scan/scanner.h\"\n\nvoid MainWindow::onScanClicked()\n{\n    const QString dir = m_pathEdit->text();\n    m_scanButton->setEnabled(false);\n    m_statusLabel->setText(tr(\"Scanning...\"));\n\n    QFutureWatcher<ScanResult> watcher;\n    connect(&watcher, &QFutureWatcherBase::finished, this, [this, &watcher] {\n        const ScanResult result = watcher.result();\n        m_statusLabel->setText(tr(\"%1 files, %2 duplicates\").arg(result.files).arg(result.duplicates));\n        m_scanButton->setEnabled(true);\n    });\n    watcher.setFuture(QtConcurrent::run([dir] { return scanDirectory(dir); }));\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "no more freezing. but it sits on Scanning... forever. and the button stays disabled",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous code put the watcher on the stack as a local variable. It is destroyed the moment onScanClicked returns, and its destructor does not wait for the future. The scan still runs to the end in the pool, but nobody is left to receive it, so finished goes nowhere. Worse, the &watcher the lambda captured would have pointed at a dead object had it ever been called. The watcher goes on the heap with this as its parent, and deletes itself with deleteLater at the end of finished."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^    QFutureWatcher<ScanResult> watcher;$/    auto *watcher = new QFutureWatcher<ScanResult>(this);/; s/&watcher/watcher/g; s/watcher\\./watcher->/g; s/^        m_scanButton->setEnabled(true);$/&\\\n        watcher->deleteLater();/' src/ui/mainwindow.cpp"
+        }
+      ]
+    },
+    {
+      "user": "results show up now. added a progress bar and a cancel button (m_progressBar, m_cancelButton). for progress i just call m_progressBar->setValue inside scanDirectory right?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: please do not touch widgets from the worker. QWidget and everything derived from it may only be used on the GUI thread, and calling setValue from another thread gives you the kind of crash that shows up once a week. Use a Qt 6 QPromise instead. Make the first parameter QPromise<ScanResult> & and QtConcurrent::run passes one in, so progress is reported there and isCanceled() tells you when to stop. Add #include <QPromise> to scanner.h and change the declaration to match."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "void scanDirectory(QPromise<ScanResult> &promise, const QString &dir)\n{\n    QStringList paths;\n    QDirIterator it(dir, QDir::Files, QDirIterator::Subdirectories);\n    while (it.hasNext())\n        paths << it.next();\n    promise.setProgressRange(0, int(paths.size()));\n\n    QSet<QByteArray> seen;\n    ScanResult result;\n    for (qsizetype i = 0; i < paths.size(); ++i) {\n        if (promise.isCanceled())\n            return;\n        promise.setProgressValue(int(i + 1));\n\n        QFile file(paths[i]);\n        if (!file.open(QIODevice::ReadOnly))\n            continue;\n        QCryptographicHash hash(QCryptographicHash::Sha256);\n        hash.addData(&file);\n        const QByteArray digest = hash.result();\n        ++result.files;\n        if (seen.contains(digest))\n            ++result.duplicates;\n        else\n            seen.insert(digest);\n    }\n    promise.addResult(result);\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "Here's the caller. The watcher lives on the GUI thread, so progressValueChanged arrives on the GUI thread too and can go straight into QProgressBar::setValue. The cancel button connects to cancel with the watcher as the receiver, so the connection dies along with the watcher. A canceled future has no result, so check isCanceled() before reading result()."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "void MainWindow::onScanClicked()\n{\n    const QString dir = m_pathEdit->text();\n    m_scanButton->setEnabled(false);\n    m_cancelButton->setEnabled(true);\n    m_statusLabel->setText(tr(\"Scanning...\"));\n\n    auto *watcher = new QFutureWatcher<ScanResult>(this);\n    connect(watcher, &QFutureWatcherBase::progressRangeChanged, m_progressBar, &QProgressBar::setRange);\n    connect(watcher, &QFutureWatcherBase::progressValueChanged, m_progressBar, &QProgressBar::setValue);\n    connect(m_cancelButton, &QPushButton::clicked, watcher, &QFutureWatcherBase::cancel);\n    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher] {\n        if (watcher->isCanceled()) {\n            m_statusLabel->setText(tr(\"Canceled\"));\n        } else {\n            const ScanResult result = watcher->result();\n            m_statusLabel->setText(tr(\"%1 files, %2 duplicates\").arg(result.files).arg(result.duplicates));\n        }\n        m_scanButton->setEnabled(true);\n        m_cancelButton->setEnabled(false);\n        watcher->deleteLater();\n    });\n    watcher->setFuture(QtConcurrent::run(scanDirectory, dir));\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "TL;DR: Qt throttles the notifications behind setProgressValue, so calling it once per file will not flood the event loop."
+        }
+      ]
+    }
+  ]
+}

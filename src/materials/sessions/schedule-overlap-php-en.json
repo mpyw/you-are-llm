@@ -1,0 +1,74 @@
+{
+  "id": "schedule-overlap-php-en",
+  "title": "Stop a scheduled report from overlapping and running twice",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "php",
+  "summary": "withoutOverlapping keeps runs apart, onOneServer stops two servers doubling up once the cache driver is shared, and runInBackground stops the next task from waiting.",
+  "files": [
+    {
+      "path": "routes/console.php",
+      "content": "<?php\n\nuse Illuminate\\Support\\Facades\\Schedule;\n\nSchedule::command('reports:aggregate-sales')->everyFiveMinutes();\n\nSchedule::command('orders:sync-shipping')->everyFiveMinutes();\n"
+    },
+    {
+      "path": ".env",
+      "content": "APP_ENV=production\nAPP_DEBUG=false\n\nCACHE_STORE=file\nQUEUE_CONNECTION=redis\n\nREDIS_HOST=10.0.1.20\nREDIS_PORT=6379\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "reports:aggregate-sales runs every 5 min but at month end it takes 7 or 8, so the next one starts before the last one finishes and sales get counted twice. make them not overlap",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! withoutOverlapping() puts a lock in the cache while the command runs, and the next run is skipped while the lock is there. Note: the lock expires after 1440 minutes by default, which is a whole day. If the process dies, say from OOM, the lock stays and every run is skipped until it expires, so let's pass 30."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "Schedule::command('reports:aggregate-sales')\n    ->everyFiveMinutes()\n    ->withoutOverlapping(30);\n"
+        }
+      ]
+    },
+    {
+      "user": "prod is two servers and both run schedule:run from cron. is that fine?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: not yet. withoutOverlapping only stops a run while another one is going. It does not stop both servers from starting in the same minute. Add onOneServer() and only the server that claims that run first executes it, which guarantees one run across both machines."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "Schedule::command('reports:aggregate-sales')\n    ->everyFiveMinutes()\n    ->withoutOverlapping(30)\n    ->onOneServer();\n"
+        }
+      ]
+    },
+    {
+      "user": "deployed it and both still run it. logs have both hostnames",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, I missed the .env. CACHE_STORE=file keeps the lock on each server's own disk, so neither server can see the other's lock. onOneServer needs the default cache to be database, memcached, dynamodb or redis, with every server talking to the same cache server. The Redis the queue uses is already shared, so let's switch to it. If prod runs config:cache, the .env change does nothing until the cache is rebuilt, so that goes in the same command."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^CACHE_STORE=file$/CACHE_STORE=redis/' .env && php artisan config:cache"
+        }
+      ]
+    },
+    {
+      "user": "no more doubles. but now orders:sync-shipping runs about 7 min late at month end, every time. that one takes a few seconds",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great observation! schedule:run starts the tasks due that minute one at a time, in the order they are defined, and waits for each to finish. A 7 minute aggregate holds sync-shipping back by 7 minutes. With runInBackground() the aggregate runs as its own process and schedule:run moves on at once. The lock is released when the aggregate finishes, so withoutOverlapping still holds. Caveat: runInBackground only works on tasks scheduled with command or exec. On a closure passed to call it throws a RuntimeException."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/->withoutOverlapping(30)/a\\\n    ->runInBackground()\n' routes/console.php"
+        }
+      ]
+    }
+  ]
+}

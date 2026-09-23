@@ -2,7 +2,7 @@
   "id": "string-builder-java-ja",
   "title": "ループの文字列連結を StringBuilder にする",
   "language": "ja",
-  "difficulty": "normal",
+  "difficulty": "easy",
   "codeLanguage": "java",
   "summary": "CSV を一行ずつ + で足していたのをやめる。",
   "files": [

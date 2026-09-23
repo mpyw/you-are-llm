@@ -1,0 +1,57 @@
+{
+  "id": "graceful-shutdown-go-en",
+  "title": "Replace Gin r.Run with a graceful shutdown",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "go",
+  "summary": "The server started with r.Run, so every deploy cut off requests in flight. Own the http.Server, wait on signal.NotifyContext and call Shutdown. Calling log.Fatal on ErrServerClosed killed it early.",
+  "files": [
+    {
+      "path": "cmd/server/main.go",
+      "content": "package main\n\nimport (\n  \"log\"\n\n  \"github.com/gin-gonic/gin\"\n)\n\nfunc main() {\n  r := gin.Default()\n  registerRoutes(r)\n  if err := r.Run(\":8080\"); err != nil {\n    log.Fatal(err)\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "every deploy turns in flight requests into 502s. when k8s sends SIGTERM finish whats running first, then exit. right now its just r.Run",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! r.Run just calls http.ListenAndServe and gives you nothing to stop it with. When SIGTERM arrives the process simply ends, and every open connection goes with it. If you own the http.Server, srv.Shutdown stops accepting new connections and waits for the requests in flight to finish. signal.NotifyContext turns the signals into a ctx, and Shutdown runs once that ctx is done. Note: Shutdown gets a fresh ctx from context.Background with a 10 second timeout, not the one that is already done."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func main() {\n  r := gin.Default()\n  registerRoutes(r)\n  srv := &http.Server{Addr: \":8080\", Handler: r}\n\n  ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)\n  defer stop()\n\n  go func() {\n    if err := srv.ListenAndServe(); err != nil {\n      log.Fatal(err)\n    }\n  }()\n\n  <-ctx.Done()\n  shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)\n  defer cancel()\n  if err := srv.Shutdown(shutdownCtx); err != nil {\n    log.Printf(\"shutdown: %v\", err)\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "hit Ctrl-C locally while a slow endpoint was running. it printed \"http: Server closed\" and died instantly. didnt wait at all",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. As soon as Shutdown is called, ListenAndServe returns http.ErrServerClosed. That is the normal result of stopping the server, yet the goroutine passed it to log.Fatal. log.Fatal calls os.Exit, so the process ended before Shutdown had finished waiting. ErrServerClosed is now filtered out with errors.Is. The key point is that main should return when Shutdown returns, not when ListenAndServe does."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "  go func() {\n    if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {\n      log.Fatal(err)\n    }\n  }()\n"
+        }
+      ]
+    },
+    {
+      "user": "ok it waits now. but the report endpoint takes ~20s and gets cut at 10. grace period is 30",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. The timeout goes to 25 seconds, a little under 30. Past the grace period Kubernetes sends SIGKILL, and that ends the process even halfway through Shutdown."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/10\\*time\\.Second/25*time.Second/' cmd/server/main.go"
+        }
+      ]
+    }
+  ]
+}

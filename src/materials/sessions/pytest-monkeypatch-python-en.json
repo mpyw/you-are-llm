@@ -1,0 +1,57 @@
+{
+  "id": "pytest-monkeypatch-python-en",
+  "title": "Fix a mock.patch(\"requests.get\") that does nothing, then compare monkeypatch",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "python",
+  "summary": "Patching requests.get in a module that did from requests import get still hits the network, so patch the name where it is used, then move to monkeypatch.",
+  "files": [
+    {
+      "path": "app/weather.py",
+      "content": "from requests import get\n\nAPI_URL = \"https://api.example.com/weather\"\n\n\ndef current_temp(city):\n    response = get(API_URL, params={\"q\": city}, timeout=5)\n    response.raise_for_status()\n    return response.json()[\"temp\"]\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "write a test for current_temp in app/weather.py. CI cant reach the internet so mock requests",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! unittest.mock.patch swaps out requests.get, and its return value is set up so json() hands back a fixed dict. The call arguments are checked with assert_called_once_with as well, so a missing URL or timeout gets caught."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from unittest import mock\n\nfrom app.weather import current_temp\n\n\n@mock.patch(\"requests.get\")\ndef test_current_temp(mock_get):\n    mock_get.return_value.json.return_value = {\"temp\": 21.5}\n    assert current_temp(\"Tokyo\") == 21.5\n    mock_get.assert_called_once_with(\n        \"https://api.example.com/weather\", params={\"q\": \"Tokyo\"}, timeout=5\n    )\n"
+        }
+      ]
+    },
+    {
+      "user": "it fails with ConnectionError. is the mock even working??",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous patch target was wrong. app/weather.py says from requests import get, so the import creates a name get inside app.weather that keeps pointing at the real function. mock.patch(\"requests.get\") only replaces the attribute on the requests module and never reaches app.weather.get. The key point: patch where the name is used, not where it is defined."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/mock.patch(\"requests.get\")/mock.patch(\"app.weather.get\")/' tests/test_weather.py"
+        }
+      ]
+    },
+    {
+      "user": "passes now. but pytest has monkeypatch right, isnt that better? also want a test for the error case",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the pytest version. Passing the weather module itself and the name to monkeypatch.setattr makes it explicit in the code which namespace is being changed. The rule is the same as before, so passing requests here would miss in exactly the same way. Unlike MagicMock nothing records the calls, so the fake get appends to calls itself. In return, reading an attribute that does not exist fails loudly instead of quietly passing. monkeypatch undoes every change when each test ends, so nothing leaks between tests."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "import pytest\nimport requests\n\nfrom app import weather\n\n\nclass FakeResponse:\n    def __init__(self, payload, status=200):\n        self.payload = payload\n        self.status = status\n\n    def raise_for_status(self):\n        if self.status >= 400:\n            raise requests.HTTPError(f\"{self.status} error\")\n\n    def json(self):\n        return self.payload\n\n\ndef test_current_temp(monkeypatch):\n    calls = []\n\n    def fake_get(url, **kwargs):\n        calls.append((url, kwargs))\n        return FakeResponse({\"temp\": 21.5})\n\n    monkeypatch.setattr(weather, \"get\", fake_get)\n    assert weather.current_temp(\"Tokyo\") == 21.5\n    assert calls == [(weather.API_URL, {\"params\": {\"q\": \"Tokyo\"}, \"timeout\": 5})]\n\n\ndef test_current_temp_raises_on_error(monkeypatch):\n    monkeypatch.setattr(weather, \"get\", lambda url, **kwargs: FakeResponse({}, 503))\n    with pytest.raises(requests.HTTPError):\n        weather.current_temp(\"Tokyo\")\n"
+        }
+      ]
+    }
+  ]
+}

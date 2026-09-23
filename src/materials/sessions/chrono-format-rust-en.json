@@ -1,0 +1,44 @@
+{
+  "id": "chrono-format-rust-en",
+  "title": "Print invoice due dates with chrono",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "rust",
+  "summary": "Slicing strings gives a due date of 09/53/2026. Fix it with NaiveDate and format, then read offset timestamps as DateTime<Utc>.",
+  "files": [
+    {
+      "path": "src/invoice.rs",
+      "content": "pub struct Invoice {\n    pub id: u32,\n    pub issued_on: String,\n}\n\npub fn due_label(invoice: &Invoice) -> String {\n    let year = &invoice.issued_on[0..4];\n    let month = &invoice.issued_on[5..7];\n    let day: u32 = invoice.issued_on[8..10].parse().unwrap();\n    format!(\"{}/{}/{}\", month, day + 30, year)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "invoice due dates show stuff like 09/53/2026 lol. chrono is already in Cargo.toml, use it. format should look like Oct 23, 2026",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! The code slices the day out of the string and adds 30, so any month boundary gives you a 53rd. NaiveDate::parse_from_str reads it as a real date, Days::new(30) moves it forward, and format writes it back out. %-d is the day without zero padding. An impossible date like February 30 now comes back as a ParseError instead of a panic, so the caller can deal with it. For a date with no time of day, NaiveDate is the best practice."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use chrono::{Days, NaiveDate, ParseError};\n\npub struct Invoice {\n    pub id: u32,\n    pub issued_on: String,\n}\n\npub fn due_label(invoice: &Invoice) -> Result<String, ParseError> {\n    let issued = NaiveDate::parse_from_str(&invoice.issued_on, \"%Y-%m-%d\")?;\n    let due = issued + Days::new(30);\n    Ok(due.format(\"%b %-d, %Y\").to_string())\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "oh wait the API changed, field is issued_at now and it sends 2026-09-23T15:30:00+09:00 style. due date should be UTC",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now that the value carries a time and an offset, NaiveDate cannot read it. parse_from_str rejects the leftover T15:30:00+09:00 as trailing input. DateTime::parse_from_rfc3339 reads it, with_timezone(&Utc) turns it into a DateTime<Utc>, and date_naive takes the date part. Note: an invoice issued before 9 in the morning Japan time falls on the previous day in UTC, so its due date moves one day earlier too."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use chrono::{DateTime, Days, ParseError, Utc};\n\npub struct Invoice {\n    pub id: u32,\n    pub issued_at: String,\n}\n\npub fn due_label(invoice: &Invoice) -> Result<String, ParseError> {\n    let issued: DateTime<Utc> =\n        DateTime::parse_from_rfc3339(&invoice.issued_at)?.with_timezone(&Utc);\n    let due = issued.date_naive() + Days::new(30);\n    Ok(due.format(\"%b %-d, %Y\").to_string())\n}\n"
+        }
+      ]
+    }
+  ]
+}

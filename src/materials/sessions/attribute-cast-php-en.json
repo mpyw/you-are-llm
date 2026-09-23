@@ -1,0 +1,61 @@
+{
+  "id": "attribute-cast-php-en",
+  "title": "Move hand written json_decode and string statuses into casts()",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "php",
+  "summary": "status becomes an enum cast, options an array cast and the taxed total an Attribute::make accessor, then AsArrayObject once an index write turns out to do nothing.",
+  "files": [
+    {
+      "path": "app/Models/Order.php",
+      "content": "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass Order extends Model\n{\n    protected $fillable = ['status', 'options', 'total'];\n\n    public function getTotalWithTaxAttribute(): int\n    {\n        return (int) floor($this->total * 1.1);\n    }\n}\n"
+    },
+    {
+      "path": "app/Http/Controllers/OrderController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse App\\Models\\Order;\n\nclass OrderController extends Controller\n{\n    public function ship(Order $order)\n    {\n        if ($order->status !== 'paid') {\n            abort(409);\n        }\n\n        $order->status = 'shipped';\n        $order->save();\n\n        return back();\n    }\n\n    public function wrap(Order $order)\n    {\n        $options = json_decode($order->options, true);\n        $options['gift_wrap'] = true;\n        $order->options = json_encode($options);\n        $order->save();\n\n        return back();\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "status is compared as a raw string and a 'shiped' typo made it to prod. options gets json_decode and json_encode by hand every time. do it properly with casts. getTotalWithTaxAttribute is the old style apparently, fix that while youre there",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! status becomes a backed enum, OrderStatus, registered in casts(). Reading a value the enum does not know throws a ValueError, so a typo fails on the spot instead of slipping through. options gets the array cast: an array when read, JSON when saved. The taxed total becomes an Attribute::make accessor, and callers still write $order->total_with_tax."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "<?php\n\nnamespace App\\Enums;\n\nenum OrderStatus: string\n{\n    case Pending = 'pending';\n    case Paid = 'paid';\n    case Shipped = 'shipped';\n    case Cancelled = 'cancelled';\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "<?php\n\nnamespace App\\Models;\n\nuse App\\Enums\\OrderStatus;\nuse Illuminate\\Database\\Eloquent\\Casts\\Attribute;\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass Order extends Model\n{\n    protected $fillable = ['status', 'options', 'total'];\n\n    protected function casts(): array\n    {\n        return [\n            'status' => OrderStatus::class,\n            'options' => 'array',\n        ];\n    }\n\n    protected function totalWithTax(): Attribute\n    {\n        return Attribute::make(\n            get: fn (mixed $value, array $attributes) => (int) floor($attributes['total'] * 1.1),\n        );\n    }\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "The controller loses its json_decode and json_encode, and options can now be written to directly as an array. In other words, the model is the single source of truth for types."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use App\\Enums\\OrderStatus;\n\npublic function ship(Order $order)\n{\n    if ($order->status !== OrderStatus::Paid) {\n        abort(409);\n    }\n\n    $order->status = OrderStatus::Shipped;\n    $order->save();\n\n    return back();\n}\n\npublic function wrap(Order $order)\n{\n    $order->options['gift_wrap'] = true;\n    $order->save();\n\n    return back();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "wrap gives a 500 now. Indirect modification of overloaded property App\\Models\\Order::$options has no effect",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. $order->options is a copy of the array that __get handed back, so writing an index on it never reaches the attribute. With the AsArrayObject cast you get an ArrayObject instead, and whatever you change in it is turned back into JSON on save. Note: a null column still reads as null, so keep options NOT NULL."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e \"s/'options' => 'array'/'options' => AsArrayObject::class/\" -e '/^use App\\\\Enums\\\\OrderStatus;$/a\\\nuse Illuminate\\\\Database\\\\Eloquent\\\\Casts\\\\AsArrayObject;' app/Models/Order.php"
+        }
+      ]
+    }
+  ]
+}

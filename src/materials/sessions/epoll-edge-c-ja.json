@@ -1,0 +1,50 @@
+{
+  "id": "epoll-edge-c-ja",
+  "title": "epoll をエッジトリガにしたら止まる接続を直す",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "c",
+  "summary": "EPOLLET にしたら固まる Linux のエコーサーバーを、ノンブロッキングにして EAGAIN まで読み切る形に直す。",
+  "files": [
+    {
+      "path": "src/net/echo.c",
+      "content": "#define _GNU_SOURCE\n#include <stdio.h>\n#include <unistd.h>\n#include <sys/epoll.h>\n#include <sys/socket.h>\n\n#define MAX_EVENTS 64\n\nvoid serve(int listen_fd) {\n  int ep = epoll_create1(0);\n  struct epoll_event ev = { .events = EPOLLIN | EPOLLET, .data.fd = listen_fd };\n  epoll_ctl(ep, EPOLL_CTL_ADD, listen_fd, &ev);\n  struct epoll_event events[MAX_EVENTS];\n  for (;;) {\n    int n = epoll_wait(ep, events, MAX_EVENTS, -1);\n    for (int i = 0; i < n; i++) {\n      int fd = events[i].data.fd;\n      if (fd == listen_fd) {\n        int client = accept(listen_fd, NULL, NULL);\n        struct epoll_event cev = { .events = EPOLLIN | EPOLLET, .data.fd = client };\n        epoll_ctl(ep, EPOLL_CTL_ADD, client, &cev);\n      } else {\n        char buf[4096];\n        ssize_t r = read(fd, buf, sizeof buf);\n        if (r <= 0) {\n          close(fd);\n          continue;\n        }\n        write(fd, buf, r);\n      }\n    }\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "epoll を EPOLLET にしたら大きめのデータ送ったとき途中で止まる。レベルトリガだと動いてた。Linux の話ね",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "重要な点を突いています。エッジトリガは、読めるデータが増えた瞬間に一度だけ通知します。4096 バイトだけ読んで戻ると、残りはカーネルのバッファに残ったままですが、新しいデータが来ない限り二度と通知されません。これが止まる原因です。エッジトリガでは、ソケットをノンブロッキングにして、read が EAGAIN を返すまで読み切るのが前提です。accept も同じで、同時に来た接続を一度に全部受けます。",
+          "reading": "じゅうようなてんをついています。えっじとりがは、よめるでーたがふえたしゅんかんにいちどだけつうちします。4096 ばいとだけよんでもどると、のこりはかーねるのばっふぁにのこったままですが、あたらしいでーたがこないかぎりにどとつうちされません。これがとまるげんいんです。えっじとりがでは、そけっとをのんぶろっきんぐにして、read が EAGAIN をかえすまでよみきるのがぜんていです。accept もおなじで、どうじにきたせつぞくをいちどにぜんぶうけます。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#define _GNU_SOURCE\n#include <errno.h>\n#include <fcntl.h>\n#include <stdio.h>\n#include <unistd.h>\n#include <sys/epoll.h>\n#include <sys/socket.h>\n\n#define MAX_EVENTS 64\n\nstatic int set_nonblocking(int fd) {\n  int flags = fcntl(fd, F_GETFL, 0);\n  if (flags < 0) return -1;\n  return fcntl(fd, F_SETFL, flags | O_NONBLOCK);\n}\n\nstatic void drain(int fd) {\n  char buf[4096];\n  for (;;) {\n    ssize_t r = read(fd, buf, sizeof buf);\n    if (r > 0) {\n      write(fd, buf, r);\n      continue;\n    }\n    if (r < 0 && errno == EINTR) continue;\n    if (r < 0 && errno == EAGAIN) return;\n    close(fd);\n    return;\n  }\n}\n\nvoid serve(int listen_fd) {\n  set_nonblocking(listen_fd);\n  int ep = epoll_create1(0);\n  struct epoll_event ev = { .events = EPOLLIN | EPOLLET, .data.fd = listen_fd };\n  epoll_ctl(ep, EPOLL_CTL_ADD, listen_fd, &ev);\n  struct epoll_event events[MAX_EVENTS];\n  for (;;) {\n    int n = epoll_wait(ep, events, MAX_EVENTS, -1);\n    for (int i = 0; i < n; i++) {\n      int fd = events[i].data.fd;\n      if (fd != listen_fd) {\n        drain(fd);\n        continue;\n      }\n      for (;;) {\n        int client = accept(listen_fd, NULL, NULL);\n        if (client < 0) break;\n        struct epoll_event cev = { .events = EPOLLIN | EPOLLET, .data.fd = client };\n        epoll_ctl(ep, EPOLL_CTL_ADD, client, &cev);\n      }\n    }\n  }\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "listen_fd をノンブロッキングにしておけば、accept が返すソケットにもそのフラグが引き継がれるので、クライアント側はこれで網羅的にカバーできます。書き込みが詰まったときの EPOLLOUT の扱いは別の話なので、今回は入れていません。",
+          "reading": "listen_fd をのんぶろっきんぐにしておけば、accept がかえすそけっとにもそのふらぐがひきつがれるので、くらいあんとがわはこれでもうらてきにかばーできます。かきこみがつまったときの EPOLLOUT のあつかいはべつのはなしなので、こんかいはいれていません。"
+        }
+      ]
+    },
+    {
+      "user": "1 本目はいいけど 2 本目の接続から全体が固まる。strace だと read で止まってる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、先ほどの説明は正確ではありませんでした。O_NONBLOCK が accept 先に引き継がれるのは BSD 系の挙動で、Linux の accept は引き継ぎません。この差は非自明です。クライアントはブロッキングのままなので、読み切ったあとの read が EAGAIN を返さずに待ち続け、ループ全体が止まっていました。Linux 専用の accept4 に SOCK_NONBLOCK を渡し、受けた時点でノンブロッキングにします。_GNU_SOURCE は先頭で定義済みです。以上で、全部の接続がノンブロッキングになります。",
+          "reading": "あらためてかくにんしたところ、さきほどのせつめいはせいかくではありませんでした。O_NONBLOCK が accept さきにひきつがれるのは BSD けいのきょどうで、Linux の accept はひきつぎません。このさはひじめいです。くらいあんとはぶろっきんぐのままなので、よみきったあとの read が EAGAIN をかえさずにまちつづけ、るーぷぜんたいがとまっていました。Linux せんようの accept4 に SOCK_NONBLOCK をわたし、うけたじてんでのんぶろっきんぐにします。_GNU_SOURCE はせんとうでていぎずみです。いじょうで、ぜんぶのせつぞくがのんぶろっきんぐになります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/accept(listen_fd, NULL, NULL)/accept4(listen_fd, NULL, NULL, SOCK_NONBLOCK)/' src/net/echo.c"
+        }
+      ]
+    }
+  ]
+}

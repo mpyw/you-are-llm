@@ -1,0 +1,65 @@
+{
+  "id": "webflux-block-java-ja",
+  "title": "WebFlux のハンドラで block() してイベントループを止める",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "java",
+  "summary": "block() を外して zip でつなぎ、JDBC を boundedElastic に逃がしたつもりが Mono.just のせいでまだイベントループで走っている。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/product/ProductController.java",
+      "content": "package com.example.product;\n\nimport org.springframework.web.bind.annotation.GetMapping;\nimport org.springframework.web.bind.annotation.PathVariable;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.web.reactive.function.client.WebClient;\nimport reactor.core.publisher.Flux;\nimport reactor.core.publisher.Mono;\n\n@RestController\npublic class ProductController {\n    private final ProductRepository productRepository;\n    private final WebClient inventoryClient;\n\n    public ProductController(ProductRepository productRepository, WebClient inventoryClient) {\n        this.productRepository = productRepository;\n        this.inventoryClient = inventoryClient;\n    }\n\n    @GetMapping(\"/products/{id}\")\n    public Mono<ProductView> get(@PathVariable long id) {\n        Product product = productRepository.findById(id).orElseThrow(() -> new ProductNotFoundException(id));\n        Integer stock = inventoryClient.get()\n                .uri(\"/stock/{id}\", id)\n                .retrieve()\n                .bodyToMono(Integer.class)\n                .block();\n        return Mono.just(new ProductView(product.getId(), product.getName(), stock));\n    }\n\n    @GetMapping(\"/products\")\n    public Flux<ProductSummary> list() {\n        return Flux.fromIterable(productRepository.findAll())\n                .map(p -> new ProductSummary(p.getId(), p.getName()));\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "WebFlux の商品詳細 API 叩くと 500。ログに block()/blockFirst()/blockLast() are blocking, which is not supported in thread reactor-http-nio-3 って出てる。在庫サービス呼んでるとこで block してるやつ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。WebFlux のハンドラは Reactor Netty のイベントループのスレッドで呼ばれます。このスレッドは CPU のコア数ぶん（最低 4 本）しかなく、1 本で大量の接続を受け持っています。ここで 1 つのリクエストが待つと、同じスレッドに載っているほかの接続もすべて止まります。しかも在庫サービスの応答を読むのも同じイベントループなので、待っている本人が応答を受け取れずに固まることもあります。そのため Reactor はこのスレッドに NonBlocking という印を付け、block() を IllegalStateException で拒否します。",
+          "reading": "しょうちしました。WebFlux のハンドラは Reactor Netty のイベントループのスレッドでよばれます。このスレッドは CPU のコアすうぶん（さいてい 4 ほん）しかなく、1 ぽんでたいりょうのせつぞくをうけもっています。ここで 1 つのリクエストがまつと、おなじスレッドにのっているほかのせつぞくもすべてとまります。しかもざいこサービスのおうとうをよむのもおなじイベントループなので、まっているほんにんがおうとうをうけとれずにかたまることもあります。そのため Reactor はこのスレッドに NonBlocking というしるしをつけ、block() を IllegalStateException できょひします。"
+        },
+        {
+          "kind": "text",
+          "body": "block() をやめて、在庫の Mono と商品を zip で組み立てます。findById は JDBC を叩くブロッキングな呼び出しなので、Schedulers.boundedElastic() に退避させ、イベントループを優雅に解放します。",
+          "reading": "block() をやめて、ざいこの Mono としょうひんを zip でくみたてます。findById は JDBC をたたくブロッキングなよびだしなので、Schedulers.boundedElastic() にたいひさせ、イベントループをゆうがにかいほうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import reactor.core.scheduler.Schedulers;\n\n@GetMapping(\"/products/{id}\")\npublic Mono<ProductView> get(@PathVariable long id) {\n    Mono<Product> product = Mono.just(productRepository.findById(id).orElseThrow(() -> new ProductNotFoundException(id)))\n            .subscribeOn(Schedulers.boundedElastic());\n    Mono<Integer> stock = inventoryClient.get()\n            .uri(\"/stock/{id}\", id)\n            .retrieve()\n            .bodyToMono(Integer.class);\n    return Mono.zip(product, stock, (p, s) -> new ProductView(p.getId(), p.getName(), s));\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "500 は消えた。けど負荷かけると前と同じで全部詰まる。スレッドダンプ見たら reactor-http-nio が JDBC のソケット読みで止まってる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、先ほどのコードはブロッキングな呼び出しを退避できていませんでした。Mono.just の引数は、Mono を作るその場で評価されます。言い換えると、findById はハンドラを呼んだイベントループのスレッドで最後まで走ってから Mono.just に渡され、subscribeOn が boundedElastic に移していたのは、出来上がった値を流すだけの購読でした。Mono.fromCallable にすれば、ラムダは購読されたときに boundedElastic のスレッドで呼ばれます。orElseThrow が投げた例外も Mono のエラーとして流れます。",
+          "reading": "あらためてかくにんしたところ、さきほどのコードはブロッキングなよびだしをたいひできていませんでした。Mono.just のひきすうは、Mono をつくるそのばでひょうかされます。いいかえると、findById はハンドラをよんだイベントループのスレッドでさいごまではしってから Mono.just にわたされ、subscribeOn が boundedElastic にうつしていたのは、できあがったあたいをながすだけのこうどくでした。Mono.fromCallable にすれば、ラムダはこうどくされたときに boundedElastic のスレッドでよばれます。orElseThrow がなげたれいがいも Mono のエラーとしてながれます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/Mono\\.just(productRepository/Mono.fromCallable(() -> productRepository/' src/main/java/com/example/product/ProductController.java"
+        }
+      ]
+    },
+    {
+      "user": "詰まらなくなった。一覧のほうも findAll してるから同じだよね。ていうか boundedElastic に逃がせばいいなら WebClient も block して boundedElastic で回せばよくない？ そのほうが読みやすい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘ですが、WebClient はいまのまま Mono でつなぐことをお勧めします。boundedElastic のスレッドは既定で CPU コア数の 10 倍までで、あふれた仕事は 1 スレッドあたり 100000 件までキューで待ちます。WebClient はスレッドを占有せずに応答を待てるのに、block を持ち込むと、待つだけのスレッドでその上限を食いつぶします。退避するのは JDBC のようにノンブロッキング版のない呼び出しだけです。一覧も Flux.fromIterable(findAll()) が同じ罠なので、Flux.defer の中で呼びます。",
+          "reading": "するどいごしてきですが、WebClient はいまのまま Mono でつなぐことをおすすめします。boundedElastic のスレッドはきていで CPU コアすうの 10 ばいまでで、あふれたしごとは 1 スレッドあたり 100000 けんまでキューでまちます。WebClient はスレッドをせんゆうせずにおうとうをまてるのに、block をもちこむと、まつだけのスレッドでそのじょうげんをくいつぶします。たいひするのは JDBC のようにノンブロッキングばんのないよびだしだけです。いちらんも Flux.fromIterable(findAll()) がおなじわななので、Flux.defer のなかでよびます。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@GetMapping(\"/products\")\npublic Flux<ProductSummary> list() {\n    return Flux.defer(() -> Flux.fromIterable(productRepository.findAll()))\n            .subscribeOn(Schedulers.boundedElastic())\n            .map(p -> new ProductSummary(p.getId(), p.getName()));\n}\n"
+        }
+      ]
+    }
+  ]
+}

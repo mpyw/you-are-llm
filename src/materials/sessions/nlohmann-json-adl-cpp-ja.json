@@ -1,0 +1,87 @@
+{
+  "id": "nlohmann-json-adl-cpp-ja",
+  "title": "構造体の変換を get<T>() 一つで済ませる",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "cpp",
+  "summary": "to_json と from_json を型と同じ名前空間に置くと、ADL で見つかって vector<User> までそのまま変換できる。フィールドが増えたら _WITH_DEFAULT のマクロに任せる。",
+  "files": [
+    {
+      "path": "src/model/user.h",
+      "content": "#pragma once\n\n#include <string>\n#include <vector>\n\nnamespace app {\n\nstruct User {\n  std::string name;\n  int age;\n  std::vector<std::string> tags;\n};\n\n}  // namespace app\n"
+    },
+    {
+      "path": "src/model/user_json.h",
+      "content": "#pragma once\n\n#include <nlohmann/json.hpp>\n\n#include \"model/user.h\"\n\ninline nlohmann::json user_to_json(const app::User& u) {\n  return {{\"name\", u.name}, {\"age\", u.age}, {\"tags\", u.tags}};\n}\n\ninline app::User user_from_json(const nlohmann::json& j) {\n  app::User u;\n  u.name = j.at(\"name\").get<std::string>();\n  u.age = j.at(\"age\").get<int>();\n  u.tags = j.at(\"tags\").get<std::vector<std::string>>();\n  return u;\n}\n"
+    },
+    {
+      "path": "src/api/users.cpp",
+      "content": "#include <vector>\n\n#include \"model/user_json.h\"\n\nstd::vector<app::User> parse_users(const nlohmann::json& j) {\n  std::vector<app::User> users;\n  for (const auto& item : j.at(\"users\")) {\n    users.push_back(user_from_json(item));\n  }\n  return users;\n}\n\nnlohmann::json dump_users(const std::vector<app::User>& users) {\n  nlohmann::json arr = nlohmann::json::array();\n  for (const auto& u : users) {\n    arr.push_back(user_to_json(u));\n  }\n  return {{\"users\", arr}};\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "User の配列を JSON にするたびに for 回して user_to_json 呼んでるのだるい。j.get<std::vector<User>>() みたいに一発でできないの",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。nlohmann/json は、型ごとの変換を to_json と from_json という名前の自由関数から探します。この 2 つを決まった形の引数で用意すれば、get<User>() も、vector や map に入った User も、ライブラリの側で組み立ててくれます。user_json.h の 2 つの関数を次のように書き換えます。",
+          "reading": "しょうちしました。nlohmann/json は、かたごとのへんかんを to_json と from_json というなまえのじゆうかんすうからさがします。この 2 つをきまったかたちのひきすうでよういすれば、get<User>() も、vector や map にはいった User も、らいぶらりのがわでくみたててくれます。user_json.h の 2 つのかんすうをつぎのようにかきかえます。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#pragma once\n\n#include <nlohmann/json.hpp>\n\n#include \"model/user.h\"\n\ninline void to_json(nlohmann::json& j, const app::User& u) {\n  j = {{\"name\", u.name}, {\"age\", u.age}, {\"tags\", u.tags}};\n}\n\ninline void from_json(const nlohmann::json& j, app::User& u) {\n  j.at(\"name\").get_to(u.name);\n  j.at(\"age\").get_to(u.age);\n  j.at(\"tags\").get_to(u.tags);\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "Here's users.cpp です。ループは要らなくなります。",
+          "reading": "Here's users.cpp です。るーぷはいらなくなります。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "std::vector<app::User> parse_users(const nlohmann::json& j) {\n  return j.at(\"users\").get<std::vector<app::User>>();\n}\n\nnlohmann::json dump_users(const std::vector<app::User>& users) {\n  return {{\"users\", users}};\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "コンパイル通らん。no matching member function for call to 'get' で、note に get_impl がどうとか延々出てる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません、先ほどの user_json.h は 2 つの関数をグローバル名前空間に置いたままでした。ライブラリは to_json を nlohmann の内側から修飾なしで呼ぶので、見つかるのは ADL で探せる関数、つまり引数の型 app::User が属する namespace app の関数だけです。グローバルの関数は候補に入らず、get_impl の候補がすべて外れていました。2 つの関数を namespace app で囲みます。",
+          "reading": "もうしわけありません、さきほどの user_json.h は 2 つのかんすうをぐろーばるなまえくうかんにおいたままでした。らいぶらりは to_json を nlohmann のうちがわからしゅうしょくなしでよぶので、みつかるのは ADL でさがせるかんすう、つまりひきすうのかた app::User がぞくする namespace app のかんすうだけです。ぐろーばるのかんすうはこうほにはいらず、get_impl のこうほがすべてはずれていました。2 つのかんすうを namespace app でかこみます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/^#include \"model\\/user.h\"$/&\\\n\\\nnamespace app {/' -e '$a\\\n\\\n}  // namespace app' src/model/user_json.h"
+        }
+      ]
+    },
+    {
+      "user": "通った。けど古いデータ tags 無いのがあって out_of_range で落ちる。あと role 足したい、無かったら viewer で。てかフィールド増えるたびにこれ手で書くの？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、手で書く必要はありません。NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT に型とメンバを並べると、同じ to_json と from_json を生成します。_WITH_DEFAULT の付いた方は、キーが無いメンバに User{} の値を入れるので、既定値はメンバ初期化子に書けます。マクロも関数を展開するだけなので、置き場所はやはり namespace app の中です。",
+          "reading": "けつろんからいうと、てでかくひつようはありません。NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT にかたとめんばをならべると、おなじ to_json と from_json をせいせいします。_WITH_DEFAULT のついたほうは、きーがないめんばに User{} のあたいをいれるので、きていちはめんばしょきかしにかけます。まくろもかんすうをてんかいするだけなので、おきばしょはやはり namespace app のなかです。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#pragma once\n\n#include <nlohmann/json.hpp>\n\n#include \"model/user.h\"\n\nnamespace app {\n\nNLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(User, name, age, tags, role)\n\n}  // namespace app\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^  std::vector<std::string> tags;$/&\\\n  std::string role = \"viewer\";/' src/model/user.h"
+        },
+        {
+          "kind": "text",
+          "body": "まとめると、tags の無いデータは空の vector に、role の無いデータは viewer になります。ただし、この形では name も省略でき、空文字のまま通る点に注意することが重要です。name だけ必須にしたい場合は、2 つの関数を手書きに戻して、name だけ at() で読むことをお勧めします。",
+          "reading": "まとめると、tags のないでーたはからの vector に、role のないでーたは viewer になります。ただし、このかたちでは name もしょうりゃくでき、からもじのままとおるてんにちゅういすることがじゅうようです。name だけひっすにしたいばあいは、2 つのかんすうをてがきにもどして、name だけ at() でよむことをおすすめします。"
+        }
+      ]
+    }
+  ]
+}

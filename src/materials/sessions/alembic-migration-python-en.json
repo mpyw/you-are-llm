@@ -1,0 +1,68 @@
+{
+  "id": "alembic-migration-python-en",
+  "title": "Keep Alembic autogenerate from dropping a renamed column",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "python",
+  "summary": "Hand target_metadata to env.py so autogenerate runs, then rewrite the migration that turned a rename into a drop and an add as alter_column.",
+  "files": [
+    {
+      "path": "app/models.py",
+      "content": "from datetime import datetime\n\nfrom sqlalchemy import String, func\nfrom sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column\n\n\nclass Base(DeclarativeBase):\n    pass\n\n\nclass User(Base):\n    __tablename__ = \"users\"\n\n    id: Mapped[int] = mapped_column(primary_key=True)\n    email: Mapped[str] = mapped_column(String(255), unique=True)\n    display_name: Mapped[str] = mapped_column(String(100))\n    created_at: Mapped[datetime] = mapped_column(server_default=func.now())\n"
+    },
+    {
+      "path": "migrations/env.py",
+      "content": "from logging.config import fileConfig\n\nfrom sqlalchemy import engine_from_config\nfrom sqlalchemy import pool\n\nfrom alembic import context\n\n# this is the Alembic Config object, which provides\n# access to the values within the .ini file in use.\nconfig = context.config\n\n# Interpret the config file for Python logging.\n# This line sets up loggers basically.\nif config.config_file_name is not None:\n    fileConfig(config.config_file_name)\n\n# add your model's MetaData object here\n# for 'autogenerate' support\n# from myapp import mymodel\n# target_metadata = mymodel.Base.metadata\ntarget_metadata = None\n\n# other values from the config, defined by the needs of env.py,\n# can be acquired:\n# my_important_option = config.get_main_option(\"my_important_option\")\n# ... etc.\n\n\ndef run_migrations_offline() -> None:\n    \"\"\"Run migrations in 'offline' mode.\n\n    This configures the context with just a URL\n    and not an Engine, though an Engine is acceptable\n    here as well.  By skipping the Engine creation\n    we don't even need a DBAPI to be available.\n\n    Calls to context.execute() here emit the given string to the\n    script output.\n\n    \"\"\"\n    url = config.get_main_option(\"sqlalchemy.url\")\n    context.configure(\n        url=url,\n        target_metadata=target_metadata,\n        literal_binds=True,\n        dialect_opts={\"paramstyle\": \"named\"},\n    )\n\n    with context.begin_transaction():\n        context.run_migrations()\n\n\ndef run_migrations_online() -> None:\n    \"\"\"Run migrations in 'online' mode.\n\n    In this scenario we need to create an Engine\n    and associate a connection with the context.\n\n    \"\"\"\n    connectable = engine_from_config(\n        config.get_section(config.config_ini_section, {}),\n        prefix=\"sqlalchemy.\",\n        poolclass=pool.NullPool,\n    )\n\n    with connectable.connect() as connection:\n        context.configure(\n            connection=connection, target_metadata=target_metadata\n        )\n\n        with context.begin_transaction():\n            context.run_migrations()\n\n\nif context.is_offline_mode():\n    run_migrations_offline()\nelse:\n    run_migrations_online()\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "renamed User.name to display_name. alembic revision --autogenerate says Can't proceed with --autogenerate option; environment script migrations/env.py does not provide a MetaData object. prod is postgres",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: target_metadata in env.py is still None. Autogenerate compares the MetaData you give it with the schema the database actually has, and with nothing to compare against, Alembic stops. Replace the commented import from the template with one that loads your Base. Autogenerate will then detect the rename from name to display_name and emit an alter_column."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/^# from myapp import mymodel$/from app.models import Base/' -e 's/^target_metadata = None$/target_metadata = Base.metadata/' migrations/env.py"
+        },
+        {
+          "kind": "command",
+          "body": "alembic revision --autogenerate -m \"rename name to display_name\""
+        }
+      ]
+    },
+    {
+      "user": "file got generated. but it has add_column and drop_column in it. won't that wipe name?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Important correction: I said autogenerate would detect the rename, and that was wrong. All it can see is a column the model has and the database lacks, and the reverse. It only knows name disappeared and display_name appeared, so it emits drop_column and add_column. Run as is, the values in name are thrown away, and on a table with rows, adding a NOT NULL display_name fails first. Rewriting upgrade and downgrade with alter_column guarantees the existing values stay put."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "# migrations/versions/d31f4b93982a_rename_name_to_display_name.py\ndef upgrade() -> None:\n    op.alter_column(\"users\", \"name\", new_column_name=\"display_name\")\n\n\ndef downgrade() -> None:\n    op.alter_column(\"users\", \"display_name\", new_column_name=\"name\")\n"
+        }
+      ]
+    },
+    {
+      "user": "nobody has upgraded yet, so while we're at it make display_name 200 chars. same revision, no new one",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's change the length in both the model and the migration. alter_column takes new_column_name and type_ in the same call, so the existing lines just grow an argument. On PostgreSQL this runs as two statements, ALTER COLUMN TYPE and then RENAME. Note: going back down to 100 fails if even one row holds a longer value."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/String(100)/String(200)/' app/models.py"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/new_column_name=\"display_name\")/new_column_name=\"display_name\", type_=sa.String(200))/' -e 's/new_column_name=\"name\")/new_column_name=\"name\", type_=sa.String(100))/' migrations/versions/d31f4b93982a_rename_name_to_display_name.py"
+        }
+      ]
+    }
+  ]
+}

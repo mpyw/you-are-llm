@@ -13,7 +13,7 @@
 
 ## Status
 
-The trainer runs end to end. 366 sessions cover nine programming languages and two natural
+The trainer runs end to end. 474 sessions cover nine programming languages and two natural
 languages, graded from Easy to Expert+. AZIK is not implemented yet.
 
 ## Commands
@@ -135,10 +135,10 @@ set rather than within one language, so Rust mostly lands at Hard or above.
 
 | Difficulty | Score | Sessions |
 | --- | --- | --- |
-| Easy | under 11 | 66 |
-| Normal | 11 to 16 | 102 |
-| Hard | 16 to 22 | 130 |
-| Expert | 22 to 34 | 66 |
+| Easy | under 11 | 72 |
+| Normal | 11 to 16 | 160 |
+| Hard | 16 to 22 | 168 |
+| Expert | 22 to 34 | 72 |
 | Expert+ | over 34 | 2 |
 
 The score is how hard a session is per keystroke, stretched a little by how much of it there is.

@@ -1,0 +1,57 @@
+{
+  "id": "local-scope-php-en",
+  "title": "Pull the published where clauses into a local scope",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "php",
+  "summary": "A published filter copied into three places becomes Post::published(), with the #[Scope] attribute as the newer spelling.",
+  "files": [
+    {
+      "path": "app/Models/Post.php",
+      "content": "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass Post extends Model\n{\n    protected $fillable = ['title', 'slug', 'body', 'status', 'published_at'];\n\n    protected function casts(): array\n    {\n        return [\n            'published_at' => 'datetime',\n        ];\n    }\n}\n"
+    },
+    {
+      "path": "app/Http/Controllers/PostController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse App\\Models\\Post;\n\nclass PostController extends Controller\n{\n    public function index()\n    {\n        $posts = Post::query()\n            ->where('status', 'published')\n            ->where('published_at', '<=', now())\n            ->latest('published_at')\n            ->paginate(20);\n\n        return view('posts.index', ['posts' => $posts]);\n    }\n\n    public function show(string $slug)\n    {\n        $post = Post::query()\n            ->where('status', 'published')\n            ->where('published_at', '<=', now())\n            ->where('slug', $slug)\n            ->firstOrFail();\n\n        return view('posts.show', ['post' => $post]);\n    }\n}\n"
+    },
+    {
+      "path": "app/Http/Controllers/SitemapController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse App\\Models\\Post;\n\nclass SitemapController extends Controller\n{\n    public function __invoke()\n    {\n        $posts = Post::query()\n            ->where('status', 'published')\n            ->get(['slug', 'updated_at']);\n\n        return response()\n            ->view('sitemap', ['posts' => $posts])\n            ->header('Content-Type', 'application/xml');\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "where('status', 'published')->where('published_at', '<=', now()) is copy pasted all over the controllers. scheduled posts showed up in the sitemap once, turns out one copy was missing half. clean it up",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch! Let's define a local scope, scopePublished, on Post. Callers drop the scope prefix and write Post::published(). The published filter then has a single source of truth on the model, so a copy that lost half its conditions, like the sitemap one, cannot happen again."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Illuminate\\Database\\Eloquent\\Builder;\n\npublic function scopePublished(Builder $query): void\n{\n    $query->where('status', 'published')\n        ->where('published_at', '<=', now());\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "$posts = Post::published()\n    ->latest('published_at')\n    ->paginate(20);\n\n$post = Post::published()\n    ->where('slug', $slug)\n    ->firstOrFail();\n\n$posts = Post::published()->get(['slug', 'updated_at']);\n"
+        }
+      ]
+    },
+    {
+      "user": "heard Laravel 12 has a #[Scope] thing too. which one should we use. also does it break if I put it after an orWhere?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the short version. On recent Laravel 12, a protected method marked with the #[Scope] attribute is also a scope, and it is called by its own name. It removes the prefix boilerplate and behaves the same. After an orWhere it still holds: the earlier conditions and the scope's conditions are each wrapped in parentheses, so the published filter is never swallowed by the or."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Illuminate\\Database\\Eloquent\\Attributes\\Scope;\nuse Illuminate\\Database\\Eloquent\\Builder;\n\n#[Scope]\nprotected function published(Builder $query): void\n{\n    $query->where('status', 'published')\n        ->where('published_at', '<=', now());\n}\n"
+        }
+      ]
+    }
+  ]
+}

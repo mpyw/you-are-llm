@@ -2,7 +2,7 @@
   "id": "curl-global-init-c-en",
   "title": "Initialize libcurl once and reuse the connection",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "c",
   "summary": "Stop calling curl_global_init per request, and loop over URLs on one easy handle so connections get reused.",
   "files": [

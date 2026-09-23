@@ -1,0 +1,45 @@
+{
+  "id": "sqlite-column-text-c-ja",
+  "title": "sqlite3_column_text のポインタを持ち越さない",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "c",
+  "summary": "次の sqlite3_step で無効になる sqlite3_column_text の結果を strdup でコピーしてから配列に貯める。",
+  "files": [
+    {
+      "path": "src/db/tags.c",
+      "content": "#include <stdlib.h>\n#include <sqlite3.h>\n\nint load_tags(sqlite3 *db, const char **tags, int max) {\n  sqlite3_stmt *stmt = NULL;\n  int n = 0;\n  if (sqlite3_prepare_v2(db, \"SELECT name FROM tags ORDER BY name\", -1, &stmt, NULL) != SQLITE_OK) {\n    return -1;\n  }\n  while (n < max && sqlite3_step(stmt) == SQLITE_ROW) {\n    tags[n++] = (const char *)sqlite3_column_text(stmt, 0);\n  }\n  sqlite3_finalize(stmt);\n  return n;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "load_tags で取ったタグ一覧、表示すると全部同じ文字列になってたり化けてたりする。DB の中身は正常",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。sqlite3_column_text が返すポインタは SQLite が持っているバッファを指していて、有効なのは次の sqlite3_step か sqlite3_finalize を呼ぶまでです。今のコードはそのポインタを配列に貯めたまま次の行へ進むので、中身が上書きされたり解放済みの領域を指したりします。結論から言うと、行ごとに strdup でコピーを取り、呼び出し側が free_tags で解放する形にします。文字列の寿命が SQLite から切り離されることを保証します。",
+          "reading": "するどいごしてきです。sqlite3_column_text がかえすぽいんたは SQLite がもっているばっふぁをさしていて、ゆうこうなのはつぎの sqlite3_step か sqlite3_finalize をよぶまでです。いまのこーどはそのぽいんたをはいれつにためたままつぎのぎょうへすすむので、なかみがうわがきされたりかいほうずみのりょういきをさしたりします。けつろんからいうと、ぎょうごとに strdup でこぴーをとり、よびだしがわが free_tags でかいほうするかたちにします。もじれつのじゅみょうが SQLite からきりはなされることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#include <stdlib.h>\n#include <string.h>\n#include <sqlite3.h>\n\nint load_tags(sqlite3 *db, char **tags, int max) {\n  sqlite3_stmt *stmt = NULL;\n  int n = 0;\n  if (sqlite3_prepare_v2(db, \"SELECT name FROM tags ORDER BY name\", -1, &stmt, NULL) != SQLITE_OK) {\n    return -1;\n  }\n  while (n < max && sqlite3_step(stmt) == SQLITE_ROW) {\n    const char *name = (const char *)sqlite3_column_text(stmt, 0);\n    char *copy = strdup(name);\n    if (copy == NULL) break;\n    tags[n++] = copy;\n  }\n  sqlite3_finalize(stmt);\n  return n;\n}\n\nvoid free_tags(char **tags, int n) {\n  for (int i = 0; i < n; i++) free(tags[i]);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "なおった。けど name が NULL の行あるとそこで落ちる。そういうのは無視でいい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "NULL の列に対して sqlite3_column_text は NULL を返し、strdup(NULL) は未定義動作です。無視してよいとのことなので、C の側で防御的に分岐を足すより、SQL の側で弾くのが一番シンプルです。",
+          "reading": "NULL のれつにたいして sqlite3_column_text は NULL をかえし、strdup(NULL) はみていぎどうさです。むししてよいとのことなので、C のがわでぼうぎょてきにぶんきをたすより、SQL のがわではじくのがいちばんしんぷるです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/FROM tags ORDER BY/FROM tags WHERE name IS NOT NULL ORDER BY/' src/db/tags.c"
+        }
+      ]
+    }
+  ]
+}

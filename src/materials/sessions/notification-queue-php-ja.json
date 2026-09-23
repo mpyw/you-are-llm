@@ -1,0 +1,82 @@
+{
+  "id": "notification-queue-php-ja",
+  "title": "発送通知をキューに回す",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "php",
+  "summary": "同期送信の Notification に ShouldQueue を付けて via() で mail と database を分け、ワーカーで消えるロケールと、via() では遅すぎるキャンセル判定を直す。",
+  "files": [
+    {
+      "path": "app/Notifications/OrderShipped.php",
+      "content": "<?php\n\nnamespace App\\Notifications;\n\nuse App\\Models\\Order;\nuse Illuminate\\Bus\\Queueable;\nuse Illuminate\\Notifications\\Messages\\MailMessage;\nuse Illuminate\\Notifications\\Notification;\n\nclass OrderShipped extends Notification\n{\n    use Queueable;\n\n    public function __construct(public Order $order)\n    {\n    }\n\n    public function via(object $notifiable): array\n    {\n        return ['mail', 'database'];\n    }\n\n    public function toMail(object $notifiable): MailMessage\n    {\n        return (new MailMessage)\n            ->subject(__('Your order has shipped'))\n            ->line(__('Order #:number is on its way.', ['number' => $this->order->number]))\n            ->action(__('Track package'), $this->order->tracking_url);\n    }\n\n    public function toArray(object $notifiable): array\n    {\n        return [\n            'order_id' => $this->order->id,\n            'tracking_number' => $this->order->tracking_number,\n        ];\n    }\n}\n"
+    },
+    {
+      "path": "app/Http/Controllers/ShipmentController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse App\\Http\\Requests\\ShipOrderRequest;\nuse App\\Models\\Order;\nuse App\\Notifications\\OrderShipped;\n\nclass ShipmentController extends Controller\n{\n    public function store(ShipOrderRequest $request, Order $order)\n    {\n        $order->update([\n            'status' => 'shipped',\n            'tracking_number' => $request->validated('tracking_number'),\n            'tracking_url' => $request->validated('tracking_url'),\n            'shipped_at' => now(),\n        ]);\n\n        $order->user->notify(new OrderShipped($order));\n\n        return back()->with('status', 'shipped');\n    }\n}\n"
+    },
+    {
+      "path": "app/Http/Middleware/SetLocale.php",
+      "content": "<?php\n\nnamespace App\\Http\\Middleware;\n\nuse Closure;\nuse Illuminate\\Http\\Request;\nuse Illuminate\\Support\\Facades\\App;\n\nclass SetLocale\n{\n    public function handle(Request $request, Closure $next)\n    {\n        if ($user = $request->user()) {\n            App::setLocale($user->locale);\n        }\n\n        return $next($request);\n    }\n}\n"
+    },
+    {
+      "path": "app/Models/User.php",
+      "content": "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Factories\\HasFactory;\nuse Illuminate\\Foundation\\Auth\\User as Authenticatable;\nuse Illuminate\\Notifications\\Notifiable;\n\nclass User extends Authenticatable\n{\n    use HasFactory, Notifiable;\n\n    protected $fillable = ['name', 'email', 'password', 'locale', 'mail_opt_out'];\n\n    protected $hidden = ['password', 'remember_token'];\n\n    protected function casts(): array\n    {\n        return [\n            'email_verified_at' => 'datetime',\n            'password' => 'hashed',\n            'mail_opt_out' => 'boolean',\n        ];\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "発送登録ボタン押してから返ってくるまで 3 秒くらいかかる。OrderShipped を同期で送ってて SMTP 待ちしてるっぽい。キューに回して。あとメール通知オフ（users.mail_opt_out）の人にはアプリ内のだけ出して",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい着眼点です。Notification に ShouldQueue を実装すると、notify() はその場で送らずにジョブを積むだけになります。Queueable はすでに use されているので、足すのは interface と via() の分岐だけです。",
+          "reading": "すばらしいちゃくがんてんです。Notification に ShouldQueue をじっそうすると、notify() はそのばでおくらずにジョブをつむだけになります。Queueable はすでに use されているので、たすのは interface と via() のぶんきだけです。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Illuminate\\Contracts\\Queue\\ShouldQueue;\n\nclass OrderShipped extends Notification implements ShouldQueue\n{\n    use Queueable;\n\n    // ...\n\n    public function via(object $notifiable): array\n    {\n        return $notifiable->mail_opt_out ? ['database'] : ['mail', 'database'];\n    }\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "ジョブはチャネルごとに 1 つずつ積まれます。言い換えると、mail が SMTP エラーでリトライされても database の通知が二重に作られることはありません。文面や言語などの既存の挙動はそのままで、コントローラも変更不要です。",
+          "reading": "ジョブはチャネルごとに 1 つずつつまれます。いいかえると、mail が SMTP エラーでリトライされても database のつうちがにじゅうにつくられることはありません。ぶんめんやげんごなどのきそんのきょどうはそのままで、コントローラもへんこうふようです。"
+        }
+      ]
+    },
+    {
+      "user": "キューにしたら日本語設定のユーザーにも英語のメールが行ってる。SetLocale ミドルウェアで users.locale 見て App::setLocale してるんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、先ほどの「言語はそのまま」は正確ではありませんでした。SetLocale が設定するロケールはそのリクエストの中だけのもので、ワーカーは config の app.locale で toMail を組み立てます。User に HasLocalePreference を実装すると、ワーカー側でも preferredLocale() のロケールに切り替えてから送ります。",
+          "reading": "あらためてかくにんしたところ、さきほどの「げんごはそのまま」はせいかくではありませんでした。SetLocale がせっていするロケールはそのリクエストのなかだけのもので、ワーカーは config の app.locale で toMail をくみたてます。User に HasLocalePreference をじっそうすると、ワーカーがわでも preferredLocale() のロケールにきりかえてからおくります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^class User extends Authenticatable$/class User extends Authenticatable implements HasLocalePreference/' app/Models/User.php"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Illuminate\\Contracts\\Translation\\HasLocalePreference;\n\npublic function preferredLocale(): string\n{\n    return $this->locale;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あとさ、キュー詰まってる間に注文キャンセルされたら発送メールは飛ばしたくない。アプリ内の通知は残っててもいい。via でステータス見ればいい？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "via() では間に合いません。via() は notify() を呼んだ時点、つまりリクエストの中で評価され、その結果で積むジョブの数が決まります。ワーカーで送信の直前に呼ばれるのは shouldSend() で、SerializesModels が Order を取り直した後なので最新の status が見えます。mail チャネルだけを判定し、database はそのまま通すのが堅牢です。以上で、キャンセル済みの注文に発送メールが届かないことを保証します。",
+          "reading": "via() ではまにあいません。via() は notify() をよんだじてん、つまりリクエストのなかでひょうかされ、そのけっかでつむジョブのかずがきまります。ワーカーでそうしんのちょくぜんによばれるのは shouldSend() で、SerializesModels が Order をとりなおしたあとなのでさいしんの status がみえます。mail チャネルだけをはんていし、database はそのままとおすのがけんろうです。いじょうで、キャンセルずみのちゅうもんにはっそうメールがとどかないことをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function shouldSend(object $notifiable, string $channel): bool\n{\n    return $channel !== 'mail' || $this->order->status === 'shipped';\n}\n"
+        }
+      ]
+    }
+  ]
+}

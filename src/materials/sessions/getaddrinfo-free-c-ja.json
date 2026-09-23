@@ -1,0 +1,46 @@
+{
+  "id": "getaddrinfo-free-c-ja",
+  "title": "gethostbyname を getaddrinfo に置き換える",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "c",
+  "summary": "非推奨の gethostbyname をやめ、getaddrinfo の結果を順に試して freeaddrinfo で解放する。",
+  "files": [
+    {
+      "path": "src/net/connect.c",
+      "content": "#include <netdb.h>\n#include <stdio.h>\n#include <string.h>\n#include <unistd.h>\n#include <netinet/in.h>\n#include <sys/socket.h>\n\nint connect_to(const char *host, int port) {\n  struct hostent *he = gethostbyname(host);\n  if (he == NULL) {\n    fprintf(stderr, \"lookup failed: %s\\n\", host);\n    return -1;\n  }\n  int fd = socket(AF_INET, SOCK_STREAM, 0);\n  struct sockaddr_in addr;\n  memset(&addr, 0, sizeof addr);\n  addr.sin_family = AF_INET;\n  addr.sin_port = htons(port);\n  memcpy(&addr.sin_addr, he->h_addr_list[0], he->h_length);\n  if (connect(fd, (struct sockaddr *)&addr, sizeof addr) != 0) {\n    close(fd);\n    return -1;\n  }\n  return fd;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "lint に gethostbyname 非推奨って怒られた。getaddrinfo にしといて。呼び出し側いじりたくないから port は int のままで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。gethostbyname は IPv4 しか返さず、スレッドセーフでもないので、getaddrinfo に置き換えるのがベストプラクティスです。getaddrinfo はアドレスを複数返すことがあるので、先頭だけ使うのではなく、順に試して最初に繋がったものを使います。リストは getaddrinfo が確保したものなので、成否にかかわらず freeaddrinfo で解放します。エラーは errno ではなく戻り値で返り、gai_strerror で文字列にします。port は snprintf で文字列にして渡します。",
+          "reading": "しょうちしました。gethostbyname は IPv4 しかかえさず、すれっどせーふでもないので、getaddrinfo におきかえるのがべすとぷらくてぃすです。getaddrinfo はあどれすをふくすうかえすことがあるので、せんとうだけつかうのではなく、じゅんにためしてさいしょにつながったものをつかいます。りすとは getaddrinfo がかくほしたものなので、せいひにかかわらず freeaddrinfo でかいほうします。えらーは errno ではなくもどりちでかえり、gai_strerror でもじれつにします。port は snprintf でもじれつにしてわたします。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "int connect_to(const char *host, int port) {\n  char service[8];\n  snprintf(service, sizeof service, \"%d\", port);\n\n  struct addrinfo hints;\n  memset(&hints, 0, sizeof hints);\n  hints.ai_family = AF_UNSPEC;\n  hints.ai_socktype = SOCK_STREAM;\n  hints.ai_flags = AI_NUMERICSERV;\n\n  struct addrinfo *res;\n  int rc = getaddrinfo(host, service, &hints, &res);\n  if (rc != 0) {\n    fprintf(stderr, \"%s: %s\\n\", host, gai_strerror(rc));\n    return -1;\n  }\n\n  int fd = -1;\n  for (struct addrinfo *ai = res; ai != NULL; ai = ai->ai_next) {\n    fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);\n    if (fd < 0) continue;\n    if (connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) break;\n    close(fd);\n    fd = -1;\n  }\n  freeaddrinfo(res);\n  return fd;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "EAI_SYSTEM のとき gai_strerror だと System error しか出なくて意味ないってレビューで言われた",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。EAI_SYSTEM は、原因が errno 側にあるという意味です。その場合だけ strerror(errno) を出します。errno.h のインクルードも必要になる点に注意することが重要です。",
+          "reading": "するどいごしてきです。EAI_SYSTEM は、げんいんが errno がわにあるといういみです。そのばあいだけ strerror(errno) をだします。errno.h のいんくるーどもひつようになるてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "  if (rc != 0) {\n    const char *msg = rc == EAI_SYSTEM ? strerror(errno) : gai_strerror(rc);\n    fprintf(stderr, \"%s: %s\\n\", host, msg);\n    return -1;\n  }\n"
+        }
+      ]
+    }
+  ]
+}

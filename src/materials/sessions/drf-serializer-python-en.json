@@ -1,0 +1,69 @@
+{
+  "id": "drf-serializer-python-en",
+  "title": "Make a nested DRF serializer writable",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "python",
+  "summary": "Clear the writable nested fields AssertionError with explicit create and update, then fix the read only id that made every update renumber the items.",
+  "files": [
+    {
+      "path": "orders/models.py",
+      "content": "from django.db import models\n\n\nclass Product(models.Model):\n    name = models.CharField(max_length=200)\n\n\nclass Order(models.Model):\n    customer_name = models.CharField(max_length=100)\n    created_at = models.DateTimeField(auto_now_add=True)\n\n\nclass OrderItem(models.Model):\n    order = models.ForeignKey(Order, related_name=\"items\", on_delete=models.CASCADE)\n    product = models.ForeignKey(Product, on_delete=models.PROTECT)\n    quantity = models.PositiveIntegerField()\n"
+    },
+    {
+      "path": "orders/serializers.py",
+      "content": "from rest_framework import serializers\n\nfrom .models import Order, OrderItem\n\n\nclass OrderItemSerializer(serializers.ModelSerializer):\n    class Meta:\n        model = OrderItem\n        fields = [\"id\", \"product\", \"quantity\"]\n\n\nclass OrderSerializer(serializers.ModelSerializer):\n    items = OrderItemSerializer(many=True)\n\n    class Meta:\n        model = Order\n        fields = [\"id\", \"customer_name\", \"created_at\", \"items\"]\n"
+    },
+    {
+      "path": "orders/views.py",
+      "content": "from rest_framework import viewsets\n\nfrom .models import Order\nfrom .serializers import OrderSerializer\n\n\nclass OrderViewSet(viewsets.ModelViewSet):\n    queryset = Order.objects.prefetch_related(\"items\")\n    serializer_class = OrderSerializer\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "POST /orders/ with items -> 500. AssertionError: The `.create()` method does not support writable nested fields by default.",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! The default create on ModelSerializer has no idea which model the nested data belongs to or how to save it. Rather than drop it silently, it stops with an AssertionError. So we write create ourselves: pop items out of validated_data, create the Order, then create each OrderItem. The whole thing sits inside transaction.atomic, so a failure halfway through the items never leaves an order behind. An order that lists the same product twice becomes a 400 in validate, and allow_empty=False rejects an empty items list."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from django.db import transaction\nfrom rest_framework import serializers\n\nfrom .models import Order, OrderItem\n\n\nclass OrderItemSerializer(serializers.ModelSerializer):\n    class Meta:\n        model = OrderItem\n        fields = [\"id\", \"product\", \"quantity\"]\n\n\nclass OrderSerializer(serializers.ModelSerializer):\n    items = OrderItemSerializer(many=True, allow_empty=False)\n\n    class Meta:\n        model = Order\n        fields = [\"id\", \"customer_name\", \"created_at\", \"items\"]\n\n    def validate(self, attrs):\n        items = attrs.get(\"items\")\n        if items is None:\n            return attrs\n        products = [item[\"product\"].pk for item in items]\n        if len(products) != len(set(products)):\n            raise serializers.ValidationError({\"items\": \"Each product may appear only once.\"})\n        return attrs\n\n    def create(self, validated_data):\n        items_data = validated_data.pop(\"items\")\n        with transaction.atomic():\n            order = Order.objects.create(**validated_data)\n            for data in items_data:\n                OrderItem.objects.create(\n                    order=order, product=data[\"product\"], quantity=data[\"quantity\"]\n                )\n        return order\n"
+        }
+      ]
+    },
+    {
+      "user": "POST works. PUT has the same error so do update too. oh and the shipping system holds the item ids, PUT must not change them",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Perfect, here's update. It pops items first and writes the remaining fields back onto the Order. Items are matched to existing rows by id: a match is updated, one without an id is created, and any row the request left out is deleted. This guarantees the ids of existing items never change. A PATCH that sends no items gets None from the pop default and leaves the items alone."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "    def update(self, instance, validated_data):\n        items_data = validated_data.pop(\"items\", None)\n        with transaction.atomic():\n            for attr, value in validated_data.items():\n                setattr(instance, attr, value)\n            instance.save()\n            if items_data is not None:\n                self._sync_items(instance, items_data)\n        return instance\n\n    def _sync_items(self, order, items_data):\n        existing = {item.pk: item for item in order.items.all()}\n        keep = []\n        for data in items_data:\n            item = existing.get(data.get(\"id\"))\n            if item is None:\n                item = OrderItem(order=order)\n            item.product = data[\"product\"]\n            item.quantity = data[\"quantity\"]\n            item.save()\n            keep.append(item.pk)\n        order.items.exclude(pk__in=keep).delete()\n"
+        }
+      ]
+    },
+    {
+      "user": "after a PUT every item id got renumbered. they were 1 and 2, now 3 and 4",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. ModelSerializer builds the primary key id as a read only field. Listing it in fields only puts it in the response, so the id in the request never reaches validated_data. data.get(\"id\") was always None, every item was created fresh, and the exclude deleted the old rows. Declaring id explicitly as an IntegerField with required=False lets it through on writes."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/^class OrderItemSerializer/a\\\n    id = serializers.IntegerField(required=False)\n' orders/serializers.py"
+        },
+        {
+          "kind": "text",
+          "body": "TL;DR on safety: an id taken from another order does no harm, because _sync_items only searches this order's items, so it just becomes a new item. And if a POST carries ids, create ignores them and reads only product and quantity."
+        }
+      ]
+    }
+  ]
+}

@@ -2,7 +2,7 @@
   "id": "f-expression-python-ja",
   "title": "Django の在庫ずれを F 式と select_for_update で直す",
   "language": "ja",
-  "difficulty": "expert",
+  "difficulty": "hard",
   "codeLanguage": "python",
   "summary": "同時注文で在庫が合わない。F 式で UPDATE に寄せ、refresh_from_db の抜けを直し、条件付き update にしてから、1 人 1 個の制限を select_for_update で守る。",
   "files": [

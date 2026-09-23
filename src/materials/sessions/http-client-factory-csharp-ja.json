@@ -2,7 +2,7 @@
   "id": "http-client-factory-csharp-ja",
   "title": "毎回 new HttpClient をやめる",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "csharp",
   "summary": "呼び出しごとの new HttpClient でソケットが枯渇する。AddHttpClient の型付きクライアントに移し、Singleton に捕まった分は PooledConnectionLifetime で DNS の変更に追従させる。",
   "files": [

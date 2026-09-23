@@ -1,0 +1,69 @@
+{
+  "id": "output-cache-csharp-ja",
+  "title": "出力キャッシュで sort が効かず、更新も反映されない",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "csharp",
+  "summary": "SetVaryByQuery は既定の全クエリを置き換えるので sort を足し、Tag と EvictByTagAsync で更新時に追い出す。ログイン必須の応答は既定でキャッシュされない。",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using Microsoft.AspNetCore.OutputCaching;\n\nvar builder = WebApplication.CreateBuilder(args);\n\nbuilder.Services.AddAuthentication().AddJwtBearer();\nbuilder.Services.AddAuthorization();\nbuilder.Services.AddOutputCache(options =>\n{\n    options.AddPolicy(\"Articles\", policy => policy\n        .Expire(TimeSpan.FromMinutes(10))\n        .SetVaryByQuery(\"page\"));\n});\nbuilder.Services.AddScoped<ArticleService>();\nbuilder.Services.AddScoped<BookmarkService>();\n\nvar app = builder.Build();\n\napp.UseAuthentication();\napp.UseAuthorization();\napp.UseOutputCache();\n\napp.MapGet(\"/articles\", (int? page, string? sort, ArticleService service, CancellationToken ct) =>\n    service.ListAsync(page ?? 1, sort ?? \"new\", ct))\n    .CacheOutput(\"Articles\");\n\napp.MapPut(\"/articles/{id:int}\", async (int id, ArticleInput input, ArticleService service, CancellationToken ct) =>\n{\n    await service.UpdateAsync(id, input, ct);\n    return Results.NoContent();\n})\n    .RequireAuthorization();\n\napp.Run();\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "記事一覧にキャッシュ入れたら ?sort=popular 付けても新着順のまま返ってくる。page は効いてる。あと記事直しても10分古いままって編集部から苦情",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。二つとも出力キャッシュの既定の動きから説明できます。AddOutputCache の既定ポリシーはクエリ文字列を全部キャッシュキーに含めますが、SetVaryByQuery を呼ぶと、その「全部」が列挙したキーだけに置き換わります。今は page しか列挙していないので、sort が違っても同じエントリが返ります。sort を足します。",
+          "reading": "かしこまりました。ふたつともしゅつりょくきゃっしゅのきていのうごきからせつめいできます。AddOutputCache のきていぽりしーはくえりもじれつをぜんぶきゃっしゅきーにふくめますが、SetVaryByQuery をよぶと、その「ぜんぶ」がれっきょしたきーだけにおきかわります。いまは page しかれっきょしていないので、sort がちがってもおなじえんとりがかえります。sort をたします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/SetVaryByQuery(\"page\")/SetVaryByQuery(\"page\", \"sort\")/' src/Program.cs"
+        },
+        {
+          "kind": "text",
+          "body": "Now、古いまま残る方です。Expire の 10 分が切れるまで、記事を更新してもエントリは残り続けます。ポリシーに Tag でタグを付け、PUT の中で IOutputCacheStore の EvictByTagAsync を呼ぶと、そのタグのエントリがまとめて消えます。ポイントは、追い出しを更新が終わった後に置くことです。先に消すと、更新の途中に来たリクエストが古い内容をまたキャッシュします。なお既定のストアはプロセスごとのメモリなので、複数台で動かすなら .NET 8 以降の Redis ストアに替えないと、他の台のエントリは消えません。",
+          "reading": "Now、ふるいままのこるほうです。Expire の 10 ぷんがきれるまで、きじをこうしんしてもえんとりはのこりつづけます。ぽりしーに Tag でたぐをつけ、PUT のなかで IOutputCacheStore の EvictByTagAsync をよぶと、そのたぐのえんとりがまとめてきえます。ぽいんとは、おいだしをこうしんがおわったあとにおくことです。さきにけすと、こうしんのとちゅうにきたりくえすとがふるいないようをまたきゃっしゅします。なおきていのすとあはぷろせすごとのめもりなので、ふくすうだいでうごかすなら .NET 8 いこうの Redis すとあにかえないと、ほかのだいのえんとりはきえません。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "builder.Services.AddOutputCache(options =>\n{\n    options.AddPolicy(\"Articles\", policy => policy\n        .Expire(TimeSpan.FromMinutes(10))\n        .SetVaryByQuery(\"page\", \"sort\")\n        .Tag(\"articles\"));\n});\n\napp.MapPut(\"/articles/{id:int}\", async (int id, ArticleInput input, ArticleService service, IOutputCacheStore cache, CancellationToken ct) =>\n{\n    await service.UpdateAsync(id, input, ct);\n    await cache.EvictByTagAsync(\"articles\", ct);\n    return Results.NoContent();\n})\n    .RequireAuthorization();\n"
+        }
+      ]
+    },
+    {
+      "user": "直った！ついでに /me/bookmarks も重いからキャッシュしといて。ログイン必須のやつ。1分でいい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。ブックマークはユーザーごとに中身が違うので、キーを Authorization ヘッダで分けます。これで他人の一覧が返らないことを保証します。1 分で切れるポリシーを別に作ります。",
+          "reading": "しょうちしました。ぶっくまーくはゆーざーごとになかみがちがうので、きーを Authorization へっだでわけます。これでたにんのいちらんがかえらないことをほしょうします。1 ぷんできれるぽりしーをべつにつくります。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using System.Security.Claims;\n\noptions.AddPolicy(\"Bookmarks\", policy => policy\n    .Expire(TimeSpan.FromMinutes(1))\n    .SetVaryByHeader(\"Authorization\"));\n\napp.MapGet(\"/me/bookmarks\", (ClaimsPrincipal user, BookmarkService service, CancellationToken ct) =>\n    service.ListAsync(user.FindFirstValue(ClaimTypes.NameIdentifier)!, ct))\n    .CacheOutput(\"Bookmarks\")\n    .RequireAuthorization();\n"
+        }
+      ]
+    },
+    {
+      "user": "全然効いてない。ログ見ると毎回 DB 行ってる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、先ほどの説明は正確ではありませんでした。既定ポリシーは、Authorization ヘッダの付いたリクエストと認証済みのユーザーを、リクエストの時点でキャッシュの対象から外します。SetVaryByHeader をいくら足しても、そもそも保存されません。これは安全側の既定です。出力キャッシュは HTTP の応答をまるごと保存するので、キーの作り方を一つ間違えるだけで他人のブックマークを返します。ブックマークのポリシーは外し、重さはデータ側で取ります。.NET 9 以降なら HybridCache でユーザー ID をキーに一覧をキャッシュできます。",
+          "reading": "あらためてかくにんしたところ、さきほどのせつめいはせいかくではありませんでした。きていぽりしーは、Authorization へっだのついたりくえすととにんしょうずみのゆーざーを、りくえすとのじてんできゃっしゅのたいしょうからはずします。SetVaryByHeader をいくらたしても、そもそもほぞんされません。これはあんぜんがわのきていです。しゅつりょくきゃっしゅは HTTP のおうとうをまるごとほぞんするので、きーのつくりかたをひとつまちがえるだけでたにんのぶっくまーくをかえします。ぶっくまーくのぽりしーははずし、おもさはでーたがわでとります。.NET 9 いこうなら HybridCache でゆーざー ID をきーにいちらんをきゃっしゅできます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e '/AddPolicy(\"Bookmarks\"/,/SetVaryByHeader/d' -e '/CacheOutput(\"Bookmarks\")/d' src/Program.cs"
+        }
+      ]
+    }
+  ]
+}

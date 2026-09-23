@@ -1,0 +1,48 @@
+{
+  "id": "cache-evict-java-en",
+  "title": "@Cacheable does nothing, then serves stale data once it works",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "java",
+  "summary": "Adding @EnableCaching turns the cache on, then update and delete write back and evict the same key.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/ShopApplication.java",
+      "content": "package com.example;\n\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\n\n@SpringBootApplication\npublic class ShopApplication {\n    public static void main(String[] args) {\n        SpringApplication.run(ShopApplication.class, args);\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/product/ProductService.java",
+      "content": "package com.example.product;\n\nimport org.springframework.cache.annotation.Cacheable;\nimport org.springframework.stereotype.Service;\nimport org.springframework.transaction.annotation.Transactional;\n\n@Service\npublic class ProductService {\n    private final ProductRepository productRepository;\n\n    public ProductService(ProductRepository productRepository) {\n        this.productRepository = productRepository;\n    }\n\n    @Cacheable(\"products\")\n    public Product find(long id) {\n        return productRepository.findById(id).orElseThrow(() -> new ProductNotFoundException(id));\n    }\n\n    @Transactional\n    public Product update(long id, UpdateProductRequest request) {\n        Product product = productRepository.findById(id).orElseThrow(() -> new ProductNotFoundException(id));\n        product.changePrice(request.price());\n        return product;\n    }\n\n    @Transactional\n    public void delete(long id) {\n        productRepository.deleteById(id);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "put @Cacheable on the product lookup but the log still shows a select every single time. is the cache even on?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "It is not, because nothing enables it. @Cacheable on its own is only a marker. @EnableCaching is what makes Spring wrap the bean in a caching proxy. With no cache library on the classpath, Spring Boot then sets up a simple CacheManager backed by a ConcurrentHashMap. Let's add one line to the application class."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example;\n\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\nimport org.springframework.cache.annotation.EnableCaching;\n\n@SpringBootApplication\n@EnableCaching\npublic class ShopApplication {\n    public static void main(String[] args) {\n        SpringApplication.run(ShopApplication.class, args);\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ok that works. now if i change a price in the admin screen the detail page keeps the old one until restart",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: the cache has no idea the database changed. Update writes the fresh value back with @CachePut, and delete removes it with @CacheEvict. The key is the part that bites. Leave it out and Spring builds the key from every argument, so update(id, request) writes to SimpleKey(id, request) while find(id) keeps reading the old entry under plain id. Both get key = \"#id\" to line up with find."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import org.springframework.cache.annotation.CacheEvict;\nimport org.springframework.cache.annotation.CachePut;\n\n@CachePut(cacheNames = \"products\", key = \"#id\")\n@Transactional\npublic Product update(long id, UpdateProductRequest request) {\n    Product product = productRepository.findById(id).orElseThrow(() -> new ProductNotFoundException(id));\n    product.changePrice(request.price());\n    return product;\n}\n\n@CacheEvict(cacheNames = \"products\", key = \"#id\")\n@Transactional\npublic void delete(long id) {\n    productRepository.deleteById(id);\n}\n"
+        }
+      ]
+    }
+  ]
+}

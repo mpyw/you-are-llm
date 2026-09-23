@@ -1,0 +1,44 @@
+{
+  "id": "regex-lazy-rust-en",
+  "title": "Move Regex::new out of the loop with LazyLock",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "rust",
+  "summary": "Stop recompiling a regex for every line by putting it in a std::sync::LazyLock static, and trip the unwrap in a test first.",
+  "files": [
+    {
+      "path": "src/log.rs",
+      "content": "use regex::Regex;\n\npub struct Entry {\n    pub level: String,\n    pub message: String,\n}\n\npub fn parse_lines(lines: &[&str]) -> Vec<Entry> {\n    let mut entries = Vec::new();\n    for line in lines {\n        let re = Regex::new(r\"^\\[(\\w+)\\] (.+)$\").unwrap();\n        if let Some(caps) = re.captures(line) {\n            entries.push(Entry {\n                level: caps[1].to_string(),\n                message: caps[2].to_string(),\n            });\n        }\n    }\n    entries\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "log parsing batch is slow. profiler says Regex::new is near the top",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's what is going on: Regex::new compiles the pattern into an automaton, which is expensive, and the loop does it again for every line. Put the Regex in a std::sync::LazyLock static instead. It is compiled once, on first use, and then shared by every thread. Since Rust 1.80 this is in the standard library, so neither once_cell nor lazy_static is needed."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::sync::LazyLock;\n\nuse regex::Regex;\n\nstatic LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r\"^\\[(\\w+)\\] (.+)$\").unwrap());\n\npub struct Entry {\n    pub level: String,\n    pub message: String,\n}\n\npub fn parse_lines(lines: &[&str]) -> Vec<Entry> {\n    lines\n        .iter()\n        .filter_map(|line| LINE.captures(line))\n        .map(|caps| Entry {\n            level: caps[1].to_string(),\n            message: caps[2].to_string(),\n        })\n        .collect()\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "theres an unwrap inside the static. dont want that panicking in prod",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! The pattern is a fixed literal, so if it is broken it panics the same way every time. Call LazyLock::force from a test and that compile runs in CI before it can ever run in production."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn line_pattern_compiles() {\n        LazyLock::force(&LINE);\n    }\n}\n"
+        }
+      ]
+    }
+  ]
+}

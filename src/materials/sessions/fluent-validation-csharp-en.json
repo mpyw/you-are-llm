@@ -2,7 +2,7 @@
   "id": "fluent-validation-csharp-en",
   "title": "Move controller if checks into FluentValidation",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "csharp",
   "summary": "Move the if chain in the Create action into an AbstractValidator and return every field error at once through ValidationProblem.",
   "files": [

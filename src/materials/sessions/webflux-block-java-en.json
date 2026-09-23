@@ -1,0 +1,61 @@
+{
+  "id": "webflux-block-java-en",
+  "title": "block() in a WebFlux handler stalls the event loop",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "java",
+  "summary": "block() goes, the JDBC call moves to boundedElastic, and Mono.just keeps it on the event loop anyway.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/product/ProductController.java",
+      "content": "package com.example.product;\n\nimport org.springframework.web.bind.annotation.GetMapping;\nimport org.springframework.web.bind.annotation.PathVariable;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.web.reactive.function.client.WebClient;\nimport reactor.core.publisher.Flux;\nimport reactor.core.publisher.Mono;\n\n@RestController\npublic class ProductController {\n    private final ProductRepository productRepository;\n    private final WebClient inventoryClient;\n\n    public ProductController(ProductRepository productRepository, WebClient inventoryClient) {\n        this.productRepository = productRepository;\n        this.inventoryClient = inventoryClient;\n    }\n\n    @GetMapping(\"/products/{id}\")\n    public Mono<ProductView> get(@PathVariable long id) {\n        Product product = productRepository.findById(id).orElseThrow(() -> new ProductNotFoundException(id));\n        Integer stock = inventoryClient.get()\n                .uri(\"/stock/{id}\", id)\n                .retrieve()\n                .bodyToMono(Integer.class)\n                .block();\n        return Mono.just(new ProductView(product.getId(), product.getName(), stock));\n    }\n\n    @GetMapping(\"/products\")\n    public Flux<ProductSummary> list() {\n        return Flux.fromIterable(productRepository.findAll())\n                .map(p -> new ProductSummary(p.getId(), p.getName()));\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "webflux product detail endpoint returns 500. log says block()/blockFirst()/blockLast() are blocking, which is not supported in thread reactor-http-nio-3. its the block on the inventory call",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "A WebFlux handler runs on a Reactor Netty event loop thread. There are only as many of those as CPU cores, with a floor of 4, and each one serves a large number of connections. When one request waits there, every other connection on that thread waits with it. Worse, the inventory response is read by the same event loop, so the waiting request can end up blocking the very thread that would deliver its answer. That is why Reactor marks these threads NonBlocking and refuses block() with an IllegalStateException."
+        },
+        {
+          "kind": "text",
+          "body": "Here's the fix: drop block() and zip the product with the inventory Mono. findById is a blocking JDBC call, so it moves to Schedulers.boundedElastic() and the event loop is free again."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import reactor.core.scheduler.Schedulers;\n\n@GetMapping(\"/products/{id}\")\npublic Mono<ProductView> get(@PathVariable long id) {\n    Mono<Product> product = Mono.just(productRepository.findById(id).orElseThrow(() -> new ProductNotFoundException(id)))\n            .subscribeOn(Schedulers.boundedElastic());\n    Mono<Integer> stock = inventoryClient.get()\n            .uri(\"/stock/{id}\", id)\n            .retrieve()\n            .bodyToMono(Integer.class);\n    return Mono.zip(product, stock, (p, s) -> new ProductView(p.getId(), p.getName(), s));\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "the 500 is gone. under load it still jams exactly like before though. thread dump shows reactor-http-nio sitting in a JDBC socket read",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer did not actually move the blocking call. The argument to Mono.just is evaluated right where the Mono is built. So findById ran to completion on the event loop thread that called the handler, and only then was its result handed to Mono.just. What subscribeOn moved to boundedElastic was a subscription that emits a value already sitting there. With Mono.fromCallable the lambda runs when the Mono is subscribed, on a boundedElastic thread, and the exception from orElseThrow travels as a Mono error."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/Mono\\.just(productRepository/Mono.fromCallable(() -> productRepository/' src/main/java/com/example/product/ProductController.java"
+        }
+      ]
+    },
+    {
+      "user": "ok no more jam. list does findAll too so same deal right? also if boundedElastic is the answer why not just block the WebClient call there too, reads nicer",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Keep WebClient chained as a Mono. boundedElastic is capped at ten threads per CPU core by default, and work beyond that queues up to 100000 tasks per thread. WebClient can already wait for a response without holding any thread, so blocking it there spends that cap on threads that do nothing but wait. Only calls with no non-blocking version, like JDBC, belong on boundedElastic. And yes, Flux.fromIterable(findAll()) is the same trap as Mono.just, so the call goes inside Flux.defer."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@GetMapping(\"/products\")\npublic Flux<ProductSummary> list() {\n    return Flux.defer(() -> Flux.fromIterable(productRepository.findAll()))\n            .subscribeOn(Schedulers.boundedElastic())\n            .map(p -> new ProductSummary(p.getId(), p.getName()));\n}\n"
+        }
+      ]
+    }
+  ]
+}

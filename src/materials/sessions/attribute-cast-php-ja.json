@@ -1,0 +1,64 @@
+{
+  "id": "attribute-cast-php-ja",
+  "title": "手書きの json_decode と文字列ステータスを casts() に寄せる",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "php",
+  "summary": "status を enum キャスト、options を配列キャスト、税込み金額を Attribute::make にし、添字代入が効かない罠で AsArrayObject に替える。",
+  "files": [
+    {
+      "path": "app/Models/Order.php",
+      "content": "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass Order extends Model\n{\n    protected $fillable = ['status', 'options', 'total'];\n\n    public function getTotalWithTaxAttribute(): int\n    {\n        return (int) floor($this->total * 1.1);\n    }\n}\n"
+    },
+    {
+      "path": "app/Http/Controllers/OrderController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse App\\Models\\Order;\n\nclass OrderController extends Controller\n{\n    public function ship(Order $order)\n    {\n        if ($order->status !== 'paid') {\n            abort(409);\n        }\n\n        $order->status = 'shipped';\n        $order->save();\n\n        return back();\n    }\n\n    public function wrap(Order $order)\n    {\n        $options = json_decode($order->options, true);\n        $options['gift_wrap'] = true;\n        $order->options = json_encode($options);\n        $order->save();\n\n        return back();\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "status が文字列比較で、本番に 'shiped' って typo が紛れてた。options も毎回 json_decode して json_encode してる。casts でちゃんとして。getTotalWithTaxAttribute も古い書き方らしいからついでに",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。status は backed enum の OrderStatus にして casts() に登録します。DB にない値を読むと ValueError になるので、typo は黙って通らず、その場で落ちます。options は array キャストにして、読むときは配列、保存するときは JSON に変換させます。税込み金額は Attribute::make のアクセサに書き換え、呼び出し側は今までどおり $order->total_with_tax です。",
+          "reading": "しょうちしました。status は backed enum の OrderStatus にして casts() にとうろくします。DB にないあたいをよむと ValueError になるので、typo はだまってとおらず、そのばでおちます。options は array キャストにして、よむときははいれつ、ほぞんするときは JSON にへんかんさせます。ぜいこみきんがくは Attribute::make のアクセサにかきかえ、よびだしがわはいままでどおり $order->total_with_tax です。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "<?php\n\nnamespace App\\Enums;\n\nenum OrderStatus: string\n{\n    case Pending = 'pending';\n    case Paid = 'paid';\n    case Shipped = 'shipped';\n    case Cancelled = 'cancelled';\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "<?php\n\nnamespace App\\Models;\n\nuse App\\Enums\\OrderStatus;\nuse Illuminate\\Database\\Eloquent\\Casts\\Attribute;\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass Order extends Model\n{\n    protected $fillable = ['status', 'options', 'total'];\n\n    protected function casts(): array\n    {\n        return [\n            'status' => OrderStatus::class,\n            'options' => 'array',\n        ];\n    }\n\n    protected function totalWithTax(): Attribute\n    {\n        return Attribute::make(\n            get: fn (mixed $value, array $attributes) => (int) floor($attributes['total'] * 1.1),\n        );\n    }\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "コントローラから json_decode と json_encode が消え、options は配列として直接書き換えられます。言い換えると、型の変換はモデルが唯一の情報源になります。",
+          "reading": "コントローラから json_decode と json_encode がきえ、options ははいれつとしてちょくせつかきかえられます。いいかえると、かたのへんかんはモデルがゆいいつのじょうほうげんになります。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use App\\Enums\\OrderStatus;\n\npublic function ship(Order $order)\n{\n    if ($order->status !== OrderStatus::Paid) {\n        abort(409);\n    }\n\n    $order->status = OrderStatus::Shipped;\n    $order->save();\n\n    return back();\n}\n\npublic function wrap(Order $order)\n{\n    $order->options['gift_wrap'] = true;\n    $order->save();\n\n    return back();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "wrap 叩いたら 500。Indirect modification of overloaded property App\\Models\\Order::$options has no effect だって",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの説明は正確ではありませんでした。$order->options は __get が返した配列のコピーなので、添字で書き換えても元の属性には届きません。AsArrayObject キャストにすると ArrayObject というオブジェクトが返り、書き換えた中身は save のときに JSON へ戻されます。Note: カラムが null だと null が返るので、options は NOT NULL のままにしておくことが重要です。",
+          "reading": "もうしわけありません。さきほどのせつめいはせいかくではありませんでした。$order->options は __get がかえしたはいれつのコピーなので、そえじでかきかえてももとのぞくせいにはとどきません。AsArrayObject キャストにすると ArrayObject というオブジェクトがかえり、かきかえたなかみは save のときに JSON へもどされます。Note: カラムが null だと null がかえるので、options は NOT NULL のままにしておくことがじゅうようです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e \"s/'options' => 'array'/'options' => AsArrayObject::class/\" -e '/^use App\\\\Enums\\\\OrderStatus;$/a\\\nuse Illuminate\\\\Database\\\\Eloquent\\\\Casts\\\\AsArrayObject;' app/Models/Order.php"
+        }
+      ]
+    }
+  ]
+}

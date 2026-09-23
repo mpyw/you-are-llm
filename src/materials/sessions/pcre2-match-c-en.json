@@ -1,0 +1,56 @@
+{
+  "id": "pcre2-match-c-en",
+  "title": "Replace sscanf log parsing with PCRE2",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "c",
+  "summary": "Pull groups out of the ovector with pcre2_match_data_create_from_pattern, and tell no match apart from an error.",
+  "files": [
+    {
+      "path": "src/log/parse.c",
+      "content": "#include <stdio.h>\n\nstruct log_line {\n  char level[16];\n  char message[256];\n};\n\nint parse_log_line(const char *line, struct log_line *out) {\n  return sscanf(line, \"%15[A-Z]: %255[^\\n]\", out->level, out->message) == 2;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "want parse_log_line on pcre2. more patterns are coming and sscanf is painful. 0 for no match, -1 if something broke",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! Compile the pattern with PCRE2_ZERO_TERMINATED, then pcre2_match_data_create_from_pattern sizes the match data for exactly the groups it has. On a match the ovector holds a start and end offset per group, so group i runs from ov[2 * i] up to ov[2 * i + 1]. Note: pcre2_match returns PCRE2_ERROR_NOMATCH when nothing matches, and any other negative value is a real error, so those two need separate handling. The match data and the code are freed on every path."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#include <string.h>\n#include <pcre2.h>\n\nstruct log_line {\n  char level[16];\n  char message[256];\n};\n\nstatic void copy_group(char *dst, size_t cap, const char *line, const PCRE2_SIZE *ov, int i) {\n  size_t len = ov[2 * i + 1] - ov[2 * i];\n  if (len >= cap) len = cap - 1;\n  memcpy(dst, line + ov[2 * i], len);\n  dst[len] = '\\0';\n}\n\nint parse_log_line(const char *line, struct log_line *out) {\n  int errcode;\n  PCRE2_SIZE erroffset;\n  pcre2_code *re = pcre2_compile((PCRE2_SPTR)\"^([A-Z]+): (.*)$\", PCRE2_ZERO_TERMINATED, 0, &errcode, &erroffset, NULL);\n  if (re == NULL) return -1;\n  pcre2_match_data *md = pcre2_match_data_create_from_pattern(re, NULL);\n  if (md == NULL) {\n    pcre2_code_free(re);\n    return -1;\n  }\n  int rc = pcre2_match(re, (PCRE2_SPTR)line, PCRE2_ZERO_TERMINATED, 0, 0, md, NULL);\n  if (rc > 0) {\n    const PCRE2_SIZE *ov = pcre2_get_ovector_pointer(md);\n    copy_group(out->level, sizeof out->level, line, ov, 1);\n    copy_group(out->message, sizeof out->message, line, ov, 2);\n  }\n  pcre2_match_data_free(md);\n  pcre2_code_free(re);\n  if (rc == PCRE2_ERROR_NOMATCH) return 0;\n  return rc > 0 ? 1 : -1;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "build fails in pcre2.h, something like PCRE2_CODE_UNIT_WIDTH must be defined",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, I missed that. pcre2.h has to know whether you want the 8, 16 or 32 bit library before it is included, and it uses PCRE2_CODE_UNIT_WIDTH to map names like pcre2_compile to pcre2_compile_8. These are char strings, so define it as 8 just above the include. The library to link is -lpcre2-8."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^#include <pcre2.h>/#define PCRE2_CODE_UNIT_WIDTH 8\\n&/' src/log/parse.c"
+        }
+      ]
+    },
+    {
+      "user": "also prod logs have lowercase error: too. catch both",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the idea: leave the pattern alone and let a compile option absorb it. With PCRE2_CASELESS, [A-Z]+ matches lowercase as well. The level keeps whatever case the log used, so compare it with strcasecmp."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/PCRE2_ZERO_TERMINATED, 0, \\&errcode/PCRE2_ZERO_TERMINATED, PCRE2_CASELESS, \\&errcode/' src/log/parse.c"
+        }
+      ]
+    }
+  ]
+}

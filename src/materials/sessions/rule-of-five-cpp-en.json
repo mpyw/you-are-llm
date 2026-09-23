@@ -2,7 +2,7 @@
   "id": "rule-of-five-cpp-en",
   "title": "Rule of three, five, then zero",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "cpp",
   "summary": "A double close, copies deleted, moves added, then unique_ptr takes all five away.",
   "files": [

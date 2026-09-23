@@ -1,0 +1,69 @@
+{
+  "id": "moq-verify-csharp-ja",
+  "title": "Setup しかしていない Moq のテストに Verify を足す",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "csharp",
+  "summary": "Setup は呼ばれたかを確かめない。Verify と Times.Once で数え、class の引数は Equals で比べられるので It.Is<T> にし、VerifyNoOtherCalls で余計な送信も落とす。",
+  "files": [
+    {
+      "path": "src/Orders/Mail.cs",
+      "content": "namespace Acme.Orders;\n\npublic class Mail(string to, string subject)\n{\n    public string To { get; } = to;\n    public string Subject { get; } = subject;\n}\n\npublic interface IMailer\n{\n    Task SendAsync(Mail mail, CancellationToken ct);\n}\n"
+    },
+    {
+      "path": "tests/Orders.Tests/OrderServiceTests.cs",
+      "content": "using Acme.Orders;\nusing Moq;\nusing Xunit;\n\nnamespace Acme.Orders.Tests;\n\npublic class OrderServiceTests\n{\n    [Fact]\n    public async Task PlaceAsync_SendsConfirmation()\n    {\n        var mailer = new Mock<IMailer>();\n        mailer\n            .Setup(m => m.SendAsync(It.IsAny<Mail>(), It.IsAny<CancellationToken>()))\n            .Returns(Task.CompletedTask);\n        var service = new OrderService(mailer.Object);\n\n        await service.PlaceAsync(new Order(42, \"a@example.com\"), CancellationToken.None);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "OrderService の確認メール送るとこコメントアウトしてもこのテスト通るんだけど。意味ある？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。Setup は「呼ばれたらこう振る舞う」を決めるだけで、呼ばれたかどうかは確かめません。しかも new Mock<IMailer>() の既定は MockBehavior.Loose なので、Setup のない呼び出しも例外にならず既定値が返ります。つまり今のテストは、PlaceAsync が例外を投げないことしか確かめていません。呼び出しを確かめるのは Verify で、回数は Times で指定します。",
+          "reading": "するどいごしてきです。Setup は「よばれたらこうふるまう」をきめるだけで、よばれたかどうかはたしかめません。しかも new Mock<IMailer>() のきていは MockBehavior.Loose なので、Setup のないよびだしもれいがいにならずきていちがかえります。つまりいまのてすとは、PlaceAsync がれいがいをなげないことしかたしかめていません。よびだしをたしかめるのは Verify で、かいすうは Times でしていします。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "        await service.PlaceAsync(new Order(42, \"a@example.com\"), CancellationToken.None);\n\n        mailer.Verify(\n            m => m.SendAsync(\n                new Mail(\"a@example.com\", \"Order 42 confirmed\"),\n                It.IsAny<CancellationToken>()),\n            Times.Once());\n"
+        },
+        {
+          "kind": "text",
+          "body": "Times.Once() なので、送り忘れだけでなく 2 通送ってしまった場合も失敗することを保証します。",
+          "reading": "Times.Once() なので、おくりわすれだけでなく 2 つうおくってしまったばあいもしっぱいすることをほしょうします。"
+        }
+      ]
+    },
+    {
+      "user": "コメントアウト戻したら今度は落ちる。Expected invocation on the mock once, but was 0 times だって。ログ見るとちゃんと送ってるのに",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません、私の誤りでした。Verify に値をそのまま渡すと、Moq は実際の引数と Equals で比べます。Mail は record ではなく普通の class なので、Equals は参照の比較になり、テストで new した別インスタンスとは中身が同じでも一致しません。中身で比べるには It.Is<Mail> に条件を渡します。件名の文言まで固定するとテストが壊れやすいので、宛先と注文番号だけを見ます。言い換えると、文言の変更に対して堅牢なテストになります。",
+          "reading": "もうしわけありません、わたしのあやまりでした。Verify にあたいをそのままわたすと、Moq はじっさいのひきすうと Equals でくらべます。Mail は record ではなくふつうの class なので、Equals はさんしょうのひかくになり、てすとで new したべついんすたんすとはなかみがおなじでもいっちしません。なかみでくらべるには It.Is<Mail> にじょうけんをわたします。けんめいのもんごんまでこていするとてすとがこわれやすいので、あてさきとちゅうもんばんごうだけをみます。いいかえると、もんごんのへんこうにたいしてけんろうなてすとになります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/new Mail(\"a@example.com\", \"Order 42 confirmed\"),/It.Is<Mail>(x => x.To == \"a@example.com\" \\&\\& x.Subject.Contains(\"42\")),/' tests/Orders.Tests/OrderServiceTests.cs"
+        }
+      ]
+    },
+    {
+      "user": "通った。あ、前に管理者にも同じ確認メール飛んでたバグあったんだけど、これで防げる？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、今の Verify では防げません。It.Is<Mail> の条件に合う呼び出しが 1 回あるかを数えるだけなので、宛先が管理者の呼び出しが別にあっても通ります。最後に VerifyNoOtherCalls を足すと、Verify で確かめていない呼び出しが一つでも残っていれば失敗します。Setup に一致しただけの呼び出しは確認済みに数えられない点に注意することが重要です。",
+          "reading": "けつろんからいうと、いまの Verify ではふせげません。It.Is<Mail> のじょうけんにあうよびだしが 1 かいあるかをかぞえるだけなので、あてさきがかんりしゃのよびだしがべつにあってもとおります。さいごに VerifyNoOtherCalls をたすと、Verify でたしかめていないよびだしがひとつでものこっていればしっぱいします。Setup にいっちしただけのよびだしはかくにんずみにかぞえられないてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "        mailer.Verify(\n            m => m.SendAsync(\n                It.Is<Mail>(x => x.To == \"a@example.com\" && x.Subject.Contains(\"42\")),\n                It.IsAny<CancellationToken>()),\n            Times.Once());\n        mailer.VerifyNoOtherCalls();\n"
+        }
+      ]
+    }
+  ]
+}

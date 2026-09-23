@@ -1,0 +1,46 @@
+{
+  "id": "dapper-query-csharp-ja",
+  "title": "文字列連結の SQL を Dapper に置き換える",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "csharp",
+  "summary": "値を SQL に連結していた検索を、Dapper の QueryAsync<T> と匿名オブジェクトのパラメータに直し、ステータスの複数指定も足す。",
+  "files": [
+    {
+      "path": "src/Data/OrderRepository.cs",
+      "content": "using Microsoft.Data.SqlClient;\n\nnamespace Acme.Orders.Data;\n\npublic sealed class OrderRepository(string connectionString)\n{\n    public List<Order> FindByCustomer(string customerCode, string status)\n    {\n        using var connection = new SqlConnection(connectionString);\n        connection.Open();\n        using var command = connection.CreateCommand();\n        command.CommandText =\n            \"SELECT Id, CustomerCode, Status, Total FROM Orders \" +\n            \"WHERE CustomerCode = '\" + customerCode + \"' AND Status = '\" + status + \"'\";\n        using var reader = command.ExecuteReader();\n        var orders = new List<Order>();\n        while (reader.Read())\n        {\n            orders.Add(new Order(\n                reader.GetInt32(0), reader.GetString(1), reader.GetString(2), reader.GetDecimal(3)));\n        }\n        return orders;\n    }\n}\n\npublic sealed record Order(int Id, string CustomerCode, string Status, decimal Total);\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "OrderRepository の検索、文字列くっつけてSQL作ってて静的解析に怒られた。Dapper は入ってるのでそれで書き直して。ついでに async に",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。値を SQL に連結するのをやめ、@customerCode と @status のプレースホルダにします。値は匿名オブジェクトで渡すと、Dapper がプロパティと同じ名前のパラメータとして送ります。値が SQL の一部として解釈されることはないので、インジェクションに対して堅牢になります。行から Order への詰め替えも QueryAsync<Order> が列名で行うので、reader のループは要りません。",
+          "reading": "しょうちしました。あたいを SQL にれんけつするのをやめ、@customerCode と @status のぷれーすほるだにします。あたいはとくめいおぶじぇくとでわたすと、Dapper がぷろぱてぃとおなじなまえのぱらめーたとしておくります。あたいが SQL のいちぶとしてかいしゃくされることはないので、いんじぇくしょんにたいしてけんろうになります。ぎょうから Order へのつめかえも QueryAsync<Order> がれつめいでおこなうので、reader のるーぷはいりません。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using Dapper;\nusing Microsoft.Data.SqlClient;\n\npublic async Task<IReadOnlyList<Order>> FindByCustomerAsync(\n    string customerCode, string status, CancellationToken ct)\n{\n    const string sql = \"\"\"\n        SELECT Id, CustomerCode, Status, Total\n        FROM Orders\n        WHERE CustomerCode = @customerCode AND Status = @status\n        \"\"\";\n\n    await using var connection = new SqlConnection(connectionString);\n    var orders = await connection.QueryAsync<Order>(\n        new CommandDefinition(sql, new { customerCode, status }, cancellationToken: ct));\n    return orders.AsList();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "動いた。けどステータス複数で絞りたいって言われた、paid と shipped 両方とか",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "引数を配列にして、SQL は IN @statuses と書きます。Dapper は IEnumerable の値を見つけると @statuses1, @statuses2 のように展開し、括弧も自分で付けます。言い換えると、IN (@statuses) と括弧を書く必要はありません。Note: 空の配列を渡すと、Dapper は常に偽になる条件を出すので、エラーではなく 0 件が返ります。",
+          "reading": "ひきすうをはいれつにして、SQL は IN @statuses とかきます。Dapper は IEnumerable のあたいをみつけると @statuses1, @statuses2 のようにてんかいし、かっこもじぶんでつけます。いいかえると、IN (@statuses) とかっこをかくひつようはありません。Note: からのはいれつをわたすと、Dapper はつねにぎになるじょうけんをだすので、えらーではなく 0 けんがかえります。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public async Task<IReadOnlyList<Order>> FindByCustomerAsync(\n    string customerCode, IReadOnlyCollection<string> statuses, CancellationToken ct)\n{\n    const string sql = \"\"\"\n        SELECT Id, CustomerCode, Status, Total\n        FROM Orders\n        WHERE CustomerCode = @customerCode AND Status IN @statuses\n        \"\"\";\n\n    await using var connection = new SqlConnection(connectionString);\n    var orders = await connection.QueryAsync<Order>(\n        new CommandDefinition(sql, new { customerCode, statuses }, cancellationToken: ct));\n    return orders.AsList();\n}\n"
+        }
+      ]
+    }
+  ]
+}

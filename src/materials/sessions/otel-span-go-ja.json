@@ -1,0 +1,75 @@
+{
+  "id": "otel-span-go-ja",
+  "title": "OpenTelemetry のスパンが Jaeger に出ずトレースも途切れる",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "go",
+  "summary": "End を呼ばず ctx も捨てていたスパンを直し、エラーを RecordError と SetStatus で記録する。RecordError だけでは status が Error にならない。",
+  "files": [
+    {
+      "path": "internal/checkout/service.go",
+      "content": "package checkout\n\nimport (\n  \"context\"\n\n  \"go.opentelemetry.io/otel\"\n  \"go.opentelemetry.io/otel/attribute\"\n)\n\nvar tracer = otel.Tracer(\"checkout\")\n\ntype Service struct {\n  carts    CartStore\n  payments Payments\n  orders   OrderStore\n}\n\nfunc (s *Service) PlaceOrder(ctx context.Context, cartID string) (string, error) {\n  _, span := tracer.Start(ctx, \"checkout.PlaceOrder\")\n  span.SetAttributes(attribute.String(\"cart.id\", cartID))\n\n  cart, err := s.carts.Load(ctx, cartID)\n  if err != nil {\n    return \"\", err\n  }\n  if err := s.payments.Charge(ctx, cart.Total); err != nil {\n    return \"\", err\n  }\n  return s.orders.Create(ctx, cart)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "PlaceOrder にスパン張ったのに Jaeger に出てこない。payments.Charge のスパンは出るけど毎回それがルートになってて PlaceOrder とつながってない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "順を追って説明します。まず span.End() を呼んでいないので、スパンが終了せず、エクスポーターに渡りません。OpenTelemetry Go は終わったスパンしか送らないので、Jaeger には何も届きません。次に、tracer.Start が返す ctx を _ で捨てています。新しいスパンはこの ctx に入っているので、元の ctx を渡された Charge は親を見つけられず、新しいトレースのルートになります。返った ctx で元の変数を上書きし、直後に defer span.End() を置けば、どの return から抜けても End が呼ばれることを保証します。",
+          "reading": "じゅんをおってせつめいします。まず span.End() をよんでいないので、スパンがしゅうりょうせず、エクスポーターにわたりません。OpenTelemetry Go はおわったスパンしかおくらないので、Jaeger にはなにもとどきません。つぎに、tracer.Start がかえす ctx を _ ですてています。あたらしいスパンはこの ctx にはいっているので、もとの ctx をわたされた Charge はおやをみつけられず、あたらしいトレースのルートになります。かえった ctx でもとのへんすうをうわがきし、ちょくごに defer span.End() をおけば、どの return からぬけても End がよばれることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (s *Service) PlaceOrder(ctx context.Context, cartID string) (string, error) {\n  ctx, span := tracer.Start(ctx, \"checkout.PlaceOrder\")\n  defer span.End()\n  span.SetAttributes(attribute.String(\"cart.id\", cartID))\n\n  cart, err := s.carts.Load(ctx, cartID)\n  if err != nil {\n    return \"\", err\n  }\n  if err := s.payments.Charge(ctx, cart.Total); err != nil {\n    return \"\", err\n  }\n  return s.orders.Create(ctx, cart)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "つながった。ついでに決済コケたとき Jaeger で赤くしたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。span.RecordError(err) を呼ぶと、そのスパンはエラーとして記録され、Jaeger でも赤く表示されます。return のたびに書くと漏れるので、記録して err をそのまま返す小さな関数 fail にまとめました。Create の戻り値も一度受けてから判定します。import に go.opentelemetry.io/otel/trace を足してください。",
+          "reading": "しょうちしました。span.RecordError(err) をよぶと、そのスパンはエラーとしてきろくされ、Jaeger でもあかくひょうじされます。return のたびにかくともれるので、きろくして err をそのままかえすちいさなかんすう fail にまとめました。Create のもどりちもいちどうけてからはんていします。import に go.opentelemetry.io/otel/trace をたしてください。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (s *Service) PlaceOrder(ctx context.Context, cartID string) (string, error) {\n  ctx, span := tracer.Start(ctx, \"checkout.PlaceOrder\")\n  defer span.End()\n  span.SetAttributes(attribute.String(\"cart.id\", cartID))\n\n  cart, err := s.carts.Load(ctx, cartID)\n  if err != nil {\n    return \"\", fail(span, err)\n  }\n  if err := s.payments.Charge(ctx, cart.Total); err != nil {\n    return \"\", fail(span, err)\n  }\n  orderID, err := s.orders.Create(ctx, cart)\n  if err != nil {\n    return \"\", fail(span, err)\n  }\n  return orderID, nil\n}\n\nfunc fail(span trace.Span, err error) error {\n  span.RecordError(err)\n  return err\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "exception ってイベントは付いたけど赤くならない。status 見たら Unset のまま",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、先ほどの説明は正確ではありませんでした。RecordError は exception という名前のイベントをスパンに足すだけで、スパンの status には触りません。Jaeger が赤くするのは status が Error のスパンなので、span.SetStatus(codes.Error, ...) を別に呼ぶ必要があります。この codes は go.opentelemetry.io/otel/codes で、gRPC の codes とは別物である点に注意することが重要です。",
+          "reading": "あらためてかくにんしたところ、さきほどのせつめいはせいかくではありませんでした。RecordError は exception というなまえのイベントをスパンにたすだけで、スパンの status にはさわりません。Jaeger があかくするのは status が Error のスパンなので、span.SetStatus(codes.Error, ...) をべつによぶひつようがあります。この codes は go.opentelemetry.io/otel/codes で、gRPC の codes とはべつものであるてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func fail(span trace.Span, err error) error {\n  span.RecordError(err)\n  span.SetStatus(codes.Error, err.Error())\n  return err\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "レビューで tracer の名前 checkout じゃなくてパッケージの import パスにしろって言われた。example.com/shop/internal/checkout",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ご指摘のとおりです。otel.Tracer に渡す名前は計装を識別するためのもので、慣例としてパッケージの import パスを使います。1 箇所なので sed で置き換えます。",
+          "reading": "ごしてきのとおりです。otel.Tracer にわたすなまえはけいそうをしきべつするためのもので、かんれいとしてパッケージの import パスをつかいます。1 かしょなので sed でおきかえます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's#otel.Tracer(\"checkout\")#otel.Tracer(\"example.com/shop/internal/checkout\")#' internal/checkout/service.go"
+        }
+      ]
+    }
+  ]
+}

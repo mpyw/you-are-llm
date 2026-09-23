@@ -1,0 +1,50 @@
+{
+  "id": "cache-evict-java-ja",
+  "title": "@Cacheable が効かない、効いたら今度は古い値が返る",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "java",
+  "summary": "@EnableCaching を足してキャッシュを効かせ、更新と削除で同じキーを書き戻して消す。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/ShopApplication.java",
+      "content": "package com.example;\n\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\n\n@SpringBootApplication\npublic class ShopApplication {\n    public static void main(String[] args) {\n        SpringApplication.run(ShopApplication.class, args);\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/product/ProductService.java",
+      "content": "package com.example.product;\n\nimport org.springframework.cache.annotation.Cacheable;\nimport org.springframework.stereotype.Service;\nimport org.springframework.transaction.annotation.Transactional;\n\n@Service\npublic class ProductService {\n    private final ProductRepository productRepository;\n\n    public ProductService(ProductRepository productRepository) {\n        this.productRepository = productRepository;\n    }\n\n    @Cacheable(\"products\")\n    public Product find(long id) {\n        return productRepository.findById(id).orElseThrow(() -> new ProductNotFoundException(id));\n    }\n\n    @Transactional\n    public Product update(long id, UpdateProductRequest request) {\n        Product product = productRepository.findById(id).orElseThrow(() -> new ProductNotFoundException(id));\n        product.changePrice(request.price());\n        return product;\n    }\n\n    @Transactional\n    public void delete(long id) {\n        productRepository.deleteById(id);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "商品詳細に @Cacheable 付けたんだけど、ログ見ると毎回 select 飛んでる。キャッシュ効いてなくない？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。原因は @EnableCaching がないことです。@Cacheable は付けただけでは何もせず、@EnableCaching があって初めてキャッシュ用のプロキシが Bean を包みます。キャッシュのライブラリを入れていなければ、Spring Boot は ConcurrentHashMap を使う簡易な CacheManager を自動で用意します。起動クラスに 1 行足しましょう！",
+          "reading": "しょうちしました。げんいんは @EnableCaching がないことです。@Cacheable はつけただけではなにもせず、@EnableCaching があってはじめてキャッシュようのプロキシが Bean をつつみます。キャッシュのライブラリをいれていなければ、Spring Boot は ConcurrentHashMap をつかうかんいな CacheManager をじどうでよういします。きどうクラスに 1 ぎょうたしましょう！"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example;\n\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\nimport org.springframework.cache.annotation.EnableCaching;\n\n@SpringBootApplication\n@EnableCaching\npublic class ShopApplication {\n    public static void main(String[] args) {\n        SpringApplication.run(ShopApplication.class, args);\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "効いた。けど今度は管理画面で価格変えても詳細が古いまま。再起動すると直る",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: キャッシュは DB の中身が変わったことを知りません。更新では @CachePut で新しい値を書き戻し、削除では @CacheEvict で消します。ここではキーの指定に注意することが重要です。key を省略すると引数すべてからキーが作られるので、update(id, request) は SimpleKey(id, request) という別のキーに書き込み、find(id) が読む id のキーは古いまま残ります。どちらも key = \"#id\" と明示します。",
+          "reading": "Note: キャッシュは DB のなかみがかわったことをしりません。こうしんでは @CachePut であたらしいあたいをかきもどし、さくじょでは @CacheEvict でけします。ここではキーのしていにちゅういすることがじゅうようです。key をしょうりゃくするとひきすうすべてからキーがつくられるので、update(id, request) は SimpleKey(id, request) というべつのキーにかきこみ、find(id) がよむ id のキーはふるいままのこります。どちらも key = \"#id\" とめいじします。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import org.springframework.cache.annotation.CacheEvict;\nimport org.springframework.cache.annotation.CachePut;\n\n@CachePut(cacheNames = \"products\", key = \"#id\")\n@Transactional\npublic Product update(long id, UpdateProductRequest request) {\n    Product product = productRepository.findById(id).orElseThrow(() -> new ProductNotFoundException(id));\n    product.changePrice(request.price());\n    return product;\n}\n\n@CacheEvict(cacheNames = \"products\", key = \"#id\")\n@Transactional\npublic void delete(long id) {\n    productRepository.deleteById(id);\n}\n"
+        }
+      ]
+    }
+  ]
+}

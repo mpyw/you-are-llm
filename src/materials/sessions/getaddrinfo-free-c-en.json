@@ -1,0 +1,44 @@
+{
+  "id": "getaddrinfo-free-c-en",
+  "title": "Replace gethostbyname with getaddrinfo",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "c",
+  "summary": "Drop the obsolete gethostbyname, try each getaddrinfo result in turn, and release the list with freeaddrinfo.",
+  "files": [
+    {
+      "path": "src/net/connect.c",
+      "content": "#include <netdb.h>\n#include <stdio.h>\n#include <string.h>\n#include <unistd.h>\n#include <netinet/in.h>\n#include <sys/socket.h>\n\nint connect_to(const char *host, int port) {\n  struct hostent *he = gethostbyname(host);\n  if (he == NULL) {\n    fprintf(stderr, \"lookup failed: %s\\n\", host);\n    return -1;\n  }\n  int fd = socket(AF_INET, SOCK_STREAM, 0);\n  struct sockaddr_in addr;\n  memset(&addr, 0, sizeof addr);\n  addr.sin_family = AF_INET;\n  addr.sin_port = htons(port);\n  memcpy(&addr.sin_addr, he->h_addr_list[0], he->h_length);\n  if (connect(fd, (struct sockaddr *)&addr, sizeof addr) != 0) {\n    close(fd);\n    return -1;\n  }\n  return fd;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "lint says gethostbyname is deprecated. switch it to getaddrinfo. keep port as an int, dont want to touch the callers",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! gethostbyname only returns IPv4 and is not thread safe, so getaddrinfo is the best practice here. It can return several addresses, so rather than taking the first one, we try each in turn and keep the first that connects. The list is allocated by getaddrinfo, so freeaddrinfo releases it whether or not a connect succeeded. Errors come back as the return value, not errno, and gai_strerror turns them into text. The port becomes a string through snprintf."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "int connect_to(const char *host, int port) {\n  char service[8];\n  snprintf(service, sizeof service, \"%d\", port);\n\n  struct addrinfo hints;\n  memset(&hints, 0, sizeof hints);\n  hints.ai_family = AF_UNSPEC;\n  hints.ai_socktype = SOCK_STREAM;\n  hints.ai_flags = AI_NUMERICSERV;\n\n  struct addrinfo *res;\n  int rc = getaddrinfo(host, service, &hints, &res);\n  if (rc != 0) {\n    fprintf(stderr, \"%s: %s\\n\", host, gai_strerror(rc));\n    return -1;\n  }\n\n  int fd = -1;\n  for (struct addrinfo *ai = res; ai != NULL; ai = ai->ai_next) {\n    fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);\n    if (fd < 0) continue;\n    if (connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) break;\n    close(fd);\n    fd = -1;\n  }\n  freeaddrinfo(res);\n  return fd;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "review says gai_strerror just prints System error for EAI_SYSTEM, useless",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch. EAI_SYSTEM means the real cause is in errno. In that case only, we print strerror(errno) instead. Note: this also needs errno.h included."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "  if (rc != 0) {\n    const char *msg = rc == EAI_SYSTEM ? strerror(errno) : gai_strerror(rc);\n    fprintf(stderr, \"%s: %s\\n\", host, msg);\n    return -1;\n  }\n"
+        }
+      ]
+    }
+  ]
+}

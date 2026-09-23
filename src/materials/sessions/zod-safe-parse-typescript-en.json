@@ -1,0 +1,44 @@
+{
+  "id": "zod-safe-parse-typescript-en",
+  "title": "Validate a request body with Zod",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "typescript",
+  "summary": "Replace an as cast on req.body with a Zod 3 schema and safeParse, derive the type with z.infer, and note what Zod 4 renames.",
+  "files": [
+    {
+      "path": "src/server.ts",
+      "content": "import express from 'express'\nimport { createUser } from './users'\n\ntype CreateUserBody = { name: string; email: string }\n\nconst app = express()\napp.use(express.json())\n\napp.post('/users', (req, res) => {\n  const body = req.body as CreateUserBody\n  const user = createUser(body)\n  res.status(201).json(user)\n})\n\napp.listen(3000)\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "POST /users just trusts req.body with an as cast. a number in email goes straight through. added zod (v3)",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Perfect. An as cast is a promise, not a check, so the compiler believes whatever arrives in req.body. Write one Zod 3 schema and derive the type from it with z.infer, so the schema becomes the single source of truth. safeParse does not throw. It hands back success to branch on, and a failure answers 400."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import express from 'express'\nimport { z } from 'zod'\nimport { createUser } from './users'\n\nconst CreateUserBody = z.object({\n  name: z.string().min(1),\n  email: z.string().email(),\n})\n\ntype CreateUserBody = z.infer<typeof CreateUserBody>\n\nconst app = express()\napp.use(express.json())\n\napp.post('/users', (req, res) => {\n  const result = CreateUserBody.safeParse(req.body)\n  if (!result.success) {\n    res.status(400).json({ errors: result.error.flatten().fieldErrors })\n    return\n  }\n  const body: CreateUserBody = result.data\n  const user = createUser(body)\n  res.status(201).json(user)\n})\n\napp.listen(3000)\n"
+        }
+      ]
+    },
+    {
+      "user": "also want an optional age, as a number. and we move to zod 4 next month, does this still work?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: safeParse and z.infer work the same in Zod 4. z.string().email() becomes z.email(), and error.flatten() becomes z.flattenError(result.error). Both old forms are only deprecated in Zod 4, so they still run. age expects a JSON number, which means the string \"3\" is rejected."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { z } from 'zod'\n\nconst CreateUserBody = z.object({\n  name: z.string().min(1),\n  email: z.email(),\n  age: z.number().int().min(0).optional(),\n})\n\ntype CreateUserBody = z.infer<typeof CreateUserBody>\n\n// inside the handler\nif (!result.success) {\n  res.status(400).json({ errors: z.flattenError(result.error).fieldErrors })\n  return\n}\n"
+        }
+      ]
+    }
+  ]
+}

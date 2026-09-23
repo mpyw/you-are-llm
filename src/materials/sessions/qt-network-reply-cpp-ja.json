@@ -1,0 +1,74 @@
+{
+  "id": "qt-network-reply-cpp-ja",
+  "title": "更新チェックのたびに QNetworkReply が残る",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "cpp",
+  "summary": "QNetworkAccessManager の reply は誰も消さず、失敗しても finished は来る。reply->error() を見て deleteLater し、早期 return で後始末を飛ばさない。",
+  "files": [
+    {
+      "path": "src/app/updatechecker.h",
+      "content": "#pragma once\n\n#include <QNetworkAccessManager>\n#include <QObject>\n#include <QString>\n#include <QUrl>\n\nclass UpdateChecker : public QObject\n{\n    Q_OBJECT\n\npublic:\n    explicit UpdateChecker(const QUrl &url, QObject *parent = nullptr);\n\n    void check();\n\nsignals:\n    void checked(const QString &version);\n\nprivate:\n    QUrl url_;\n    QNetworkAccessManager *manager_;\n};\n"
+    },
+    {
+      "path": "src/app/updatechecker.cpp",
+      "content": "#include \"updatechecker.h\"\n\n#include <QJsonDocument>\n#include <QJsonObject>\n#include <QNetworkReply>\n#include <QNetworkRequest>\n\nUpdateChecker::UpdateChecker(const QUrl &url, QObject *parent)\n    : QObject(parent), url_(url), manager_(new QNetworkAccessManager(this))\n{\n}\n\nvoid UpdateChecker::check()\n{\n    QNetworkReply *reply = manager_->get(QNetworkRequest(url_));\n    connect(reply, &QNetworkReply::finished, this, [this, reply] {\n        const auto doc = QJsonDocument::fromJson(reply->readAll());\n        emit checked(doc.object().value(\"version\").toString());\n    });\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "更新チェック 10 分おきに回してて、常駐させとくとメモリがじわじわ増える。あとネット切れてると「新しいバージョン: 」って空で出る。見て",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。原因は二つあります。一つ目に、QNetworkAccessManager が返した QNetworkReply は、終わっても誰も消してくれません。manager の子として残るので、10 分ごとに一つずつ増えていました。finished の中では delete ではなく deleteLater を使います。finished を出している最中の reply を直接消すと、Qt がまだ使っているオブジェクトを消すことになるためです。二つ目に、失敗しても finished は来ます。reply->error() を見ずに readAll していたので、空の本文から空のバージョンが出ていました。404 のような HTTP のエラーも error() に出るので、失敗は新しいシグナル failed で知らせます。",
+          "reading": "するどいごしてきです。げんいんはふたつあります。ひとつめに、QNetworkAccessManager がかえした QNetworkReply は、おわってもだれもけしてくれません。manager のことしてのこるので、10 ぷんごとにひとつずつふえていました。finished のなかでは delete ではなく deleteLater をつかいます。finished をだしているさいちゅうの reply をちょくせつけすと、Qt がまだつかっているおぶじぇくとをけすことになるためです。ふたつめに、しっぱいしても finished はきます。reply->error() をみずに readAll していたので、からのほんぶんからからのばーじょんがでていました。404 のような HTTP のえらーも error() にでるので、しっぱいはあたらしいしぐなる failed でしらせます。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "signals:\n    void checked(const QString &version);\n    void failed(const QString &message);\n"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "    connect(reply, &QNetworkReply::finished, this, [this, reply] {\n        if (reply->error() != QNetworkReply::NoError) {\n            emit failed(reply->errorString());\n            return;\n        }\n        const auto doc = QJsonDocument::fromJson(reply->readAll());\n        emit checked(doc.object().value(\"version\").toString());\n        reply->deleteLater();\n    });\n"
+        }
+      ]
+    },
+    {
+      "user": "増え方はマシになった。けどオフラインで放置するとまだ増えてる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどのコードは、エラーのときに return で抜けるので、最後の deleteLater まで届いていませんでした。オフラインのときだけ reply が残っていたのはそのためです。deleteLater をラムダの先頭に移します。deleteLater はイベントループに戻ってから消すので、先に呼んでも、この後の error() や readAll は安全に使えます。どの経路で抜けても reply が消えることを保証します。",
+          "reading": "もうしわけありません。さきほどのこーどは、えらーのときに return でぬけるので、さいごの deleteLater までとどいていませんでした。おふらいんのときだけ reply がのこっていたのはそのためです。deleteLater をらむだのせんとうにうつします。deleteLater はいべんとるーぷにもどってからけすので、さきによんでも、このあとの error() や readAll はあんぜんにつかえます。どのけいろでぬけても reply がきえることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "    connect(reply, &QNetworkReply::finished, this, [this, reply] {\n        reply->deleteLater();\n        if (reply->error() != QNetworkReply::NoError) {\n            emit failed(reply->errorString());\n            return;\n        }\n        const auto doc = QJsonDocument::fromJson(reply->readAll());\n        emit checked(doc.object().value(\"version\").toString());\n    });\n"
+        }
+      ]
+    },
+    {
+      "user": "直った。でもほかにも get してるとこ 5 個くらいあって、毎回これ書くの？絶対どっかで忘れる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "setAutoDeleteReplies(true) を manager に設定すると、finished の後で manager が reply を deleteLater してくれます。finished に繋いだラムダは消される前に呼ばれるので、中身はそのまま使えます。手で書いた deleteLater は要らなくなるので消します。言い換えると、後始末を呼び出し側ごとに書くのではなく、manager に一か所で任せる形です。これで忘れようのない堅牢な作りになります。",
+          "reading": "setAutoDeleteReplies(true) を manager にせっていすると、finished のあとで manager が reply を deleteLater してくれます。finished につないだらむだはけされるまえによばれるので、なかみはそのままつかえます。てでかいた deleteLater はいらなくなるのでけします。いいかえると、あとしまつをよびだしがわごとにかくのではなく、manager にいっかしょでまかせるかたちです。これでわすれようのないけんろうなつくりになります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/reply->deleteLater();/d' src/app/updatechecker.cpp"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "UpdateChecker::UpdateChecker(const QUrl &url, QObject *parent)\n    : QObject(parent), url_(url), manager_(new QNetworkAccessManager(this))\n{\n    manager_->setAutoDeleteReplies(true);\n}\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "id": "zod-safe-parse-typescript-ja",
+  "title": "リクエストボディを Zod で検証する",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "typescript",
+  "summary": "as でキャストしていた req.body を Zod 3 のスキーマと safeParse で検証し、型は z.infer で導く。Zod 4 で変わる箇所も押さえる。",
+  "files": [
+    {
+      "path": "src/server.ts",
+      "content": "import express from 'express'\nimport { createUser } from './users'\n\ntype CreateUserBody = { name: string; email: string }\n\nconst app = express()\napp.use(express.json())\n\napp.post('/users', (req, res) => {\n  const body = req.body as CreateUserBody\n  const user = createUser(body)\n  res.status(201).json(user)\n})\n\napp.listen(3000)\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "POST /users、req.body を as で信じてるだけなんだよね。email に数字とか来ても通っちゃう。zod 入れた（3 系）",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。as は検査ではなく宣言なので、req.body に何が来てもコンパイラは信じてしまいます。Zod 3 でスキーマを一つ書き、型は z.infer でそこから導きます。言い換えると、スキーマが型の唯一の情報源になります。safeParse は例外を投げずに success で分岐できるので、失敗なら 400 を返します。",
+          "reading": "かしこまりました。as はけんさではなくせんげんなので、req.body になにがきてもこんぱいらはしんじてしまいます。Zod 3 ですきーまをひとつかき、かたは z.infer でそこからみちびきます。いいかえると、すきーまがかたのゆいいつのじょうほうげんになります。safeParse はれいがいをなげずに success でぶんきできるので、しっぱいなら 400 をかえします。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import express from 'express'\nimport { z } from 'zod'\nimport { createUser } from './users'\n\nconst CreateUserBody = z.object({\n  name: z.string().min(1),\n  email: z.string().email(),\n})\n\ntype CreateUserBody = z.infer<typeof CreateUserBody>\n\nconst app = express()\napp.use(express.json())\n\napp.post('/users', (req, res) => {\n  const result = CreateUserBody.safeParse(req.body)\n  if (!result.success) {\n    res.status(400).json({ errors: result.error.flatten().fieldErrors })\n    return\n  }\n  const body: CreateUserBody = result.data\n  const user = createUser(body)\n  res.status(201).json(user)\n})\n\napp.listen(3000)\n"
+        }
+      ]
+    },
+    {
+      "user": "age も任意で受けたい、数値で。あと来月 zod 4 に上げるんだけどこれそのまま動く？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: Zod 4 でも safeParse と z.infer はそのまま使えます。ただし z.string().email() は z.email() に、error.flatten() は z.flattenError(result.error) に置き換えることをお勧めします。どちらも Zod 4 では非推奨になっただけで、まだ動きます。age は JSON の数値で来る前提なので、文字列の \"3\" は弾きます。",
+          "reading": "Note: Zod 4 でも safeParse と z.infer はそのままつかえます。ただし z.string().email() は z.email() に、error.flatten() は z.flattenError(result.error) におきかえることをおすすめします。どちらも Zod 4 ではひすいしょうになっただけで、まだうごきます。age は JSON のすうちでくるぜんていなので、もじれつの \"3\" ははじきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { z } from 'zod'\n\nconst CreateUserBody = z.object({\n  name: z.string().min(1),\n  email: z.email(),\n  age: z.number().int().min(0).optional(),\n})\n\ntype CreateUserBody = z.infer<typeof CreateUserBody>\n\n// inside the handler\nif (!result.success) {\n  res.status(400).json({ errors: z.flattenError(result.error).fieldErrors })\n  return\n}\n"
+        }
+      ]
+    }
+  ]
+}

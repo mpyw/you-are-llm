@@ -2,7 +2,7 @@
   "id": "curl-global-init-c-ja",
   "title": "libcurl の初期化を一度だけにして接続を使い回す",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "c",
   "summary": "リクエストごとの curl_global_init をやめ、1 本の easy ハンドルで URL を回して接続を再利用する。",
   "files": [

@@ -1,0 +1,61 @@
+{
+  "id": "asio-coroutine-cpp-en",
+  "title": "Asio callback nesting to co_await",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "cpp",
+  "summary": "Nested callbacks become a coroutine with co_spawn and use_awaitable. detached silently drops exceptions, so the completion handler takes the exception_ptr. cancel_after puts a deadline on the read.",
+  "files": [
+    {
+      "path": "src/tools/ping.cpp",
+      "content": "#include <iostream>\n#include <memory>\n#include <string>\n\n#include <boost/asio.hpp>\n\nusing boost::asio::ip::tcp;\n\nclass Pinger : public std::enable_shared_from_this<Pinger> {\n public:\n  Pinger(boost::asio::io_context& io, std::string host)\n      : resolver_(io), socket_(io), host_(std::move(host)) {}\n\n  void start() {\n    auto self = shared_from_this();\n    resolver_.async_resolve(host_, \"7000\",\n        [self](boost::system::error_code ec, tcp::resolver::results_type endpoints) {\n          if (ec) return self->fail(\"resolve\", ec);\n          boost::asio::async_connect(self->socket_, endpoints,\n              [self](boost::system::error_code ec, const tcp::endpoint&) {\n                if (ec) return self->fail(\"connect\", ec);\n                self->send();\n              });\n        });\n  }\n\n private:\n  void send() {\n    auto self = shared_from_this();\n    boost::asio::async_write(socket_, boost::asio::buffer(request_),\n        [self](boost::system::error_code ec, std::size_t) {\n          if (ec) return self->fail(\"write\", ec);\n          boost::asio::async_read_until(self->socket_, boost::asio::dynamic_buffer(self->line_), '\\n',\n              [self](boost::system::error_code ec, std::size_t) {\n                if (ec) return self->fail(\"read\", ec);\n                std::cout << self->host_ << \": \" << self->line_;\n              });\n        });\n  }\n\n  void fail(const char* what, boost::system::error_code ec) {\n    std::cerr << host_ << \": \" << what << \" failed: \" << ec.message() << \"\\n\";\n  }\n\n  tcp::resolver resolver_;\n  tcp::socket socket_;\n  std::string host_;\n  std::string request_ = \"PING\\r\\n\";\n  std::string line_;\n};\n\nint main() {\n  boost::asio::io_context io;\n  for (const char* host : {\"db1.internal\", \"db2.internal\", \"db3.internal\"}) {\n    std::make_shared<Pinger>(io, host)->start();\n  }\n  io.run();\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "our db health check tool has callbacks nested so deep nobody can read it. we are on C++20 now, rewrite it with co_await. same behavior as today",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great idea! With co_spawn and use_awaitable from Boost.Asio, the four steps of resolve, connect, write and read become one function that reads top to bottom. The socket and the resolver are locals in the coroutine frame, so there is no need for shared_from_this to keep them alive. A failed operation throws system_error instead of handing back an error_code, so no error can slip past unnoticed."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include <iostream>\n#include <string>\n#include <string_view>\n\n#include <boost/asio.hpp>\n\nusing boost::asio::awaitable;\nusing boost::asio::use_awaitable;\nusing boost::asio::ip::tcp;\n\nawaitable<void> ping(std::string host) {\n  auto executor = co_await boost::asio::this_coro::executor;\n  tcp::resolver resolver(executor);\n  tcp::socket socket(executor);\n\n  auto endpoints = co_await resolver.async_resolve(host, \"7000\", use_awaitable);\n  co_await boost::asio::async_connect(socket, endpoints, use_awaitable);\n  co_await boost::asio::async_write(socket, boost::asio::buffer(std::string_view(\"PING\\r\\n\")), use_awaitable);\n\n  std::string line;\n  co_await boost::asio::async_read_until(socket, boost::asio::dynamic_buffer(line), '\\n', use_awaitable);\n  std::cout << host << \": \" << line;\n}\n\nint main() {\n  boost::asio::io_context io;\n  for (const char* host : {\"db1.internal\", \"db2.internal\", \"db3.internal\"}) {\n    boost::asio::co_spawn(io, ping(host), boost::asio::detached);\n  }\n  io.run();\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "Note: host is taken as a std::string by value. With const std::string& it would point at the temporary that main builds from a const char*, and that temporary is gone by the time the coroutine resumes after its first co_await. Taking coroutine parameters by value is the best practice here."
+        }
+      ]
+    },
+    {
+      "user": "killed db2 on purpose to test. nothing printed at all. it used to say connect failed",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "I need to correct my earlier claim. An exception that escapes the coroutine is passed to the completion handler of co_spawn as a std::exception_ptr, and detached throws that exception_ptr away without a word. So errors could slip past after all. Write the completion handler yourself, rethrow with rethrow_exception, and print the message next to the host. The what() of a system_error carries a file name and a line number and gets long, so print only code().message()."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "int main() {\n  boost::asio::io_context io;\n  for (const char* host : {\"db1.internal\", \"db2.internal\", \"db3.internal\"}) {\n    boost::asio::co_spawn(io, ping(host), [host](std::exception_ptr error) {\n      if (!error) return;\n      try {\n        std::rethrow_exception(error);\n      } catch (const boost::system::system_error& e) {\n        std::cerr << host << \": \" << e.code().message() << \"\\n\";\n      }\n    });\n  }\n  io.run();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "works. also one host that never answers keeps the whole thing from finishing. cut just the read at 3 seconds",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Use cancel_after. It is a completion token adapter added in Boost 1.86 that sends a cancellation to an operation that runs past its time. Only the read_until line changes, so resolve and connect wait as before. A read that gets cut off throws operation_aborted, and the completion handler from before prints Operation canceled. The io_context runs on a single thread, which covers the strand requirement the documentation states."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/async_read_until/s/use_awaitable)/boost::asio::cancel_after(std::chrono::seconds(3), use_awaitable))/' src/tools/ping.cpp"
+        }
+      ]
+    }
+  ]
+}
