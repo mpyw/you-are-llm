@@ -5,6 +5,7 @@ import type {
   Difficulty,
   Language,
   Session,
+  SessionSummary,
   SourceFile,
   Turn,
 } from './types'
@@ -97,8 +98,10 @@ function parseFile(value: unknown, path: string): SourceFile {
   }
 }
 
-export function parseSession(value: unknown): Session {
-  const raw = asRecord(value, 'session')
+type Header = Omit<SessionSummary, 'steps'>
+
+/** The fields a session and its summary share, checked the same way for both. */
+function parseHeader(raw: Record<string, unknown>): Header {
   const id = asString(raw.id, 'session.id')
   const language = asString(raw.language, `${id}.language`)
   if (!isLanguage(language)) throw new MaterialError(`${id}.language`, [...LANGUAGES].join(' or '))
@@ -117,6 +120,25 @@ export function parseSession(value: unknown): Session {
     difficulty,
     codeLanguage,
     summary: asString(raw.summary, `${id}.summary`),
+  }
+}
+
+export function parseSummary(value: unknown): SessionSummary {
+  const raw = asRecord(value, 'summary')
+  const header = parseHeader(raw)
+  const steps = raw.steps
+  if (typeof steps !== 'number' || !Number.isInteger(steps) || steps < 0) {
+    throw new MaterialError(`${header.id}.steps`, 'a whole number')
+  }
+  return { ...header, steps }
+}
+
+export function parseSession(value: unknown): Session {
+  const raw = asRecord(value, 'session')
+  const header = parseHeader(raw)
+  const { id } = header
+  return {
+    ...header,
     files: asArray(raw.files, `${id}.files`).map((file, index) =>
       parseFile(file, `${id}.files[${String(index)}]`),
     ),

@@ -1,9 +1,15 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import type { Language } from '../materials'
-import { ANY, CODE_LANGUAGE_LABELS, DIFFICULTY_LABELS, filtersFrom, matches, sessions } from '../materials'
+import {
+  ANY,
+  CODE_LANGUAGE_LABELS,
+  DIFFICULTY_LABELS,
+  filtersFrom,
+  matches,
+  sessionIndex,
+} from '../materials'
 import { Demo } from '../typing/Demo'
 import { Logo } from '../ui/Logo'
-import { toSteps } from '../typing/steps'
 
 export const Route = createFileRoute('/')({
   validateSearch: filtersFrom,
@@ -17,8 +23,8 @@ const DEMO_BODY = '承知しました。正本を確認します。'
 const DEMO_TARGET = 'しょうちしました。せいほんをかくにんします。'
 
 function Hero() {
-  const languages = new Set(sessions.map((session) => session.codeLanguage))
-  const tiers = new Set(sessions.map((session) => session.difficulty))
+  const languages = new Set(sessionIndex.map((session) => session.codeLanguage))
+  const tiers = new Set(sessionIndex.map((session) => session.difficulty))
   return (
     <section className="hero">
       <p className="hero-kicker">A typing trainer</p>
@@ -31,7 +37,7 @@ function Hero() {
       </p>
       <Demo body={DEMO_BODY} target={DEMO_TARGET} />
       <p className="hero-stats">
-        {sessions.length} sessions · {languages.size} languages · {tiers.size} difficulties · ja
+        {sessionIndex.length} sessions · {languages.size} languages · {tiers.size} difficulties · ja
         and en
       </p>
       <a className="hero-start" href="#sessions">
@@ -43,7 +49,7 @@ function Hero() {
 
 function SessionList() {
   const filters = Route.useSearch()
-  const shown = sessions.filter((session) => matches(session, filters))
+  const shown = sessionIndex.filter((session) => matches(session, filters))
 
   return (
     <main className="list">
@@ -70,7 +76,7 @@ function SessionList() {
       </div>
 
       <p className="count">
-        {shown.length} of {sessions.length}
+        {shown.length} of {sessionIndex.length}
       </p>
 
       {shown.length === 0 ? (
@@ -88,7 +94,7 @@ function SessionList() {
                     {DIFFICULTY_LABELS[session.difficulty]}
                   </span>
                   <span className="badge">{session.language}</span>
-                  <span className="meta">{toSteps(session).length} steps</span>
+                  <span className="meta">{session.steps} steps</span>
                 </span>
               </Link>
             </li>

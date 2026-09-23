@@ -68,6 +68,22 @@ export const DIFFICULTY_LABELS: Readonly<Record<Difficulty, string>> = {
   expertplus: 'Expert+',
 }
 
+/**
+ * What the list needs to show a session without loading its body. The build
+ * writes one of these per file, so the front page does not carry every turn of
+ * every session.
+ */
+export interface SessionSummary {
+  readonly id: string
+  readonly title: string
+  readonly language: Language
+  readonly difficulty: Difficulty
+  readonly codeLanguage: CodeLanguage
+  readonly summary: string
+  /** Blocks across every turn, which is how many runs the typist goes through. */
+  readonly steps: number
+}
+
 export interface Session {
   readonly id: string
   readonly title: string

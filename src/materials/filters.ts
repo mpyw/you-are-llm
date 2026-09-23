@@ -1,5 +1,5 @@
 import { isCodeLanguage, isDifficulty, isLanguage } from './parse'
-import type { CodeLanguage, Difficulty, Language, Session } from './types'
+import type { CodeLanguage, Difficulty, Language, SessionSummary } from './types'
 
 /** What the list shows when a filter is off. Language says it out loud. */
 export const ANY = 'all'
@@ -32,7 +32,10 @@ export function filtersFrom(search: Record<string, unknown>): Filters {
   }
 }
 
-export function matches(session: Session, filters: Filters): boolean {
+export function matches(
+  session: Pick<SessionSummary, 'language' | 'difficulty' | 'codeLanguage'>,
+  filters: Filters,
+): boolean {
   if (filters.lang !== ANY && filters.lang !== undefined && session.language !== filters.lang) {
     return false
   }

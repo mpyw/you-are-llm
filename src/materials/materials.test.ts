@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { validate } from '../../scripts/check-material.mjs'
 import { TypingSession, untypeableCharacters } from '../engine'
 import { toSteps } from '../typing/steps'
-import { sessions } from './index'
+import { loadSession, sessionIndex } from './index'
 import { parseSession } from './parse'
 
 /**
@@ -17,6 +17,10 @@ const TURNS_THAT_NEED_A_COMMAND = 3
 
 const files = import.meta.glob<unknown>('./sessions/*.json', { eager: true, import: 'default' })
 
+const sessions = Object.keys(files)
+  .sort()
+  .map((path) => parseSession(files[path]))
+
 describe('the material set', () => {
   it('is not empty', () => {
     expect(sessions.length).toBeGreaterThan(0)
@@ -25,6 +29,37 @@ describe('the material set', () => {
   it('gives every session a unique id', () => {
     const ids = sessions.map((session) => session.id)
     expect(new Set(ids).size).toBe(ids.length)
+  })
+
+  it('lists every file in the index the front page reads', () => {
+    expect(sessionIndex.map((summary) => summary.id).sort()).toEqual(
+      sessions.map((session) => session.id).sort(),
+    )
+  })
+
+  it('agrees with the body on everything the list shows', () => {
+    // The index is written by the build, not by hand, but it is a second copy.
+    // A copy that drifts shows a title or a step count the session does not have.
+    const wrong = sessionIndex.filter((summary) => {
+      const session = sessions.find((candidate) => candidate.id === summary.id)
+      if (session === undefined) return true
+      return (
+        session.title !== summary.title ||
+        session.summary !== summary.summary ||
+        session.language !== summary.language ||
+        session.difficulty !== summary.difficulty ||
+        session.codeLanguage !== summary.codeLanguage ||
+        toSteps(session).length !== summary.steps
+      )
+    })
+    expect(wrong.map((summary) => summary.id)).toEqual([])
+  })
+
+  it('loads a body by id, and nothing for an id it does not have', async () => {
+    const first = sessions[0]
+    if (first === undefined) throw new Error('no sessions')
+    expect((await loadSession(first.id))?.title).toBe(first.title)
+    expect(await loadSession('no-such-session')).toBeUndefined()
   })
 
   it('names every file after the id inside it', () => {

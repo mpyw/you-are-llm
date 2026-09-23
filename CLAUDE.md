@@ -160,3 +160,16 @@ against 33.1 for the next one down.
 
 The grade is relative to the whole set, so adding a batch moves old sessions too. Describe these
 patterns as tendencies, not as lists of names, or every batch breaks the sentence.
+
+## The front page loads an index, not the sessions
+
+Every body used to be bundled eagerly into one chunk. At 366 sessions that was 385 kB gzipped, all
+downloaded by a page that opens none of them, and each batch of 108 added about 110 kB more.
+
+The `session-index` plugin in `vite.config.ts` now writes `virtual:session-index` at build time: the
+id, title, summary, language, difficulty and step count of each file. The list reads only that. A
+body is its own chunk, fetched by the route loader when its session opens.
+
+Keep `eager: false` on the glob in `src/materials/index.ts`. If the list ever needs another field,
+add it to the index rather than importing bodies. `materials.test.ts` checks that the index agrees
+with every body, so a field that drifts fails there.

@@ -1,14 +1,15 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { findSession } from '../materials'
+import { loadSession } from '../materials'
 import { SessionPlayer } from '../typing/SessionPlayer'
 
 export const Route = createFileRoute('/sessions/$sessionId')({
+  // Only the opened session's body is fetched. The list never loads any.
+  loader: ({ params }) => loadSession(params.sessionId),
   component: SessionRoute,
 })
 
 function SessionRoute() {
-  const { sessionId } = Route.useParams()
-  const session = findSession(sessionId)
+  const session = Route.useLoaderData()
 
   if (session === undefined) {
     return (

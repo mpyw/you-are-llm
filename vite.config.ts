@@ -10,10 +10,18 @@ const BASE = '/you-are-llm/'
 const SITE = `https://mpyw.me${BASE}`
 const MATERIAL = 'src/materials/sessions'
 
+/**
+ * What the list shows for one session. `src/materials/parse.ts` checks the
+ * shape again on load, so this side only has to read the fields and count.
+ */
 interface SessionMeta {
   readonly id: string
   readonly title: string
   readonly summary: string
+  readonly language: string
+  readonly difficulty: string
+  readonly codeLanguage: string
+  readonly steps: number
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -25,9 +33,22 @@ function text(value: unknown, where: string): string {
   return value
 }
 
+function list(value: unknown, where: string): readonly unknown[] {
+  if (!Array.isArray(value)) throw new Error(`${where} must be an array`)
+  return value
+}
+
+function countSteps(turns: unknown, where: string): number {
+  return list(turns, `${where}.turns`).reduce<number>((total, turn, index) => {
+    if (!isRecord(turn)) throw new Error(`${where}.turns[${String(index)}] is not an object`)
+    return total + list(turn.assistant, `${where}.turns[${String(index)}].assistant`).length
+  }, 0)
+}
+
 function readSessions(): readonly SessionMeta[] {
   return readdirSync(MATERIAL)
     .filter((name) => name.endsWith('.json'))
+    .sort()
     .map((name) => {
       const raw: unknown = JSON.parse(readFileSync(resolve(MATERIAL, name), 'utf8'))
       if (!isRecord(raw)) throw new Error(`${name} is not an object`)
@@ -35,8 +56,48 @@ function readSessions(): readonly SessionMeta[] {
         id: text(raw.id, `${name}.id`),
         title: text(raw.title, `${name}.title`),
         summary: text(raw.summary, `${name}.summary`),
+        language: text(raw.language, `${name}.language`),
+        difficulty: text(raw.difficulty, `${name}.difficulty`),
+        codeLanguage: text(raw.codeLanguage, `${name}.codeLanguage`),
+        steps: countSteps(raw.turns, name),
       }
     })
+}
+
+const INDEX = 'virtual:session-index'
+const RESOLVED_INDEX = `\0${INDEX}`
+
+/**
+ * The front page lists every session but opens none of them, so it gets this
+ * index and nothing else. Each body stays in its own chunk until a session is
+ * opened. Bundling every body into the entry cost 388 kB gzipped at 366
+ * sessions, and it grew with every batch.
+ */
+function sessionIndex(): Plugin {
+  const folder = resolve(MATERIAL)
+  return {
+    name: 'session-index',
+    resolveId(id) {
+      return id === INDEX ? RESOLVED_INDEX : undefined
+    },
+    load(id) {
+      if (id !== RESOLVED_INDEX) return undefined
+      return `export default ${JSON.stringify(readSessions())}`
+    },
+    configureServer(server) {
+      // A new or deleted file does not touch any module the index imported, so
+      // the watcher has to say so itself.
+      const refresh = (file: string) => {
+        if (!file.startsWith(folder)) return
+        const module = server.moduleGraph.getModuleById(RESOLVED_INDEX)
+        if (module !== undefined) server.moduleGraph.invalidateModule(module)
+        server.ws.send({ type: 'full-reload' })
+      }
+      server.watcher.on('add', refresh)
+      server.watcher.on('unlink', refresh)
+      server.watcher.on('change', refresh)
+    },
+  }
 }
 
 function escapeAttribute(value: string): string {
@@ -95,7 +156,12 @@ function staticPages(): Plugin {
 
 export default defineConfig({
   base: BASE,
-  plugins: [tanstackRouter({ target: 'react', autoCodeSplitting: true }), react(), staticPages()],
+  plugins: [
+    tanstackRouter({ target: 'react', autoCodeSplitting: true }),
+    react(),
+    sessionIndex(),
+    staticPages(),
+  ],
   test: {
     include: ['src/**/*.test.{ts,tsx}'],
   },
