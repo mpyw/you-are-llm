@@ -1,0 +1,65 @@
+{
+  "id": "use-transition-typescript-en",
+  "title": "Keep typing smooth while a heavy filter runs",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "typescript",
+  "summary": "Filtering 5000 products makes the search box stutter. Keep the input urgent and let the list fall behind.",
+  "files": [
+    {
+      "path": "src/components/ProductSearch.tsx",
+      "content": "import { useState } from 'react'\nimport { filterProducts, type Product } from '../lib/filterProducts'\n\nexport function ProductSearch({ products }: { products: Product[] }) {\n  const [query, setQuery] = useState('')\n  const results = filterProducts(products, query)\n\n  return (\n    <>\n      <input value={query} onChange={(e) => setQuery(e.target.value)} />\n      <ul>\n        {results.map((p) => (\n          <li key={p.id}>{p.name}</li>\n        ))}\n      </ul>\n    </>\n  )\n}\n"
+    },
+    {
+      "path": "src/lib/filterProducts.ts",
+      "content": "export type Product = { id: string; name: string }\n\nexport function filterProducts(products: Product[], query: string): Product[] {\n  const q = query.toLowerCase()\n  return products.filter((p) => p.name.toLowerCase().includes(q))\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "product search has like 5000 items and it stutters on every keystroke. will useTransition fix it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! Let's move the filter update to a lower priority with useTransition. An update inside startTransition can be interrupted, so keystrokes are handled first even in the middle of a heavy render. While isPending is true the list is dimmed to show it is catching up."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { useState, useTransition } from 'react'\nimport { filterProducts, type Product } from '../lib/filterProducts'\n\nexport function ProductSearch({ products }: { products: Product[] }) {\n  const [query, setQuery] = useState('')\n  const [isPending, startTransition] = useTransition()\n  const results = filterProducts(products, query)\n\n  return (\n    <>\n      <input\n        value={query}\n        onChange={(e) => startTransition(() => setQuery(e.target.value))}\n      />\n      <ul style={{ opacity: isPending ? 0.5 : 1 }}>\n        {results.map((p) => (\n          <li key={p.id}>{p.name}</li>\n        ))}\n      </ul>\n    </>\n  )\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "worse now. letters show up in bursts",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. I put query in the transition, and query is what drives the input value, so the input itself was being deferred. The React docs say it plainly: a state variable that controls an input cannot be updated in a Transition. The urgent update and the one that can wait need to be two different values. query updates normally, and the list gets a lagging copy from useDeferredValue."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { memo, useDeferredValue, useState } from 'react'\nimport { filterProducts, type Product } from '../lib/filterProducts'\n\ntype ListProps = { products: Product[]; query: string }\n\nconst ProductList = memo(function ProductList({ products, query }: ListProps) {\n  const results = filterProducts(products, query)\n  return (\n    <ul>\n      {results.map((p) => (\n        <li key={p.id}>{p.name}</li>\n      ))}\n    </ul>\n  )\n})\n\nexport function ProductSearch({ products }: { products: Product[] }) {\n  const [query, setQuery] = useState('')\n  const deferredQuery = useDeferredValue(query)\n  const isStale = query !== deferredQuery\n\n  return (\n    <>\n      <input value={query} onChange={(e) => setQuery(e.target.value)} />\n      <div style={{ opacity: isStale ? 0.5 : 1 }}>\n        <ProductList products={products} query={deferredQuery} />\n      </div>\n    </>\n  )\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "The key part is moving the list into a memo component. Without it, every urgent render runs filterProducts anyway and deferring buys nothing. For memo to hold, the caller has to keep the products array referentially stable."
+        }
+      ]
+    },
+    {
+      "user": "fixed. but 0.5 is so faint it looks like the list vanished. go 0.8",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Only the number changes."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/isStale ? 0.5 : 1/isStale ? 0.8 : 1/' src/components/ProductSearch.tsx"
+        }
+      ]
+    }
+  ]
+}

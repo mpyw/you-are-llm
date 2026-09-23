@@ -1,0 +1,60 @@
+{
+  "id": "pthread-join-c-ja",
+  "title": "投げっぱなしのスレッドを pthread_join で回収する",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "c",
+  "summary": "sleep で待っていたスレッドを join し、合計を戻り値で受け取る。生成と同じループで join して直列になったのを直す。",
+  "files": [
+    {
+      "path": "src/sum/checksum.c",
+      "content": "#include <pthread.h>\n#include <stdint.h>\n#include <stdio.h>\n#include <unistd.h>\n\n#define NTHREADS 4\n\nstruct job {\n  int id;\n  const unsigned char *data;\n  size_t len;\n};\n\nstatic struct job jobs[NTHREADS];\n\nstatic void *sum_chunk(void *arg) {\n  struct job *job = arg;\n  uint64_t sum = 0;\n  for (size_t i = 0; i < job->len; i++) sum += job->data[i];\n  printf(\"chunk %d: %llu\\n\", job->id, (unsigned long long)sum);\n  return NULL;\n}\n\nvoid checksum(const unsigned char *data, size_t len) {\n  size_t step = len / NTHREADS;\n  for (int i = 0; i < NTHREADS; i++) {\n    jobs[i].id = i;\n    jobs[i].data = data + step * i;\n    jobs[i].len = i == NTHREADS - 1 ? len - step * i : step;\n    pthread_t tid;\n    pthread_create(&tid, NULL, sum_chunk, &jobs[i]);\n  }\n  sleep(1);\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "チェックサムのやつ、でかいファイルだと 4 行出るはずが 3 行しか出ないことある。valgrind も pthread_create で possibly lost って言ってる。あと各スレッドで printf じゃなくて合計を呼び出し元で欲しい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい着眼点です。checksum はスレッドを起動したあと sleep(1) で待っているだけなので、1 秒で終わらなかったスレッドを置いたまま戻り、main が終了すると出力ごと消えます。join も detach もしていないスレッドは、終わってもスタックなどの資源が回収されません。valgrind の possibly lost はそれです。pthread_join で終了を待ち、スレッド関数の戻り値として malloc した合計を受け取ります。jobs もスレッドが動いている間だけあればよいので、関数のローカルに移します。",
+          "reading": "すばらしいちゃくがんてんです。checksum はすれっどをきどうしたあと sleep(1) でまっているだけなので、1 びょうでおわらなかったすれっどをおいたままもどり、main がしゅうりょうするとしゅつりょくごときえます。join も detach もしていないすれっどは、おわってもすたっくなどのしげんがかいしゅうされません。valgrind の possibly lost はそれです。pthread_join でしゅうりょうをまち、すれっどかんすうのもどりちとして malloc したごうけいをうけとります。jobs もすれっどがうごいているあいだだけあればよいので、かんすうのろーかるにうつします。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#include <pthread.h>\n#include <stdint.h>\n#include <stdlib.h>\n\n#define NTHREADS 4\n\nstruct job {\n  const unsigned char *data;\n  size_t len;\n};\n\nstatic void *sum_chunk(void *arg) {\n  const struct job *job = arg;\n  uint64_t *sum = malloc(sizeof *sum);\n  if (sum == NULL) return NULL;\n  *sum = 0;\n  for (size_t i = 0; i < job->len; i++) *sum += job->data[i];\n  return sum;\n}\n\nint checksum(const unsigned char *data, size_t len, uint64_t *total) {\n  struct job jobs[NTHREADS];\n  size_t step = len / NTHREADS;\n  *total = 0;\n  for (int i = 0; i < NTHREADS; i++) {\n    jobs[i].data = data + step * i;\n    jobs[i].len = i == NTHREADS - 1 ? len - step * i : step;\n    pthread_t tid;\n    if (pthread_create(&tid, NULL, sum_chunk, &jobs[i]) != 0) return -1;\n    void *ret;\n    pthread_join(tid, &ret);\n    if (ret == NULL) return -1;\n    *total += *(uint64_t *)ret;\n    free(ret);\n  }\n  return 0;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "結果は合うようになった。けど 4 倍遅い。top 見ると 100% しか使ってない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどのコードは pthread_create の直後に同じループの中で pthread_join しており、1 本目が終わるまで 2 本目を起動していませんでした。言い換えると、スレッドを使った逐次処理になっていました。起動と回収をループ二つに分けます。pthread_create が途中で失敗しても、起動済みのスレッドはすべて join してから戻ります。",
+          "reading": "もうしわけありません。さきほどのこーどは pthread_create のちょくごにおなじるーぷのなかで pthread_join しており、1 ぽんめがおわるまで 2 ほんめをきどうしていませんでした。いいかえると、すれっどをつかったちくじしょりになっていました。きどうとかいしゅうをるーぷふたつにわけます。pthread_create がとちゅうでしっぱいしても、きどうずみのすれっどはすべて join してからもどります。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "int checksum(const unsigned char *data, size_t len, uint64_t *total) {\n  struct job jobs[NTHREADS];\n  pthread_t tids[NTHREADS];\n  size_t step = len / NTHREADS;\n  int started = 0;\n  for (; started < NTHREADS; started++) {\n    jobs[started].data = data + step * started;\n    jobs[started].len = started == NTHREADS - 1 ? len - step * started : step;\n    if (pthread_create(&tids[started], NULL, sum_chunk, &jobs[started]) != 0) break;\n  }\n  int rc = started == NTHREADS ? 0 : -1;\n  *total = 0;\n  for (int i = 0; i < started; i++) {\n    void *ret;\n    pthread_join(tids[i], &ret);\n    if (ret == NULL) {\n      rc = -1;\n      continue;\n    }\n    *total += *(uint64_t *)ret;\n    free(ret);\n  }\n  return rc;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "8 コアのマシンに移ったから 8 本で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。分割は NTHREADS から計算しているので、定義を変えるだけで済みます。最後の塊が端数を引き受けるため、len が 8 で割り切れなくても取りこぼさないことを保証します。",
+          "reading": "かしこまりました。ぶんかつは NTHREADS からけいさんしているので、ていぎをかえるだけですみます。さいごのかたまりがはすうをひきうけるため、len が 8 でわりきれなくてもとりこぼさないことをほしょうします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/#define NTHREADS 4/#define NTHREADS 8/' src/sum/checksum.c"
+        }
+      ]
+    }
+  ]
+}

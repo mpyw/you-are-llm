@@ -1,0 +1,68 @@
+{
+  "id": "soft-deletes-php-ja",
+  "title": "記事の削除を SoftDeletes にしてゴミ箱から戻す",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "物理削除していた記事に deleted_at を足し、ゴミ箱の一覧は onlyTrashed、復元のルートは withTrashed で引く。",
+  "files": [
+    {
+      "path": "app/Models/Post.php",
+      "content": "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass Post extends Model\n{\n    protected $fillable = ['title', 'slug', 'body'];\n}\n"
+    },
+    {
+      "path": "app/Http/Controllers/Admin/PostController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers\\Admin;\n\nuse App\\Http\\Controllers\\Controller;\nuse App\\Models\\Post;\n\nclass PostController extends Controller\n{\n    public function index()\n    {\n        return view('admin.posts.index', [\n            'posts' => Post::latest()->paginate(20),\n        ]);\n    }\n\n    public function destroy(Post $post)\n    {\n        $post->delete();\n\n        return redirect()->route('admin.posts.index');\n    }\n}\n"
+    },
+    {
+      "path": "routes/web.php",
+      "content": "<?php\n\nuse App\\Http\\Controllers\\Admin\\PostController;\nuse Illuminate\\Support\\Facades\\Route;\n\nRoute::prefix('admin')->name('admin.')->middleware('auth')->group(function () {\n    Route::resource('posts', PostController::class)->only(['index', 'destroy']);\n});\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "管理画面で記事消すと DB から完全に消えるのやめたい。間違って消したって問い合わせ来ても戻せなくて詰んだ。論理削除にしといて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。Post に SoftDeletes トレイトを付けて、posts テーブルに deleted_at 列を足します。destroy の $post->delete() はそのままで、行を消す代わりに deleted_at に日時が入ります。削除済みの行は普通のクエリから自動で外れるので、一覧やルートモデルバインディングを書き換える必要はありません。本当に消したいときだけ forceDelete() を呼びます。",
+          "reading": "しょうちしました。Post に SoftDeletes トレイトをつけて、posts テーブルに deleted_at れつをたします。destroy の $post->delete() はそのままで、ぎょうをけすかわりに deleted_at ににちじがはいります。さくじょずみのぎょうはふつうのクエリからじどうではずれるので、いちらんやルートモデルバインディングをかきかえるひつようはありません。ほんとうにけしたいときだけ forceDelete() をよびます。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Illuminate\\Database\\Eloquent\\SoftDeletes;\n\nclass Post extends Model\n{\n    use SoftDeletes;\n"
+        },
+        {
+          "kind": "command",
+          "body": "php artisan make:migration add_deleted_at_to_posts_table --table=posts"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function up(): void\n{\n    Schema::table('posts', function (Blueprint $table) {\n        $table->softDeletes();\n    });\n}\n\npublic function down(): void\n{\n    Schema::table('posts', function (Blueprint $table) {\n        $table->dropSoftDeletes();\n    });\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ゴミ箱画面もほしい。消したやつだけの一覧と戻すボタン。一覧は withTrashed でいける？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘ですが、一覧に使うのは onlyTrashed() です。withTrashed() は削除済みも含めた全件を返すので、ゴミ箱に生きている記事まで混ざります。逆に、復元のルートには withTrashed() が要ります。ルートモデルバインディングは削除済みの行を引かないので、付けないと restore() に届く前に 404 になります。言い換えると、一覧は削除済みだけ、復元は削除済みも含めて探す、という使い分けです。",
+          "reading": "するどいごしてきですが、いちらんにつかうのは onlyTrashed() です。withTrashed() はさくじょずみもふくめたぜんけんをかえすので、ゴミばこにいきているきじまでまざります。ぎゃくに、ふくげんのルートには withTrashed() がいります。ルートモデルバインディングはさくじょずみのぎょうをひかないので、つけないと restore() にとどくまえに 404 になります。いいかえると、いちらんはさくじょずみだけ、ふくげんはさくじょずみもふくめてさがす、というつかいわけです。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function trashed()\n{\n    return view('admin.posts.trashed', [\n        'posts' => Post::onlyTrashed()->latest('deleted_at')->paginate(20),\n    ]);\n}\n\npublic function restore(Post $post)\n{\n    $post->restore();\n\n    return redirect()->route('admin.posts.trashed');\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "Route::get('posts/trashed', [PostController::class, 'trashed'])->name('posts.trashed');\nRoute::patch('posts/{post}/restore', [PostController::class, 'restore'])\n    ->name('posts.restore')\n    ->withTrashed();\n"
+        }
+      ]
+    }
+  ]
+}

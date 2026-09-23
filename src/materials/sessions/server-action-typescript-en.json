@@ -1,0 +1,82 @@
+{
+  "id": "server-action-typescript-en",
+  "title": "Move the todo rename form to a Server Action",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "typescript",
+  "summary": "Replace a fetch to a Route Handler with a Server Action and useActionState, and refresh the list with revalidatePath.",
+  "files": [
+    {
+      "path": "app/todos/page.tsx",
+      "content": "import { redirect } from 'next/navigation'\nimport { db } from '@/lib/db'\nimport { getSession } from '@/lib/session'\nimport { RenameForm } from './RenameForm'\n\nexport default async function TodosPage() {\n  const session = await getSession()\n  if (!session) redirect('/login')\n\n  const todos = await db.todo.findMany({ where: { userId: session.userId } })\n  return (\n    <ul>\n      {todos.map((todo) => (\n        <li key={todo.id}>\n          <RenameForm id={todo.id} title={todo.title} />\n        </li>\n      ))}\n    </ul>\n  )\n}\n"
+    },
+    {
+      "path": "app/todos/RenameForm.tsx",
+      "content": "'use client'\n\nimport { useState, type FormEvent } from 'react'\nimport { useRouter } from 'next/navigation'\n\nexport function RenameForm({ id, title }: { id: string; title: string }) {\n  const router = useRouter()\n  const [error, setError] = useState<string | null>(null)\n\n  async function handleSubmit(event: FormEvent<HTMLFormElement>) {\n    event.preventDefault()\n    const form = new FormData(event.currentTarget)\n    const res = await fetch(`/api/todos/${id}`, {\n      method: 'PATCH',\n      body: JSON.stringify({ title: form.get('title') }),\n    })\n    if (!res.ok) {\n      setError('Could not rename')\n      return\n    }\n    router.refresh()\n  }\n\n  return (\n    <form onSubmit={handleSubmit}>\n      <input name=\"title\" defaultValue={title} />\n      <button type=\"submit\">Rename</button>\n      {error && <p role=\"alert\">{error}</p>}\n    </form>\n  )\n}\n"
+    },
+    {
+      "path": "app/api/todos/[id]/route.ts",
+      "content": "import { NextResponse } from 'next/server'\nimport { db } from '@/lib/db'\nimport { getSession } from '@/lib/session'\n\ntype Context = { params: Promise<{ id: string }> }\n\nexport async function PATCH(request: Request, { params }: Context) {\n  const session = await getSession()\n  if (!session) {\n    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })\n  }\n  const { id } = await params\n  const { title } = await request.json()\n  await db.todo.updateMany({ where: { id, userId: session.userId }, data: { title } })\n  return NextResponse.json({ ok: true })\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "todo rename does fetch to the api then router.refresh, feels clunky. make it a server action. with useActionState",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Absolutely. Here's the plan: actions.ts gets 'use server' and defines renameTodo, which goes straight into the form's action. useActionState hands it the previous state and the FormData, so fetch and useRouter both go away, and revalidatePath('/todos') rebuilds the list afterwards. FormData values are strings, so as string is enough. The page already checks the session and only lists the user's own todos, so any id coming from the form belongs to them. That makes the check in route.ts redundant, and the whole file can go."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "'use server'\n\nimport { revalidatePath } from 'next/cache'\nimport { db } from '@/lib/db'\n\nexport type RenameState = { error: string | null }\n\nexport async function renameTodo(\n  _prev: RenameState,\n  formData: FormData,\n): Promise<RenameState> {\n  const id = formData.get('id') as string\n  const title = formData.get('title') as string\n\n  await db.todo.update({ where: { id }, data: { title } })\n  revalidatePath('/todos')\n  return { error: null }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "'use client'\n\nimport { useActionState } from 'react'\nimport { renameTodo } from './actions'\n\nexport function RenameForm({ id, title }: { id: string; title: string }) {\n  const [state, formAction, isPending] = useActionState(renameTodo, { error: null })\n\n  return (\n    <form action={formAction}>\n      <input type=\"hidden\" name=\"id\" value={id} />\n      <input name=\"title\" defaultValue={title} />\n      <button type=\"submit\" disabled={isPending}>Rename</button>\n      {state.error && <p role=\"alert\">{state.error}</p>}\n    </form>\n  )\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "rm 'app/api/todos/[id]/route.ts'"
+        }
+      ]
+    },
+    {
+      "user": "review blocked it. edit the hidden id, POST directly, and you can rename someone else's todo. also empty title goes through. route.ts had auth didn't it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Important correction. Filtering the list does not protect the action. A Server Action is a POST endpoint, and anyone can call it without going through the page. The hidden id can be edited in dev tools, so my claim that it always belongs to the user was wrong, and dropping the check from route.ts was my mistake. The action now reads the session itself and updates by id and userId together."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "'use server'\n\nimport { revalidatePath } from 'next/cache'\nimport { db } from '@/lib/db'\nimport { getSession } from '@/lib/session'\n\nexport type RenameState = { error: string | null }\n\nexport async function renameTodo(\n  _prev: RenameState,\n  formData: FormData,\n): Promise<RenameState> {\n  const session = await getSession()\n  if (!session) return { error: 'Please sign in again' }\n\n  const id = formData.get('id')\n  const title = formData.get('title')\n  if (typeof id !== 'string' || typeof title !== 'string') {\n    return { error: 'Invalid form' }\n  }\n  const trimmed = title.trim()\n  if (trimmed === '' || trimmed.length > 100) {\n    return { error: 'Title must be 1 to 100 characters' }\n  }\n\n  const { count } = await db.todo.updateMany({\n    where: { id, userId: session.userId },\n    data: { title: trimmed },\n  })\n  if (count === 0) return { error: 'Todo not found' }\n\n  revalidatePath('/todos')\n  return { error: null }\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "as string was wrong too. get can return null or a File. typeof checks the type first, then the trimmed length is validated. updateMany matches nothing for someone else's id, so count comes back 0 and nothing is written."
+        }
+      ]
+    },
+    {
+      "user": "PM says 100 chars is too short. 140. and put maxLength on the input",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: maxLength only helps the person typing and does nothing against a direct POST. The server check stays, and both numbers move together."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/100/140/g' app/todos/actions.ts"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's|defaultValue={title} />|defaultValue={title} maxLength={140} />|' app/todos/RenameForm.tsx"
+        }
+      ]
+    }
+  ]
+}

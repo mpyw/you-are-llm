@@ -1,0 +1,46 @@
+{
+  "id": "slog-attrs-go-ja",
+  "title": "log.Printf を slog の構造化ログにする",
+  "language": "ja",
+  "codeLanguage": "go",
+  "difficulty": "hard",
+  "files": [
+    {
+      "path": "internal/worker/worker.go",
+      "content": "package worker\n\nimport (\n  \"log\"\n  \"time\"\n)\n\ntype Job struct {\n  ID      string\n  Tenant  string\n  Payload []byte\n}\n\nfunc Run(job Job, process func([]byte) error) {\n  start := time.Now()\n  log.Printf(\"job %s started tenant=%s\", job.ID, job.Tenant)\n  if err := process(job.Payload); err != nil {\n    log.Printf(\"job %s failed tenant=%s: %v\", job.ID, job.Tenant, err)\n    return\n  }\n  log.Printf(\"job %s done tenant=%s took=%s\", job.ID, job.Tenant, time.Since(start))\n}\n"
+    }
+  ],
+  "summary": "文字列に埋め込んでいた job_id を slog のキーと値にし、slog.With で共通の属性を一か所にまとめる。",
+  "turns": [
+    {
+      "user": "worker のログ、Datadog で job_id で絞りたいのに文字列に埋まってるから無理。slog にして JSON で出して",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。log.Printf を標準の log/slog に置き換え、値はメッセージに埋め込まずにキーと値の組で渡します。main で JSON ハンドラを既定のロガーにすれば、job_id がそのままフィールドとして検索できます。Note: SetDefault の後は、残っている log.Printf も同じハンドラを通り、INFO として出力されます。",
+          "reading": "しょうちしました。log.Printf をひょうじゅんの log/slog におきかえ、あたいはメッセージにうめこまずにキーとあたいのくみでわたします。main で JSON ハンドラをきていのロガーにすれば、job_id がそのままフィールドとしてけんさくできます。Note: SetDefault のあとは、のこっている log.Printf もおなじハンドラをとおり、INFO としてしゅつりょくされます。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func main() {\n  slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))\n  // ...\n}\n\nfunc Run(job Job, process func([]byte) error) {\n  start := time.Now()\n  slog.Info(\"job started\", \"job_id\", job.ID, \"tenant\", job.Tenant)\n  if err := process(job.Payload); err != nil {\n    slog.Error(\"job failed\", \"job_id\", job.ID, \"tenant\", job.Tenant, \"err\", err)\n    return\n  }\n  slog.Info(\"job done\", \"job_id\", job.ID, \"tenant\", job.Tenant, \"took\", time.Since(start))\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "job_id と tenant 毎回書いてるのダサくない？どっかで書き忘れそう。あと took がナノ秒で出てて桁がえぐい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "slog.With で job_id と tenant を持った子ロガーを作り、関数の中ではそれだけを使います。言い換えると、共通の属性を書く場所が 1 か所になるので、すべての行に同じ属性が付くことを保証します。JSON ハンドラは time.Duration をナノ秒の整数で出すので、took は slog.Int64 でミリ秒に直して took_ms にします。",
+          "reading": "slog.With で job_id と tenant をもったこロガーをつくり、かんすうのなかではそれだけをつかいます。いいかえると、きょうつうのぞくせいをかくばしょが 1 かしょになるので、すべてのぎょうにおなじぞくせいがつくことをほしょうします。JSON ハンドラは time.Duration をナノびょうのせいすうでだすので、took は slog.Int64 でミリびょうになおして took_ms にします。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func Run(job Job, process func([]byte) error) {\n  logger := slog.With(\"job_id\", job.ID, \"tenant\", job.Tenant)\n  start := time.Now()\n  logger.Info(\"job started\")\n  if err := process(job.Payload); err != nil {\n    logger.Error(\"job failed\", \"err\", err)\n    return\n  }\n  logger.Info(\"job done\", slog.Int64(\"took_ms\", time.Since(start).Milliseconds()))\n}\n"
+        }
+      ]
+    }
+  ]
+}

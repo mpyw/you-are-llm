@@ -1,0 +1,61 @@
+{
+  "id": "sqlalchemy-select-python-en",
+  "title": "Move SQLAlchemy session.query to 2.0-style select",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "python",
+  "summary": "Port the legacy Query API to select and session.scalars, fix the Row objects that execute hands back, then use execute on purpose for a join with the team name.",
+  "files": [
+    {
+      "path": "app/models.py",
+      "content": "from datetime import datetime\n\nfrom sqlalchemy import ForeignKey\nfrom sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship\n\n\nclass Base(DeclarativeBase):\n    pass\n\n\nclass Team(Base):\n    __tablename__ = \"teams\"\n    id: Mapped[int] = mapped_column(primary_key=True)\n    name: Mapped[str]\n\n\nclass User(Base):\n    __tablename__ = \"users\"\n    id: Mapped[int] = mapped_column(primary_key=True)\n    email: Mapped[str]\n    name: Mapped[str]\n    is_active: Mapped[bool]\n    created_at: Mapped[datetime]\n    team_id: Mapped[int] = mapped_column(ForeignKey(\"teams.id\"))\n    team: Mapped[Team] = relationship()\n"
+    },
+    {
+      "path": "app/users.py",
+      "content": "from sqlalchemy.orm import Session\n\nfrom .models import User\n\n\ndef find_by_email(session: Session, email: str) -> User | None:\n    return session.query(User).filter_by(email=email).first()\n\n\ndef active_users(session: Session) -> list[User]:\n    return (\n        session.query(User)\n        .filter(User.is_active)\n        .order_by(User.created_at)\n        .all()\n    )\n\n\ndef count_in_team(session: Session, team_id: int) -> int:\n    return session.query(User).filter(User.team_id == team_id).count()\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "the SQLAlchemy 2.0 docs call session.query legacy. can you move users.py to the new style",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! In 2.0 style you build the query with select() and hand it to the Session to run. When you want ORM entities back, use session.scalars. When a single value comes back, like an aggregate, use session.scalar. filter becomes where, and count() becomes func.count()."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from sqlalchemy import func, select\nfrom sqlalchemy.orm import Session\n\nfrom .models import User\n\n\ndef find_by_email(session: Session, email: str) -> User | None:\n    stmt = select(User).where(User.email == email)\n    return session.scalars(stmt).first()\n\n\ndef active_users(session: Session) -> list[User]:\n    stmt = select(User).where(User.is_active).order_by(User.created_at)\n    return list(session.execute(stmt))\n\n\ndef count_in_team(session: Session, team_id: int) -> int:\n    stmt = select(func.count()).select_from(User).where(User.team_id == team_id)\n    return session.scalar(stmt)\n"
+        }
+      ]
+    },
+    {
+      "user": "admin list page now throws AttributeError: name. it's active_users",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. active_users was the one place I used session.execute. execute returns Row objects. Even for select(User), each Row is a tuple holding one User, so you would need row.User.name rather than user.name. scalars takes the first column of each Row and gives you the User itself."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/list(session.execute(stmt))/list(session.scalars(stmt))/' app/users.py"
+        }
+      ]
+    },
+    {
+      "user": "fixed. also want the team name in the list. no N+1 please",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now, this is where execute is the right call. select(User, Team.name) picks two columns, a User and a string, and join(User.team) keeps it to one SQL statement. With two columns, scalars would throw Team.name away. Taking each Row from execute as a tuple lets you unpack it into user and team_name. I left active_users as it was, for separation of concerns."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from .models import Team, User\n\n\ndef active_users_with_team(session: Session) -> list[tuple[User, str]]:\n    stmt = (\n        select(User, Team.name)\n        .join(User.team)\n        .where(User.is_active)\n        .order_by(User.created_at)\n    )\n    return [(user, team_name) for user, team_name in session.execute(stmt)]\n"
+        }
+      ]
+    }
+  ]
+}

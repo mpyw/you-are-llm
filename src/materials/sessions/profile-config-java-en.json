@@ -1,0 +1,71 @@
+{
+  "id": "profile-config-java-en",
+  "title": "Move per-environment ifs into application-{profile}.yml and @Profile",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "java",
+  "summary": "The prod and staging branches in NotificationService move into config files and a bean switch, and then staging wants real mail too.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/notify/NotificationService.java",
+      "content": "package com.example.notify;\n\nimport org.slf4j.Logger;\nimport org.slf4j.LoggerFactory;\nimport org.springframework.core.env.Environment;\nimport org.springframework.stereotype.Service;\n\n@Service\npublic class NotificationService {\n    private static final Logger log = LoggerFactory.getLogger(NotificationService.class);\n\n    private final Environment env;\n    private final SmtpClient smtp;\n\n    public NotificationService(Environment env, SmtpClient smtp) {\n        this.env = env;\n        this.smtp = smtp;\n    }\n\n    public void notifyShipped(Order order) {\n        String appEnv = env.getProperty(\"app.env\", \"local\");\n        String baseUrl;\n        if (appEnv.equals(\"prod\")) {\n            baseUrl = \"https://shop.example.com\";\n        } else if (appEnv.equals(\"staging\")) {\n            baseUrl = \"https://staging.shop.example.com\";\n        } else {\n            baseUrl = \"http://localhost:8080\";\n        }\n        String link = baseUrl + \"/orders/\" + order.id();\n        if (appEnv.equals(\"prod\")) {\n            smtp.send(order.email(), \"Your order has shipped\", link);\n        } else {\n            log.info(\"mail to {}: {}\", order.email(), link);\n        }\n    }\n}\n"
+    },
+    {
+      "path": "src/main/resources/application.yml",
+      "content": "app:\n  env: local\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "NotificationService keeps growing ifs on app.env. the only things that differ per env are the url and whether mail actually goes out",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great, that splits cleanly into two kinds. A value that differs, like the URL, goes into application-{profile}.yml and Spring picks the file. Behaviour that differs, sending real mail or only logging it, becomes two Mailer implementations with @Profile deciding which one is a bean. NotificationService no longer knows which environment it runs in, which is a nice separation of concerns."
+        },
+        {
+          "kind": "code",
+          "lang": "yaml",
+          "body": "# application.yml\napp:\n  base-url: http://localhost:8080\n\n# application-staging.yml\napp:\n  base-url: https://staging.shop.example.com\n\n# application-prod.yml\napp:\n  base-url: https://shop.example.com\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.notify;\n\npublic interface Mailer {\n    void send(String to, String subject, String body);\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.notify;\n\nimport org.springframework.context.annotation.Profile;\nimport org.springframework.stereotype.Component;\n\n@Component\n@Profile(\"prod\")\npublic class SmtpMailer implements Mailer {\n    private final SmtpClient smtp;\n\n    public SmtpMailer(SmtpClient smtp) {\n        this.smtp = smtp;\n    }\n\n    @Override\n    public void send(String to, String subject, String body) {\n        smtp.send(to, subject, body);\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.notify;\n\nimport org.slf4j.Logger;\nimport org.slf4j.LoggerFactory;\nimport org.springframework.context.annotation.Profile;\nimport org.springframework.stereotype.Component;\n\n@Component\n@Profile(\"!prod\")\npublic class LoggingMailer implements Mailer {\n    private static final Logger log = LoggerFactory.getLogger(LoggingMailer.class);\n\n    @Override\n    public void send(String to, String subject, String body) {\n        log.info(\"mail to {} [{}]: {}\", to, subject, body);\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Service\npublic class NotificationService {\n    private final Mailer mailer;\n    private final String baseUrl;\n\n    public NotificationService(Mailer mailer, @Value(\"${app.base-url}\") String baseUrl) {\n        this.mailer = mailer;\n        this.baseUrl = baseUrl;\n    }\n\n    public void notifyShipped(Order order) {\n        String link = baseUrl + \"/orders/\" + order.id();\n        mailer.send(order.email(), \"Your order has shipped\", link);\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "nice. oh wait, staging should send real smtp too, QA wants to see the actual mails. also how do i pick the profile when starting it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Besides ! a @Profile also takes & and |. SmtpMailer becomes active on prod and staging, and LoggingMailer only when it is neither. Note: in the replacement side of sed a bare & stands for the whole match, so it is escaped as \\&. The profile is passed with --spring.profiles.active at startup, or through the SPRING_PROFILES_ACTIVE environment variable."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/@Profile(\"prod\")/@Profile({\"prod\", \"staging\"})/' -e 's/@Profile(\"!prod\")/@Profile(\"!prod \\& !staging\")/' src/main/java/com/example/notify/SmtpMailer.java src/main/java/com/example/notify/LoggingMailer.java"
+        },
+        {
+          "kind": "command",
+          "body": "java -jar build/libs/shop.jar --spring.profiles.active=staging"
+        }
+      ]
+    }
+  ]
+}

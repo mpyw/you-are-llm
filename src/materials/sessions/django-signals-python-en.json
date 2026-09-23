@@ -1,0 +1,60 @@
+{
+  "id": "django-signals-python-en",
+  "title": "Stop post_save from multiplying profiles",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "python",
+  "summary": "A receiver creates a Profile on every save because it ignores created. Fix that, recurse by calling save() inside post_save, then move it to pre_save.",
+  "files": [
+    {
+      "path": "accounts/models.py",
+      "content": "from django.conf import settings\nfrom django.db import models\n\n\nclass Profile(models.Model):\n    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)\n    display_name = models.CharField(max_length=100, blank=True)\n"
+    },
+    {
+      "path": "accounts/signals.py",
+      "content": "from django.contrib.auth import get_user_model\nfrom django.db.models.signals import post_save\nfrom django.dispatch import receiver\n\nfrom .models import Profile\n\nUser = get_user_model()\n\n\n@receiver(post_save, sender=User)\ndef create_profile(sender, instance, **kwargs):\n    Profile.objects.create(user=instance)\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "profile table has dozens of rows per user. seems to grow every time someone logs in",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch. post_save is sent on every save(), not only on creation. On login Django calls user.save() to update last_login, so each login adds a Profile row. The key is the created argument the receiver gets, which is True only for an INSERT. Check it and create the Profile only then. Once the existing duplicates are cleaned up, making user a OneToOneField lets the database refuse a second row as well."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/create_profile(sender, instance, \\*\\*kwargs)/create_profile(sender, instance, created, **kwargs)/' -e 's/^\\( *\\)Profile.objects.create(user=instance)$/\\1if created:\\n\\1    Profile.objects.create(user=instance)/' accounts/signals.py"
+        }
+      ]
+    },
+    {
+      "user": "fixed. also want emails lowercased, people sign up with mixed case. just put it in signals.py with the rest",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. Let's add a second receiver on the same post_save that lowercases email and saves again. Keeping it in signals.py makes this file the single source of truth for everything that happens when a user is saved."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from django.contrib.auth import get_user_model\nfrom django.db.models.signals import post_save\nfrom django.dispatch import receiver\n\nfrom .models import Profile\n\nUser = get_user_model()\n\n\n@receiver(post_save, sender=User)\ndef create_profile(sender, instance, created, **kwargs):\n    if created:\n        Profile.objects.create(user=instance)\n\n\n@receiver(post_save, sender=User)\ndef normalize_email(sender, instance, **kwargs):\n    instance.email = instance.email.lower()\n    instance.save()\n"
+        }
+      ]
+    },
+    {
+      "user": "creating a user now dies with RecursionError: maximum recursion depth exceeded",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous receiver called save() inside post_save. That save() sends post_save again, the same receiver calls save() again, and it never stops. If all you want is to fix a value before it is stored, pre_save is the right signal. Rewrite instance.email there and that value is what gets written, so there is no second save(). The range in the sed limits the change to the @receiver line just above normalize_email."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/import post_save$/import post_save, pre_save/' -e '/^def create_profile/,/^def normalize_email/s/^@receiver(post_save/@receiver(pre_save/' -e '/^    instance.save()$/d' accounts/signals.py"
+        }
+      ]
+    }
+  ]
+}

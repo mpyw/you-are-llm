@@ -1,0 +1,51 @@
+{
+  "id": "fluent-validation-csharp-ja",
+  "title": "コントローラの if を FluentValidation に移す",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "csharp",
+  "summary": "Create アクションに並んだ if を AbstractValidator に移し、全項目のエラーを ValidationProblem でまとめて返す。",
+  "files": [
+    {
+      "path": "src/Controllers/UsersController.cs",
+      "content": "using Microsoft.AspNetCore.Mvc;\n\nnamespace Acme.Controllers;\n\npublic sealed record CreateUserRequest(string Email, string Name, int Age);\n\n[ApiController]\n[Route(\"users\")]\npublic sealed class UsersController(UserService users) : ControllerBase\n{\n    [HttpPost]\n    public async Task<IActionResult> Create(CreateUserRequest request, CancellationToken ct)\n    {\n        if (string.IsNullOrWhiteSpace(request.Email) || !request.Email.Contains('@'))\n        {\n            return BadRequest(\"email is invalid\");\n        }\n        if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Length > 50)\n        {\n            return BadRequest(\"name is invalid\");\n        }\n        if (request.Age < 0 || request.Age > 150)\n        {\n            return BadRequest(\"age is invalid\");\n        }\n\n        var id = await users.CreateAsync(request, ct);\n        return Created($\"/users/{id}\", new { id });\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "UsersController の if 地獄なんとかしたい。FluentValidation は入れてあるけど使い方よくわからん",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。ルールを AbstractValidator<CreateUserRequest> に移し、コントローラは IValidator<CreateUserRequest> を受け取って ValidateAsync を呼ぶだけにします。FluentValidation.AspNetCore の自動検証は非推奨になっているので、手動で呼ぶのが現在のベストプラクティスです。ToDictionary で全項目のエラーをまとめて返せるので、最初の 1 件で return していた問題も同時に解消されます。",
+          "reading": "しょうちしました。るーるを AbstractValidator<CreateUserRequest> にうつし、こんとろーらは IValidator<CreateUserRequest> をうけとって ValidateAsync をよぶだけにします。FluentValidation.AspNetCore のじどうけんしょうはひすいしょうになっているので、しゅどうでよぶのがげんざいのべすとぷらくてぃすです。ToDictionary でぜんこうもくのえらーをまとめてかえせるので、さいしょの 1 けんで return していたもんだいもどうじにかいしょうされます。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using FluentValidation;\n\nnamespace Acme.Controllers;\n\npublic sealed class CreateUserRequestValidator : AbstractValidator<CreateUserRequest>\n{\n    public CreateUserRequestValidator()\n    {\n        RuleFor(x => x.Email).NotEmpty().EmailAddress();\n        RuleFor(x => x.Name).NotEmpty().MaximumLength(50);\n        RuleFor(x => x.Age).InclusiveBetween(0, 150);\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "// Program.cs\nbuilder.Services.AddValidatorsFromAssemblyContaining<CreateUserRequestValidator>();\n\n// UsersController.cs\npublic sealed class UsersController(\n    UserService users,\n    IValidator<CreateUserRequest> validator) : ControllerBase\n{\n    [HttpPost]\n    public async Task<IActionResult> Create(CreateUserRequest request, CancellationToken ct)\n    {\n        var result = await validator.ValidateAsync(request, ct);\n        if (!result.IsValid)\n        {\n            return ValidationProblem(new ValidationProblemDetails(result.ToDictionary()));\n        }\n\n        var id = await users.CreateAsync(request, ct);\n        return Created($\"/users/{id}\", new { id });\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "動いた。けどメール空で送るとエラー2個出るのうざい。must not be empty と is not a valid email の両方",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "NotEmpty で落ちた時点で、そのプロパティの残りのルールを止めれば 1 件になります。コンストラクタの先頭で RuleLevelCascadeMode を CascadeMode.Stop にすると、全ルールに一括で効きます。Note: 止まるのは同じ RuleFor の中だけで、ほかのプロパティのエラーは引き続きまとめて返ります。",
+          "reading": "NotEmpty でおちたじてんで、そのぷろぱてぃののこりのるーるをとめれば 1 けんになります。こんすとらくたのせんとうで RuleLevelCascadeMode を CascadeMode.Stop にすると、ぜんるーるにいっかつできます。Note: とまるのはおなじ RuleFor のなかだけで、ほかのぷろぱてぃのえらーはひきつづきまとめてかえります。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public CreateUserRequestValidator()\n{\n    RuleLevelCascadeMode = CascadeMode.Stop;\n\n    RuleFor(x => x.Email).NotEmpty().EmailAddress();\n    RuleFor(x => x.Name).NotEmpty().MaximumLength(50);\n    RuleFor(x => x.Age).InclusiveBetween(0, 150);\n}\n"
+        }
+      ]
+    }
+  ]
+}

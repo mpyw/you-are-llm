@@ -1,0 +1,60 @@
+{
+  "id": "optimistic-update-typescript-ja",
+  "title": "useMutation で楽観的更新をする",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "typescript",
+  "summary": "チェックの反映を待たずに画面を先に変え、失敗したら戻す。連打でチェックが戻るのは cancelQueries の入れ忘れ。",
+  "files": [
+    {
+      "path": "src/todos/useToggleTodo.ts",
+      "content": "import { useMutation, useQueryClient } from '@tanstack/react-query'\n\nexport type Todo = { id: string; title: string; done: boolean }\n\nasync function saveTodo(todo: Todo): Promise<Todo> {\n  const res = await fetch(`/api/todos/${todo.id}`, {\n    method: 'PATCH',\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({ done: todo.done }),\n  })\n  if (!res.ok) throw new Error(`HTTP ${res.status}`)\n  return res.json()\n}\n\nexport function useToggleTodo() {\n  const queryClient = useQueryClient()\n  return useMutation({\n    mutationFn: saveTodo,\n    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['todos'] }),\n  })\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "Todo のチェック、押してからサーバー返るまで反映されなくてもっさりしてる。先に画面変えて、失敗したら戻すやつやって",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。Here's 楽観的更新の実装です。onMutate で今のキャッシュを取っておき、setQueryData で先に書き換えます。onMutate が返した値は onError の 3 番目の引数に届くので、失敗したらそれで元に戻します。最後に onSettled で invalidateQueries を呼び、成功でも失敗でもサーバーの状態と揃えます。これで画面は即座に反応し、サーバーとの整合性を保証します。",
+          "reading": "しょうちしました。Here's らっかんてきこうしんのじっそうです。onMutate でいまのきゃっしゅをとっておき、setQueryData でさきにかきかえます。onMutate がかえしたあたいは onError の 3 ばんめのひきすうにとどくので、しっぱいしたらそれでもとにもどします。さいごに onSettled で invalidateQueries をよび、せいこうでもしっぱいでもさーばーのじょうたいとそろえます。これでがめんはそくざにはんのうし、さーばーとのせいごうせいをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "export function useToggleTodo() {\n  const queryClient = useQueryClient()\n  return useMutation({\n    mutationFn: saveTodo,\n    onMutate: (next: Todo) => {\n      const previous = queryClient.getQueryData<Todo[]>(['todos'])\n      queryClient.setQueryData<Todo[]>(['todos'], (old) =>\n        old?.map((todo) => (todo.id === next.id ? next : todo)),\n      )\n      return { previous }\n    },\n    onError: (_error, _next, result) => {\n      queryClient.setQueryData(['todos'], result?.previous)\n    },\n    onSettled: () => queryClient.invalidateQueries({ queryKey: ['todos'] }),\n  })\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "速くなった。けど連打すると、チェックが一瞬戻ってまた付いたりする",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "重要な訂正があります。先ほどの onMutate には cancelQueries が抜けていました。1 回目のクリックの onSettled が再取得を始め、その結果が 2 回目の書き換えの後に届くと、2 回目を知らない古いサーバーの状態でキャッシュが上書きされます。チェックが一瞬戻るのはこれです。書き換える前に todos の取得中のクエリを cancelQueries で止め、それを await してからスナップショットを取ります。Caveat: queryFn が signal を使っていなければ、リクエスト自体は最後まで走りますが、結果は捨てられます。",
+          "reading": "じゅうようなていせいがあります。さきほどの onMutate には cancelQueries がぬけていました。1 かいめのくりっくの onSettled がさいしゅとくをはじめ、そのけっかが 2 かいめのかきかえのあとにとどくと、2 かいめをしらないふるいさーばーのじょうたいできゃっしゅがうわがきされます。ちぇっくがいっしゅんもどるのはこれです。かきかえるまえに todos のしゅとくちゅうのくえりを cancelQueries でとめ、それを await してからすなっぷしょっとをとります。Caveat: queryFn が signal をつかっていなければ、りくえすとじたいはさいごまではしりますが、けっかはすてられます。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "export function useToggleTodo() {\n  const queryClient = useQueryClient()\n  return useMutation({\n    mutationFn: saveTodo,\n    onMutate: async (next: Todo) => {\n      await queryClient.cancelQueries({ queryKey: ['todos'] })\n      const previous = queryClient.getQueryData<Todo[]>(['todos'])\n      queryClient.setQueryData<Todo[]>(['todos'], (old) =>\n        old?.map((todo) => (todo.id === next.id ? next : todo)),\n      )\n      return { previous }\n    },\n    onError: (_error, _next, result) => {\n      queryClient.setQueryData(['todos'], result?.previous)\n    },\n    onSettled: () => queryClient.invalidateQueries({ queryKey: ['todos'] }),\n  })\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "バックエンドの人から、そのエンドポイント PATCH やめて PUT にしたって連絡きた",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "PUT はリソース全体の置き換えなので、done だけを送ると title が消える恐れがあります。メソッドと一緒に、本文も Todo 丸ごとに変えます。どちらも 1 行で済むので、sed で 2 か所を置き換えます。これで PUT の意味論に沿った、べき等なリクエストになります。",
+          "reading": "PUT はりそーすぜんたいのおきかえなので、done だけをおくると title がきえるおそれがあります。めそっどといっしょに、ほんぶんも Todo まるごとにかえます。どちらも 1 ぎょうですむので、sed で 2 かしょをおきかえます。これで PUT のいみろんにそった、べきとうなりくえすとになります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e \"s/method: 'PATCH'/method: 'PUT'/\" -e 's/{ done: todo.done }/todo/' src/todos/useToggleTodo.ts"
+        }
+      ]
+    }
+  ]
+}

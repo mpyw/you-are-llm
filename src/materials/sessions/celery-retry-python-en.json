@@ -1,0 +1,71 @@
+{
+  "id": "celery-retry-python-en",
+  "title": "Retry a Celery task with autoretry_for and make it idempotent",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "python",
+  "summary": "Give a billing task automatic retries for payment API blips, stop the double charge a ReadTimeout retry causes with an Idempotency-Key, then decide what 4xx and exhausted retries should do.",
+  "files": [
+    {
+      "path": "billing/tasks.py",
+      "content": "import requests\nfrom celery import shared_task\nfrom django.conf import settings\n\nfrom .models import Invoice\n\n\n@shared_task\ndef charge_invoice(invoice_id):\n    invoice = Invoice.objects.get(pk=invoice_id)\n    response = requests.post(\n        f\"{settings.PAYMENT_API_URL}/charges\",\n        json={\"customer\": invoice.customer_id, \"amount\": invoice.amount},\n        timeout=10,\n    )\n    response.raise_for_status()\n    invoice.status = \"paid\"\n    invoice.save(update_fields=[\"status\"])\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "charge_invoice sometimes ends in FAILURE on payment api timeouts or 503s. i'm tired of checking flower every morning and rerunning them by hand",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Got it. Passing autoretry_for to shared_task makes Celery call self.retry for you whenever one of those exceptions is raised. Besides connection errors and timeouts, I added HTTPError, which raise_for_status raises on a 503. retry_backoff=True doubles the ceiling on the wait, 1, 2, then 4 seconds, and the default jitter picks a random delay below it, so retries do not arrive in one burst. With max_retries=5 the task runs at most 6 times counting the first. A timeout means the request never reached the payment side, so retrying cannot charge anyone twice."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "@shared_task(\n    autoretry_for=(requests.ConnectionError, requests.Timeout, requests.HTTPError),\n    retry_backoff=True,\n    max_retries=5,\n)\ndef charge_invoice(invoice_id):\n    invoice = Invoice.objects.get(pk=invoice_id)\n    response = requests.post(\n        f\"{settings.PAYMENT_API_URL}/charges\",\n        json={\"customer\": invoice.customer_id, \"amount\": invoice.amount},\n        timeout=10,\n    )\n    response.raise_for_status()\n    invoice.status = \"paid\"\n    invoice.save(update_fields=[\"status\"])\n"
+        }
+      ]
+    },
+    {
+      "user": "we got 2 double charges. logs show ReadTimeout -> retry -> success, and the payment side has 2 charges. their docs mention an Idempotency-Key thing",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. A ReadTimeout fires after the request was sent, while waiting for the reply, so the charge may well have gone through. Only a ConnectTimeout tells you it never arrived. Assume retries will happen and make the task idempotent. Put an Idempotency-Key header on the request, built from the invoice ID, which stays the same across attempts, and the second send just returns the result of the first. The task ID changes when someone reruns it by hand, so it is not the key. I also return early for an invoice that is already paid, before calling the API at all."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/^\\( *\\)invoice = Invoice.objects.get(pk=invoice_id)$/&\\n\\1if invoice.status == \"paid\":\\n\\1    return/' -e 's/^\\( *\\)timeout=10,$/\\1headers={\"Idempotency-Key\": f\"invoice-{invoice.id}\"},\\n&/' billing/tasks.py"
+        }
+      ]
+    },
+    {
+      "user": "double charges stopped. but a declined card (402) also gets hit 6 times. if it's declined just mark it failed and stop",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Right. Putting HTTPError in autoretry_for also swept in every 4xx, where retrying can never change the answer. The fix picks out 4xx before raise_for_status, marks the invoice failed and returns. I would leave 429 on the retry side, though, because a rate limit goes away on its own."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "def charge_invoice(invoice_id):\n    invoice = Invoice.objects.get(pk=invoice_id)\n    if invoice.status == \"paid\":\n        return\n    response = requests.post(\n        f\"{settings.PAYMENT_API_URL}/charges\",\n        json={\"customer\": invoice.customer_id, \"amount\": invoice.amount},\n        headers={\"Idempotency-Key\": f\"invoice-{invoice.id}\"},\n        timeout=10,\n    )\n    if 400 <= response.status_code < 500 and response.status_code != 429:\n        invoice.status = \"failed\"\n        invoice.save(update_fields=[\"status\"])\n        return\n    response.raise_for_status()\n    invoice.status = \"paid\"\n    invoice.save(update_fields=[\"status\"])\n"
+        }
+      ]
+    },
+    {
+      "user": "one hit a 503 for about a minute, used up all 6 tries, FAILURE, but the invoice is still pending. nobody notices from the list",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Once the retries run out, the last exception is raised as it is and the task ends in FAILURE. on_failure on a Task subclass runs exactly then, once, and never during the retries. Passing that class as base lets it flag invoices still in pending. Note: do not mark them failed. If the last error was a timeout, the charge may have gone through. With needs_review, someone can rerun it with the same Idempotency-Key and settle it safely. That's it: however many times it retries, nobody gets charged twice."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from celery import Task, shared_task\n\n\nclass ChargeTask(Task):\n    def on_failure(self, exc, task_id, args, kwargs, einfo):\n        Invoice.objects.filter(pk=args[0], status=\"pending\").update(\n            status=\"needs_review\"\n        )\n\n\n@shared_task(\n    base=ChargeTask,\n    autoretry_for=(requests.ConnectionError, requests.Timeout, requests.HTTPError),\n    retry_backoff=True,\n    max_retries=5,\n)\ndef charge_invoice(invoice_id):\n"
+        }
+      ]
+    }
+  ]
+}

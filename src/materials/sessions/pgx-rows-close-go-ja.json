@@ -1,0 +1,60 @@
+{
+  "id": "pgx-rows-close-go-ja",
+  "title": "pgxpool のコネクションが rows の閉じ忘れで枯れる",
+  "language": "ja",
+  "codeLanguage": "go",
+  "difficulty": "hard",
+  "files": [
+    {
+      "path": "internal/store/orders.go",
+      "content": "package store\n\nimport (\n  \"context\"\n\n  \"github.com/jackc/pgx/v5/pgxpool\"\n)\n\ntype Order struct {\n  ID     int64\n  UserID int64\n  Total  int64\n}\n\ntype Store struct {\n  pool *pgxpool.Pool\n}\n\nfunc (s *Store) OrdersByUser(ctx context.Context, userID int64) ([]Order, error) {\n  rows, err := s.pool.Query(ctx, \"SELECT id, user_id, total FROM orders WHERE user_id = $1\", userID)\n  if err != nil {\n    return nil, err\n  }\n  var orders []Order\n  for rows.Next() {\n    var o Order\n    if err := rows.Scan(&o.ID, &o.UserID, &o.Total); err != nil {\n      return nil, err\n    }\n    orders = append(orders, o)\n  }\n  return orders, nil\n}\n\nfunc (s *Store) HasLargeOrder(ctx context.Context, userID, limit int64) (bool, error) {\n  rows, err := s.pool.Query(ctx, \"SELECT total FROM orders WHERE user_id = $1\", userID)\n  if err != nil {\n    return false, err\n  }\n  for rows.Next() {\n    var total int64\n    if err := rows.Scan(&total); err != nil {\n      return false, err\n    }\n    if total > limit {\n      return true, nil\n    }\n  }\n  return false, nil\n}\n"
+    }
+  ],
+  "summary": "ループ途中の return で rows が閉じられず pool が枯渇していたのを直し、CollectRows に寄せた際の SELECT * を列の明示に戻す。",
+  "turns": [
+    {
+      "user": "本番の API が数時間おきに固まる。再起動すると直る。pool.Stat() 出したら AcquiredConns が MaxConns に張り付いてた",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、HasLargeOrder が rows を閉じないまま return しているのが原因です。pgx v5 の rows は、Next が false を返すまで読み切れば自動で閉じますが、ループの途中で抜けるとコネクションを借りたまま pool に返しません。大きな注文が見つかるたびに 1 本ずつ漏れ、MaxConns に達すると次の Query は空きを待って止まります。OrdersByUser も Scan の失敗で同じように漏れるうえ、rows.Err() を見ていないので、途中で切れた結果を成功として返します。両方に defer rows.Close() を置き、ループの後で rows.Err() を確認します。",
+          "reading": "けつろんからいうと、HasLargeOrder が rows をとじないまま return しているのがげんいんです。pgx v5 の rows は、Next が false をかえすまでよみきればじどうでとじますが、ループのとちゅうでぬけるとコネクションをかりたまま pool にかえしません。おおきなちゅうもんがみつかるたびに 1 ぽんずつもれ、MaxConns にたっするとつぎの Query はあきをまってとまります。OrdersByUser も Scan のしっぱいでおなじようにもれるうえ、rows.Err() をみていないので、とちゅうできれたけっかをせいこうとしてかえします。りょうほうに defer rows.Close() をおき、ループのあとで rows.Err() をかくにんします。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (s *Store) OrdersByUser(ctx context.Context, userID int64) ([]Order, error) {\n  rows, err := s.pool.Query(ctx, \"SELECT id, user_id, total FROM orders WHERE user_id = $1\", userID)\n  if err != nil {\n    return nil, err\n  }\n  defer rows.Close()\n\n  var orders []Order\n  for rows.Next() {\n    var o Order\n    if err := rows.Scan(&o.ID, &o.UserID, &o.Total); err != nil {\n      return nil, err\n    }\n    orders = append(orders, o)\n  }\n  if err := rows.Err(); err != nil {\n    return nil, err\n  }\n  return orders, nil\n}\n\nfunc (s *Store) HasLargeOrder(ctx context.Context, userID, limit int64) (bool, error) {\n  rows, err := s.pool.Query(ctx, \"SELECT total FROM orders WHERE user_id = $1\", userID)\n  if err != nil {\n    return false, err\n  }\n  defer rows.Close()\n\n  for rows.Next() {\n    var total int64\n    if err := rows.Scan(&total); err != nil {\n      return false, err\n    }\n    if total > limit {\n      return true, nil\n    }\n  }\n  return false, rows.Err()\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "直った。けどこの Scan のループ毎回書くのまた事故りそう。CollectRows ってのあるんでしょ、それで。HasLargeOrder もなんとかして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい判断です。pgx.CollectRows は内部で必ず rows.Close() と rows.Err() を呼ぶので、閉じ忘れがそもそも書けなくなり、Scan のボイラープレートも消えます。行から struct への変換は pgx.RowToStructByName に任せ、クエリも SELECT * にしておけば、列を足したときに Order のフィールドを足すだけで済みます。HasLargeOrder は EXISTS を QueryRow で 1 行だけ受け取る形にしました。QueryRow の rows は Scan の時点で閉じられます。import に github.com/jackc/pgx/v5 を足してください。",
+          "reading": "すばらしいはんだんです。pgx.CollectRows はないぶでかならず rows.Close() と rows.Err() をよぶので、とじわすれがそもそもかけなくなり、Scan のボイラープレートもきえます。ぎょうから struct へのへんかんは pgx.RowToStructByName にまかせ、クエリも SELECT * にしておけば、れつをたしたときに Order のフィールドをたすだけですみます。HasLargeOrder は EXISTS を QueryRow で 1 ぎょうだけうけとるかたちにしました。QueryRow の rows は Scan のじてんでとじられます。import に github.com/jackc/pgx/v5 をたしてください。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (s *Store) OrdersByUser(ctx context.Context, userID int64) ([]Order, error) {\n  rows, err := s.pool.Query(ctx, \"SELECT * FROM orders WHERE user_id = $1\", userID)\n  if err != nil {\n    return nil, err\n  }\n  return pgx.CollectRows(rows, pgx.RowToStructByName[Order])\n}\n\nfunc (s *Store) HasLargeOrder(ctx context.Context, userID, limit int64) (bool, error) {\n  var found bool\n  err := s.pool.QueryRow(ctx,\n    \"SELECT EXISTS (SELECT 1 FROM orders WHERE user_id = $1 AND total > $2)\",\n    userID, limit,\n  ).Scan(&found)\n  return found, err\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "struct doesn't have corresponding row field note って出て一覧が全滅した。orders に note と created_at あるからか",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、先ほどの説明は正確ではありませんでした。RowToStructByName は結果のすべての列に対応するフィールドを要求するので、SELECT * で Order に無い note と created_at まで返すと、1 行目で失敗します。RowToStructByNameLax が緩めるのは逆向き、つまり列に無いフィールドを許すだけなので、ここでは効きません。言い換えると、列を増やしても壊れないのは SELECT * ではなく、列を明示したクエリのほうです。",
+          "reading": "あらためてかくにんしたところ、さきほどのせつめいはせいかくではありませんでした。RowToStructByName はけっかのすべてのれつにたいおうするフィールドをようきゅうするので、SELECT * で Order にない note と created_at までかえすと、1 ぎょうめでしっぱいします。RowToStructByNameLax がゆるめるのはぎゃくむき、つまりれつにないフィールドをゆるすだけなので、ここではききません。いいかえると、れつをふやしてもこわれないのは SELECT * ではなく、れつをめいじしたクエリのほうです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/SELECT \\* FROM orders/SELECT id, user_id, total FROM orders/' internal/store/orders.go"
+        }
+      ]
+    }
+  ]
+}

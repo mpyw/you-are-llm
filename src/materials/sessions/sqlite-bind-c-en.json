@@ -2,7 +2,7 @@
   "id": "sqlite-bind-c-en",
   "title": "Bind the name instead of pasting it into SQL",
   "language": "en",
-  "difficulty": "easy",
+  "difficulty": "normal",
   "codeLanguage": "c",
   "summary": "Replace SQL built with snprintf by sqlite3_prepare_v2 and sqlite3_bind_text.",
   "files": [

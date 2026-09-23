@@ -1,0 +1,50 @@
+{
+  "id": "cache-remember-php-ja",
+  "title": "ダッシュボードの売上集計を Cache::remember で包む",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "毎リクエスト走る日別売上の集計を 10 分キャッシュし、注文が保存されたらキーを消す。",
+  "files": [
+    {
+      "path": "app/Http/Controllers/DashboardController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse App\\Models\\Order;\n\nclass DashboardController extends Controller\n{\n    public function index()\n    {\n        $sales = Order::query()\n            ->where('status', 'paid')\n            ->selectRaw('DATE(paid_at) as day, SUM(total) as amount')\n            ->groupBy('day')\n            ->orderBy('day')\n            ->get();\n\n        return view('dashboard', ['sales' => $sales]);\n    }\n}\n"
+    },
+    {
+      "path": "app/Models/Order.php",
+      "content": "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass Order extends Model\n{\n    protected $fillable = ['user_id', 'status', 'total', 'paid_at'];\n\n    protected function casts(): array\n    {\n        return [\n            'paid_at' => 'datetime',\n        ];\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "ダッシュボード開くたびに売上集計のクエリが 2 秒くらいかかってる。キャッシュでいいから速くして。10 分ぐらいならズレてもいい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。集計結果を Cache::remember で 10 分保持します。キーがあればキャッシュの値を返し、なければクロージャを実行して結果を保存するので、重いクエリが走るのは 10 分に 1 回だけになることを保証します。",
+          "reading": "しょうちしました。しゅうけいけっかを Cache::remember で 10 ぷんほじします。キーがあればキャッシュのあたいをかえし、なければクロージャをじっこうしてけっかをほぞんするので、おもいクエリがはしるのは 10 ぷんに 1 かいだけになることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Illuminate\\Support\\Facades\\Cache;\n\npublic function index()\n{\n    $sales = Cache::remember('dashboard.sales', now()->addMinutes(10), function () {\n        return Order::query()\n            ->where('status', 'paid')\n            ->selectRaw('DATE(paid_at) as day, SUM(total) as amount')\n            ->groupBy('day')\n            ->orderBy('day')\n            ->get();\n    });\n\n    return view('dashboard', ['sales' => $sales]);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "速くなった。けど入金済みの注文がグラフに出てこないって営業に言われた。10 分待ってって言ったらキレられたので、変わったら消して",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい観点です。Order の saved と deleted でキーを消し、次のリクエストで集計し直します。Note: Order::where(...)->update() のような一括更新ではモデルイベントが発火しないという点に注意することが重要です。",
+          "reading": "すばらしいかんてんです。Order の saved と deleted でキーをけし、つぎのリクエストでしゅうけいしなおします。Note: Order::where(...)->update() のようないっかつこうしんではモデルイベントがはっかしないというてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Illuminate\\Support\\Facades\\Cache;\n\nprotected static function booted(): void\n{\n    static::saved(fn () => Cache::forget('dashboard.sales'));\n    static::deleted(fn () => Cache::forget('dashboard.sales'));\n}\n"
+        }
+      ]
+    }
+  ]
+}

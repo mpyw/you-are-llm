@@ -1,0 +1,46 @@
+{
+  "id": "use-id-label-typescript-ja",
+  "title": "ラベルの id を useId で作る",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "typescript",
+  "summary": "EmailField を 2 つ並べると 2 つ目のラベルが 1 つ目の入力を指す。固定の id を useId に替える。",
+  "files": [
+    {
+      "path": "src/components/EmailField.tsx",
+      "content": "export function EmailField({ label }: { label: string }) {\n  return (\n    <div>\n      <label htmlFor=\"email\">{label}</label>\n      <input id=\"email\" type=\"email\" />\n    </div>\n  )\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "EmailField を請求先と配送先で 2 個置いたら、配送先のラベル押すと請求先の方にカーソル行く。なんで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。htmlFor と id が \"email\" で固定されているので、2 つ置くとページに同じ id が 2 つできます。ブラウザは最初に見つかった要素にラベルをつなぐため、2 つ目のラベルも 1 つ目の入力を指します。useId は置かれた場所ごとに一意な id を返すので、何個並べても衝突しません。サーバー描画とクライアントで同じ値になることも保証します。",
+          "reading": "するどいごしてきです。htmlFor と id が \"email\" でこていされているので、2 つおくとぺーじにおなじ id が 2 つできます。ぶらうざはさいしょにみつかったようそにらべるをつなぐため、2 つめのらべるも 1 つめのにゅうりょくをさします。useId はおかれたばしょごとにいちいな id をかえすので、なんこならべてもしょうとつしません。さーばーびょうがとくらいあんとでおなじあたいになることもほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { useId } from 'react'\n\nexport function EmailField({ label }: { label: string }) {\n  const id = useId()\n  return (\n    <div>\n      <label htmlFor={id}>{label}</label>\n      <input id={id} type=\"email\" />\n    </div>\n  )\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、下に「会社のアドレス推奨」みたいなヒント出したい。読み上げもされるやつ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。ヒントの段落には aria-describedby で入力をつなぎます。関連する id は 1 つの useId に接尾辞を付けて作るのがベストプラクティスです。useId を 2 回呼ぶ必要はありません。",
+          "reading": "しょうちしました。ひんとのだんらくには aria-describedby でにゅうりょくをつなぎます。かんれんする id は 1 つの useId にせつびじをつけてつくるのがべすとぷらくてぃすです。useId を 2 かいよぶひつようはありません。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { useId } from 'react'\n\nexport function EmailField({ label, hint }: { label: string; hint: string }) {\n  const id = useId()\n  const hintId = `${id}-hint`\n  return (\n    <div>\n      <label htmlFor={id}>{label}</label>\n      <input id={id} type=\"email\" aria-describedby={hintId} />\n      <p id={hintId}>{hint}</p>\n    </div>\n  )\n}\n"
+        }
+      ]
+    }
+  ]
+}

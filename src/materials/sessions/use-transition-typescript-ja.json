@@ -1,0 +1,69 @@
+{
+  "id": "use-transition-typescript-ja",
+  "title": "重い絞り込みで入力がもたつくのを直す",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "typescript",
+  "summary": "5000 件の絞り込みで検索欄がカクつく。入力は急ぎ、一覧は後回しにして更新の優先度を分ける。",
+  "files": [
+    {
+      "path": "src/components/ProductSearch.tsx",
+      "content": "import { useState } from 'react'\nimport { filterProducts, type Product } from '../lib/filterProducts'\n\nexport function ProductSearch({ products }: { products: Product[] }) {\n  const [query, setQuery] = useState('')\n  const results = filterProducts(products, query)\n\n  return (\n    <>\n      <input value={query} onChange={(e) => setQuery(e.target.value)} />\n      <ul>\n        {results.map((p) => (\n          <li key={p.id}>{p.name}</li>\n        ))}\n      </ul>\n    </>\n  )\n}\n"
+    },
+    {
+      "path": "src/lib/filterProducts.ts",
+      "content": "export type Product = { id: string; name: string }\n\nexport function filterProducts(products: Product[], query: string): Product[] {\n  const q = query.toLowerCase()\n  return products.filter((p) => p.name.toLowerCase().includes(q))\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "商品検索、5000 件くらいあって 1 文字打つたびにカクつく。useTransition ってやつで直る？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい質問です。useTransition を活用し、絞り込みの更新を低い優先度に回します。startTransition で包んだ更新は中断できるので、重い描画の途中でもキー入力が先に処理されます。isPending の間は一覧を薄くして、更新中であることを示します。",
+          "reading": "すばらしいしつもんです。useTransition をかつようし、しぼりこみのこうしんをひくいゆうせんどにまわします。startTransition でつつんだこうしんはちゅうだんできるので、おもいびょうがのとちゅうでもきーにゅうりょくがさきにしょりされます。isPending のあいだはいちらんをうすくして、こうしんちゅうであることをしめします。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { useState, useTransition } from 'react'\nimport { filterProducts, type Product } from '../lib/filterProducts'\n\nexport function ProductSearch({ products }: { products: Product[] }) {\n  const [query, setQuery] = useState('')\n  const [isPending, startTransition] = useTransition()\n  const results = filterProducts(products, query)\n\n  return (\n    <>\n      <input\n        value={query}\n        onChange={(e) => startTransition(() => setQuery(e.target.value))}\n      />\n      <ul style={{ opacity: isPending ? 0.5 : 1 }}>\n        {results.map((p) => (\n          <li key={p.id}>{p.name}</li>\n        ))}\n      </ul>\n    </>\n  )\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "むしろ悪化した。打った文字がまとめてドカッと出る",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの実装は誤りでした。入力欄の value を決める query まで transition に入れたため、入力欄そのものの更新が後回しになっていました。React のドキュメントにも、入力欄を制御する state には transition を使えないと書かれています。言い換えると、急ぐ更新と待てる更新を別の値に分ける必要があります。query はふつうに更新し、一覧には useDeferredValue で遅れて届く値を渡します。",
+          "reading": "もうしわけありません。さきほどのじっそうはあやまりでした。にゅうりょくらんの value をきめる query まで transition にいれたため、にゅうりょくらんそのもののこうしんがあとまわしになっていました。React のどきゅめんとにも、にゅうりょくらんをせいぎょする state には transition をつかえないとかかれています。いいかえると、いそぐこうしんとまてるこうしんをべつのあたいにわけるひつようがあります。query はふつうにこうしんし、いちらんには useDeferredValue でおくれてとどくあたいをわたします。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { memo, useDeferredValue, useState } from 'react'\nimport { filterProducts, type Product } from '../lib/filterProducts'\n\ntype ListProps = { products: Product[]; query: string }\n\nconst ProductList = memo(function ProductList({ products, query }: ListProps) {\n  const results = filterProducts(products, query)\n  return (\n    <ul>\n      {results.map((p) => (\n        <li key={p.id}>{p.name}</li>\n      ))}\n    </ul>\n  )\n})\n\nexport function ProductSearch({ products }: { products: Product[] }) {\n  const [query, setQuery] = useState('')\n  const deferredQuery = useDeferredValue(query)\n  const isStale = query !== deferredQuery\n\n  return (\n    <>\n      <input value={query} onChange={(e) => setQuery(e.target.value)} />\n      <div style={{ opacity: isStale ? 0.5 : 1 }}>\n        <ProductList products={products} query={deferredQuery} />\n      </div>\n    </>\n  )\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "ポイントは、一覧を memo した ProductList に切り出すことです。これが無いと、急ぎの描画のたびに filterProducts も走り、遅らせた意味がなくなります。memo が効くように、products は呼び出し側で参照を固定しておくことに注意することが重要です。",
+          "reading": "ぽいんとは、いちらんを memo した ProductList にきりだすことです。これがないと、いそぎのびょうがのたびに filterProducts もはしり、おくらせたいみがなくなります。memo がきくように、products はよびだしがわでさんしょうをこていしておくことにちゅういすることがじゅうようです。"
+        }
+      ]
+    },
+    {
+      "user": "直った。けど 0.5 だと薄すぎて一瞬消えたように見える。0.8 くらいで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。値だけ変えます。",
+          "reading": "しょうちしました。あたいだけかえます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/isStale ? 0.5 : 1/isStale ? 0.8 : 1/' src/components/ProductSearch.tsx"
+        }
+      ]
+    }
+  ]
+}

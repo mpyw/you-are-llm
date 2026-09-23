@@ -1,0 +1,79 @@
+{
+  "id": "qt-list-model-cpp-ja",
+  "title": "タスクを足しても ListView に出ない",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "cpp",
+  "summary": "QAbstractListModel の追加を beginInsertRows と endInsertRows で挟み、roleNames に done を載せる。last は含む側なので 1 引く。",
+  "files": [
+    {
+      "path": "src/models/tasklistmodel.h",
+      "content": "#pragma once\n\n#include <QAbstractListModel>\n#include <QList>\n#include <QString>\n\nstruct Task {\n    QString title;\n    bool done = false;\n};\n\nclass TaskListModel : public QAbstractListModel\n{\n    Q_OBJECT\npublic:\n    enum Role { TitleRole = Qt::UserRole + 1, DoneRole };\n\n    using QAbstractListModel::QAbstractListModel;\n\n    int rowCount(const QModelIndex &parent = QModelIndex()) const override;\n    QVariant data(const QModelIndex &index, int role) const override;\n    QHash<int, QByteArray> roleNames() const override;\n\n    Q_INVOKABLE void addTask(const QString &title);\n\nprivate:\n    QList<Task> tasks_;\n};\n"
+    },
+    {
+      "path": "src/models/tasklistmodel.cpp",
+      "content": "#include \"tasklistmodel.h\"\n\nint TaskListModel::rowCount(const QModelIndex &) const\n{\n    return tasks_.size();\n}\n\nQVariant TaskListModel::data(const QModelIndex &index, int role) const\n{\n    const Task &task = tasks_[index.row()];\n    if (role == TitleRole)\n        return task.title;\n    if (role == DoneRole)\n        return task.done;\n    return {};\n}\n\nQHash<int, QByteArray> TaskListModel::roleNames() const\n{\n    return {{TitleRole, \"title\"}};\n}\n\nvoid TaskListModel::addTask(const QString &title)\n{\n    tasks_.append({title, false});\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "QML の ListView にタスク出してる。addTask 呼んでも画面に増えない、別の画面行って戻ると増えてる。あと done が undefined",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、順を追って見ていきます。addTask は tasks_ に直接 append しているだけなので、行が増えたことがビューに伝わりません。変更の前に beginInsertRows、後に endInsertRows を呼ぶと rowsInserted が届き、ListView はその行のデリゲートだけを作ります。done が undefined なのは、roleNames に DoneRole が載っていないからです。QML から引けるのは、ここで名前を付けたロールだけです。ついでに、リストモデルでは親が有効なら 0 行を返し、data の先頭で checkIndex を通しておくと堅牢です。",
+          "reading": "Now、じゅんをおってみていきます。addTask は tasks_ にちょくせつ append しているだけなので、ぎょうがふえたことがびゅーにつたわりません。へんこうのまえに beginInsertRows、あとに endInsertRows をよぶと rowsInserted がとどき、ListView はそのぎょうのでりげーとだけをつくります。done が undefined なのは、roleNames に DoneRole がのっていないからです。QML からひけるのは、ここでなまえをつけたろーるだけです。ついでに、りすともでるではおやがゆうこうなら 0 ぎょうをかえし、data のせんとうで checkIndex をとおしておくとけんろうです。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include \"tasklistmodel.h\"\n\nint TaskListModel::rowCount(const QModelIndex &parent) const\n{\n    if (parent.isValid())\n        return 0;\n    return static_cast<int>(tasks_.size());\n}\n\nQVariant TaskListModel::data(const QModelIndex &index, int role) const\n{\n    if (!checkIndex(index, CheckIndexOption::IndexIsValid | CheckIndexOption::ParentIsInvalid))\n        return {};\n    const Task &task = tasks_[index.row()];\n    if (role == TitleRole)\n        return task.title;\n    if (role == DoneRole)\n        return task.done;\n    return {};\n}\n\nQHash<int, QByteArray> TaskListModel::roleNames() const\n{\n    return {{TitleRole, \"title\"}, {DoneRole, \"done\"}};\n}\n\nvoid TaskListModel::addTask(const QString &title)\n{\n    const int row = static_cast<int>(tasks_.size());\n    beginInsertRows(QModelIndex(), row, row);\n    tasks_.append({title, false});\n    endInsertRows();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あと CSV から 100 件とか一括で入れたい。addTask ループだと 100 回通知飛ぶよね？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。一度の beginInsertRows でまとめて入れる addTasks を足します。空のリストで呼ぶと範囲が作れないので、先に抜けます。ヘッダにも宣言を足してください。",
+          "reading": "しょうちしました。いちどの beginInsertRows でまとめていれる addTasks をたします。からのりすとでよぶとはんいがつくれないので、さきにぬけます。へっだにもせんげんをたしてください。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "void TaskListModel::addTasks(const QList<Task> &tasks)\n{\n    if (tasks.isEmpty())\n        return;\n    const int first = static_cast<int>(tasks_.size());\n    const int last = first + static_cast<int>(tasks.size());\n    beginInsertRows(QModelIndex(), first, last);\n    tasks_.append(tasks);\n    endInsertRows();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "QAbstractItemModelTester 入れたらインポートで落ちた。Actual (model->rowCount(parent)) 3 で Expected 4 とか",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。私の誤りでした。beginInsertRows の last は含む側の行番号なので、n 件なら first + n - 1 です。先ほどのコードは 1 行多く予告していたため、endInsertRows の時点でテスターが行数の食い違いを見つけました。ポイントは、first と last がどちらも挿入後の行番号を指すという点です。",
+          "reading": "もうしわけありません。わたしのあやまりでした。beginInsertRows の last はふくむがわのぎょうばんごうなので、n けんなら first + n - 1 です。さきほどのこーどは 1 ぎょうおおくよこくしていたため、endInsertRows のじてんでてすたーがぎょうすうのくいちがいをみつけました。ぽいんとは、first と last がどちらもそうにゅうごのぎょうばんごうをさすというてんです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/first + static_cast<int>(tasks.size());/first + static_cast<int>(tasks.size()) - 1;/' src/models/tasklistmodel.cpp"
+        }
+      ]
+    },
+    {
+      "user": "通った。チェックボックスで done 切り替えたい、QML から呼べるやつ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "toggleDone を足し、ヘッダでは Q_INVOKABLE を付けて宣言します。値を変えたら dataChanged を emit し、第 3 引数に DoneRole だけを渡すので、ビューは title を読み直しません。以上で、行の追加も値の更新もビューに届くことを保証します。",
+          "reading": "toggleDone をたし、へっだでは Q_INVOKABLE をつけてせんげんします。あたいをかえたら dataChanged を emit し、だい 3 ひきすうに DoneRole だけをわたすので、びゅーは title をよみなおしません。いじょうで、ぎょうのついかもあたいのこうしんもびゅーにとどくことをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "void TaskListModel::toggleDone(int row)\n{\n    if (row < 0 || row >= rowCount())\n        return;\n    tasks_[row].done = !tasks_[row].done;\n    const QModelIndex changed = index(row);\n    emit dataChanged(changed, changed, {DoneRole});\n}\n"
+        }
+      ]
+    }
+  ]
+}

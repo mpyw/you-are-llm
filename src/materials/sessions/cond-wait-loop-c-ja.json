@@ -2,7 +2,7 @@
   "id": "cond-wait-loop-c-ja",
   "title": "pthread_cond_wait を while で待つ",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "c",
   "summary": "if で待っていたコンシューマを while に直し、満杯のときの push も待たせる。",
   "files": [

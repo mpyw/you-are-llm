@@ -1,0 +1,44 @@
+{
+  "id": "mockito-captor-java-en",
+  "title": "Replace any() in a verify with an ArgumentCaptor",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "java",
+  "summary": "A test that only checks a mail was sent learns to check who it went to.",
+  "files": [
+    {
+      "path": "src/test/java/com/example/signup/SignupServiceTest.java",
+      "content": "package com.example.signup;\n\nimport static org.mockito.ArgumentMatchers.any;\nimport static org.mockito.Mockito.verify;\n\nimport org.junit.jupiter.api.Test;\nimport org.junit.jupiter.api.extension.ExtendWith;\nimport org.mockito.InjectMocks;\nimport org.mockito.Mock;\nimport org.mockito.junit.jupiter.MockitoExtension;\n\n@ExtendWith(MockitoExtension.class)\nclass SignupServiceTest {\n    @Mock\n    MailSender mailSender;\n\n    @InjectMocks\n    SignupService signupService;\n\n    @Test\n    void sendsWelcomeMail() {\n        signupService.register(\"alice@example.com\", \"Alice\");\n\n        verify(mailSender).send(any(Mail.class));\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "SignupServiceTest only checks that send got called. the recipient could be garbage and it still passes",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch. any(Mail.class) matches whatever is passed, so right now the test only proves the call happened. An ArgumentCaptor grabs the Mail that was actually passed, and AssertJ checks its recipient and subject. In other words, verify answers whether it was called, and the captor answers with what."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import static org.assertj.core.api.Assertions.assertThat;\n\nimport org.mockito.ArgumentCaptor;\nimport org.mockito.Captor;\n\n@Captor\nArgumentCaptor<Mail> mailCaptor;\n\n@Test\nvoid sendsWelcomeMail() {\n    signupService.register(\"alice@example.com\", \"Alice\");\n\n    verify(mailSender).send(mailCaptor.capture());\n    Mail mail = mailCaptor.getValue();\n    assertThat(mail.to()).isEqualTo(\"alice@example.com\");\n    assertThat(mail.subject()).contains(\"Alice\");\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "oh wait, with an invite code the inviter gets a mail too. so 2 mails. test that as well",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: getValue only returns the last call, so with two mails use getAllValues to get both. times(2) on the verify makes sure it was sent exactly twice. Use containsExactly if the order matters and containsExactlyInAnyOrder if it does not."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import static org.mockito.Mockito.times;\n\n@Test\nvoid notifiesInviter() {\n    signupService.register(\"alice@example.com\", \"Alice\", \"bob@example.com\");\n\n    verify(mailSender, times(2)).send(mailCaptor.capture());\n    assertThat(mailCaptor.getAllValues())\n        .extracting(Mail::to)\n        .containsExactly(\"alice@example.com\", \"bob@example.com\");\n}\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,79 @@
+{
+  "id": "errgroup-ctx-go-ja",
+  "title": "errgroup で並列に取って、失敗したら残りを止める",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "go",
+  "summary": "errgroup.WithContext で 3 本を並列にしたのに止まらなかったのは、http.Get が ctx を捨てていたから。直したあと SetLimit で同時数を絞る。",
+  "files": [
+    {
+      "path": "internal/dashboard/load.go",
+      "content": "package dashboard\n\nimport \"context\"\n\ntype Dashboard struct {\n  Profile Profile\n  Orders  []Order\n  Notices []Notice\n}\n\nfunc Load(ctx context.Context, c *Client, userID string) (*Dashboard, error) {\n  var d Dashboard\n  if err := c.get(ctx, \"/users/\"+userID, &d.Profile); err != nil {\n    return nil, err\n  }\n  if err := c.get(ctx, \"/users/\"+userID+\"/orders\", &d.Orders); err != nil {\n    return nil, err\n  }\n  if err := c.get(ctx, \"/users/\"+userID+\"/notices\", &d.Notices); err != nil {\n    return nil, err\n  }\n  return &d, nil\n}\n"
+    },
+    {
+      "path": "internal/dashboard/client.go",
+      "content": "package dashboard\n\nimport (\n  \"context\"\n  \"encoding/json\"\n  \"fmt\"\n  \"net/http\"\n)\n\ntype Client struct {\n  http *http.Client\n  base string\n}\n\nfunc (c *Client) get(ctx context.Context, path string, out any) error {\n  resp, err := c.http.Get(c.base + path)\n  if err != nil {\n    return err\n  }\n  defer resp.Body.Close()\n  if resp.StatusCode != http.StatusOK {\n    return fmt.Errorf(\"GET %s: %s\", path, resp.Status)\n  }\n  return json.NewDecoder(resp.Body).Decode(out)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "ダッシュボードの Load が遅い。3 本直列に叩いてるだけだから並列にして。どれか失敗したら残りは待たなくていい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's errgroup で並列にした版です。errgroup.WithContext が返す ctx は、どれかの関数が最初に nil 以外のエラーを返した時点でキャンセルされます。その ctx を 3 本すべてに渡すので、1 本失敗すれば残りも止まることを保証します。g.Wait は全部が終わるのを待って、最初のエラーを返します。各 goroutine は Dashboard の別々のフィールドにしか書かないので、ロックは要りません。",
+          "reading": "Here's errgroup でへいれつにしたばんです。errgroup.WithContext がかえす ctx は、どれかのかんすうがさいしょに nil いがいのえらーをかえしたじてんできゃんせるされます。その ctx を 3 ぼんすべてにわたすので、1 ぽんしっぱいすればのこりもとまることをほしょうします。g.Wait はぜんぶがおわるのをまって、さいしょのえらーをかえします。かく goroutine は Dashboard のべつべつのふぃーるどにしかかかないので、ろっくはいりません。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func Load(ctx context.Context, c *Client, userID string) (*Dashboard, error) {\n  var d Dashboard\n  g, ctx := errgroup.WithContext(ctx)\n  g.Go(func() error {\n    return c.get(ctx, \"/users/\"+userID, &d.Profile)\n  })\n  g.Go(func() error {\n    return c.get(ctx, \"/users/\"+userID+\"/orders\", &d.Orders)\n  })\n  g.Go(func() error {\n    return c.get(ctx, \"/users/\"+userID+\"/notices\", &d.Notices)\n  })\n  if err := g.Wait(); err != nil {\n    return nil, err\n  }\n  return &d, nil\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "並列にはなった。けど profile が 404 のとき、orders の遅いやつが終わるまできっちり 8 秒待ってからエラー返ってくる。止まってなくない？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの「残りも止まる」は正確ではありませんでした。ctx 自体はキャンセルされていますが、Client.get が ctx を受け取ったまま使わず、http.Get でリクエストを送っていました。キャンセルを伝える先がリクエストに無いので、g.Wait は遅い 1 本が自然に終わるまで待ちます。http.NewRequestWithContext で ctx をリクエストに載せます。",
+          "reading": "もうしわけありません。さきほどの「のこりもとまる」はせいかくではありませんでした。ctx じたいはきゃんせるされていますが、Client.get が ctx をうけとったままつかわず、http.Get でりくえすとをおくっていました。きゃんせるをつたえるさきがりくえすとにないので、g.Wait はおそい 1 ぽんがしぜんにおわるまでまちます。http.NewRequestWithContext で ctx をりくえすとにのせます。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (c *Client) get(ctx context.Context, path string, out any) error {\n  req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+path, nil)\n  if err != nil {\n    return err\n  }\n  resp, err := c.http.Do(req)\n  if err != nil {\n    return err\n  }\n  defer resp.Body.Close()\n  if resp.StatusCode != http.StatusOK {\n    return fmt.Errorf(\"GET %s: %s\", path, resp.Status)\n  }\n  return json.NewDecoder(resp.Body).Decode(out)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "止まった。ついでにフレンドのアバターも同じとこで取りたい。多い人は 500 人とかいるから一気に投げるのはやめて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ポイントは g.SetLimit です。同時に動く goroutine の数に上限を付けられて、上限に達していると g.Go は空きが出るまで呼び出し側をブロックします。言い換えると、500 人いても同時に飛ぶのは 8 本までです。SetLimit は最初の g.Go より前に呼びます。上限は最初の 3 本にも掛かる点に気をつけてください。Go 1.22 からループ変数は回ごとに別の変数なので、i と id はそのままクロージャで使えます。",
+          "reading": "ぽいんとは g.SetLimit です。どうじにうごく goroutine のかずにじょうげんをつけられて、じょうげんにたっしていると g.Go はあきがでるまでよびだしがわをぶろっくします。いいかえると、500 にんいてもどうじにとぶのは 8 ぽんまでです。SetLimit はさいしょの g.Go よりまえによびます。じょうげんはさいしょの 3 ぼんにもかかるてんにきをつけてください。Go 1.22 からるーぷへんすうはかいごとにべつのへんすうなので、i と id はそのままくろーじゃでつかえます。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "type Dashboard struct {\n  Profile Profile\n  Orders  []Order\n  Notices []Notice\n  Avatars []Avatar\n}\n\nfunc Load(ctx context.Context, c *Client, userID string, friendIDs []string) (*Dashboard, error) {\n  d := Dashboard{Avatars: make([]Avatar, len(friendIDs))}\n  g, ctx := errgroup.WithContext(ctx)\n  g.SetLimit(8)\n  g.Go(func() error {\n    return c.get(ctx, \"/users/\"+userID, &d.Profile)\n  })\n  g.Go(func() error {\n    return c.get(ctx, \"/users/\"+userID+\"/orders\", &d.Orders)\n  })\n  g.Go(func() error {\n    return c.get(ctx, \"/users/\"+userID+\"/notices\", &d.Notices)\n  })\n  for i, id := range friendIDs {\n    g.Go(func() error {\n      return c.get(ctx, \"/users/\"+id+\"/avatar\", &d.Avatars[i])\n    })\n  }\n  if err := g.Wait(); err != nil {\n    return nil, err\n  }\n  return &d, nil\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "API の人に聞いたら 16 までならいいって",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。上限は SetLimit の 1 か所にしかないので、そこだけ変えます。",
+          "reading": "しょうちしました。じょうげんは SetLimit の 1 かしょにしかないので、そこだけかえます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/g.SetLimit(8)/g.SetLimit(16)/' internal/dashboard/load.go"
+        }
+      ]
+    }
+  ]
+}

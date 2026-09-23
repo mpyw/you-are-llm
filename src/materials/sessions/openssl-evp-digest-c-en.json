@@ -1,0 +1,56 @@
+{
+  "id": "openssl-evp-digest-c-en",
+  "title": "Move SHA256_Init to EVP",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "c",
+  "summary": "Replace the SHA256_Init family deprecated in OpenSSL 3 with EVP_MD_CTX and the EVP_Digest calls, then take the algorithm as a parameter.",
+  "files": [
+    {
+      "path": "src/crypto/digest.c",
+      "content": "#include <stdio.h>\n#include <openssl/sha.h>\n\nint sha256_file(FILE *fp, unsigned char out[SHA256_DIGEST_LENGTH]) {\n  SHA256_CTX ctx;\n  unsigned char buf[4096];\n  size_t n;\n  SHA256_Init(&ctx);\n  while ((n = fread(buf, 1, sizeof buf, fp)) > 0) {\n    SHA256_Update(&ctx, buf, n);\n  }\n  SHA256_Final(out, &ctx);\n  return ferror(fp) ? -1 : 0;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "bumped to openssl 3 and SHA256_Init is deprecated, -Werror fails the build. just make it shut up",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! Defining OPENSSL_SUPPRESS_DEPRECATED would silence it, but the SHA256_Init family is low level API deprecated in 3.0, so the robust fix is moving to EVP. Create a context with EVP_MD_CTX_new, then call EVP_DigestInit_ex, EVP_DigestUpdate and EVP_DigestFinal_ex. Following the usual C convention they return 0 on success, so anything else jumps to the cleanup."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#include <stdio.h>\n#include <openssl/evp.h>\n#include <openssl/sha.h>\n\nint sha256_file(FILE *fp, unsigned char out[SHA256_DIGEST_LENGTH]) {\n  unsigned char buf[4096];\n  size_t n;\n  int ret = -1;\n  EVP_MD_CTX *ctx = EVP_MD_CTX_new();\n  if (ctx == NULL) return -1;\n  if (EVP_DigestInit_ex(ctx, EVP_sha256(), NULL) != 0) goto done;\n  while ((n = fread(buf, 1, sizeof buf, fp)) > 0) {\n    if (EVP_DigestUpdate(ctx, buf, n) != 0) goto done;\n  }\n  if (ferror(fp)) goto done;\n  if (EVP_DigestFinal_ex(ctx, out, NULL) != 0) goto done;\n  ret = 0;\ndone:\n  EVP_MD_CTX_free(ctx);\n  return ret;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "warnings gone. but it always returns -1 now",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous explanation was incorrect. The EVP_Digest calls return 1 on success and 0 on failure. Every successful call was jumping to done, so the result was always -1. Fixing all three comparisons to != 1."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/) != 0) goto done/) != 1) goto done/' src/crypto/digest.c"
+        }
+      ]
+    },
+    {
+      "user": "oh i need sha-512 too. and rename it, it's not just sha256 anymore",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the idea: take the algorithm as an EVP_MD parameter. The caller passes EVP_sha256() or EVP_sha512() and the body needs no branch. Size the output for EVP_MAX_MD_SIZE, and EVP_DigestFinal_ex writes the real length to out_len. In other words, callers must stop assuming 32 bytes."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/sha256_file(FILE \\*fp, unsigned char out\\[SHA256_DIGEST_LENGTH\\])/digest_file(FILE *fp, const EVP_MD *md, unsigned char out[EVP_MAX_MD_SIZE], unsigned int *out_len)/; s/EVP_sha256()/md/; s/out, NULL)/out, out_len)/; /openssl\\/sha.h/d' src/crypto/digest.c"
+        }
+      ]
+    }
+  ]
+}

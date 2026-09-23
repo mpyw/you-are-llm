@@ -1,0 +1,47 @@
+{
+  "id": "ref-as-prop-typescript-en",
+  "title": "Drop forwardRef and take ref as a prop",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "typescript",
+  "summary": "The app is on React 19 now, so TextField loses its forwardRef wrapper and takes ref like any other prop.",
+  "files": [
+    {
+      "path": "src/components/TextField.tsx",
+      "content": "import { forwardRef, type ComponentPropsWithoutRef } from 'react'\n\ntype TextFieldProps = ComponentPropsWithoutRef<'input'> & { label: string }\n\nexport const TextField = forwardRef<HTMLInputElement, TextFieldProps>(\n  function TextField({ label, ...props }, ref) {\n    return (\n      <label>\n        {label}\n        <input ref={ref} {...props} />\n      </label>\n    )\n  },\n)\n"
+    },
+    {
+      "path": "src/components/LoginForm.tsx",
+      "content": "import { useRef } from 'react'\nimport { TextField } from './TextField'\n\nexport function LoginForm() {\n  const emailRef = useRef<HTMLInputElement>(null)\n  const focusTimer = useRef<number>()\n\n  function focusEmailSoon() {\n    window.clearTimeout(focusTimer.current)\n    focusTimer.current = window.setTimeout(() => emailRef.current?.focus(), 100)\n  }\n\n  return (\n    <form>\n      <TextField label=\"Email\" ref={emailRef} type=\"email\" name=\"email\" />\n      <button type=\"button\" onClick={focusEmailSoon}>Change email</button>\n      <button type=\"submit\">Sign in</button>\n    </form>\n  )\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "on react 19 now. heard forwardRef isnt needed anymore, can we drop it from TextField",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! In React 19 a function component receives ref as a regular prop, so the forwardRef boilerplate can go. ComponentProps<'input'> already includes ref, so destructure it and hand it to the input. LoginForm keeps passing ref={emailRef} exactly as before."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import type { ComponentProps } from 'react'\n\ntype TextFieldProps = ComponentProps<'input'> & { label: string }\n\nexport function TextField({ label, ref, ...props }: TextFieldProps) {\n  return (\n    <label>\n      {label}\n      <input ref={ref} {...props} />\n    </label>\n  )\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "tsc now fails in LoginForm on the useRef<number>() line. Expected 1 arguments, but got 0",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: that one is unrelated to forwardRef. The React 19 types make the initial value of useRef required. The timer id does not exist yet, so pass undefined explicitly."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/useRef<number>()/useRef<number | undefined>(undefined)/' src/components/LoginForm.tsx"
+        }
+      ]
+    }
+  ]
+}

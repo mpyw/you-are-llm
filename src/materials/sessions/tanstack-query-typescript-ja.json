@@ -1,0 +1,60 @@
+{
+  "id": "tanstack-query-typescript-ja",
+  "title": "手書きの fetch を useQuery に置き換える",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "typescript",
+  "summary": "useEffect と useState で書いた UserProfile を TanStack Query に移し、queryKey に userId を入れ忘れて別の人が出る。",
+  "files": [
+    {
+      "path": "src/components/UserProfile.tsx",
+      "content": "import { useEffect, useState } from 'react'\n\ntype User = { id: string; name: string }\n\nexport function UserProfile({ userId }: { userId: string }) {\n  const [user, setUser] = useState<User | null>(null)\n  const [loading, setLoading] = useState(true)\n  const [error, setError] = useState<Error | null>(null)\n\n  useEffect(() => {\n    setLoading(true)\n    fetch(`/api/users/${userId}`)\n      .then((res) => {\n        if (!res.ok) throw new Error(`HTTP ${res.status}`)\n        return res.json()\n      })\n      .then((data: User) => setUser(data))\n      .catch((reason: Error) => setError(reason))\n      .finally(() => setLoading(false))\n  }, [userId])\n\n  if (loading) return <p>Loading...</p>\n  if (error !== null) return <p role=\"alert\">{error.message}</p>\n  return <h2>{user?.name}</h2>\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "UserProfile の useEffect で fetch してるとこ、TanStack Query に乗せ換えたい。QueryClientProvider は main.tsx にもう置いてある",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい判断です。読み込み中、エラー、結果の 3 つの状態を自分で持つ必要はなくなります。useQuery に queryKey と queryFn を渡せば、キャッシュと再取得はライブラリが面倒を見ます。ポイントは、fetch が 500 でも reject しないことです。queryFn の中で res.ok を見て throw しないと、エラーが成功として扱われます。",
+          "reading": "すばらしいはんだんです。よみこみちゅう、えらー、けっかの 3 つのじょうたいをじぶんでもつひつようはなくなります。useQuery に queryKey と queryFn をわたせば、きゃっしゅとさいしゅとくはらいぶらりがめんどうをみます。ぽいんとは、fetch が 500 でも reject しないことです。queryFn のなかで res.ok をみて throw しないと、えらーがせいこうとしてあつかわれます。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { useQuery } from '@tanstack/react-query'\n\ntype User = { id: string; name: string }\n\nasync function fetchUser(userId: string): Promise<User> {\n  const res = await fetch(`/api/users/${userId}`)\n  if (!res.ok) throw new Error(`HTTP ${res.status}`)\n  return res.json()\n}\n\nexport function UserProfile({ userId }: { userId: string }) {\n  const { data, isPending, isError, error } = useQuery({\n    queryKey: ['user'],\n    queryFn: () => fetchUser(userId),\n  })\n\n  if (isPending) return <p>Loading...</p>\n  if (isError) return <p role=\"alert\">{error.message}</p>\n  return <h2>{data.name}</h2>\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "切り替わらない。一覧で別の人クリックしても最初の人のまま",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの queryKey に userId が入っていませんでした。TanStack Query はキャッシュを queryKey で引くので、キーが ['user'] のままだと、どの userId でも同じエントリを返し、再取得もしません。queryFn が読む値はすべてキーに入れる必要があるという点に注意することが重要です。eslint-plugin-query の exhaustive-deps を入れると、これを検出できます。",
+          "reading": "もうしわけありません。さきほどの queryKey に userId がはいっていませんでした。TanStack Query はきゃっしゅを queryKey でひくので、きーが ['user'] のままだと、どの userId でもおなじえんとりをかえし、さいしゅとくもしません。queryFn がよむあたいはすべてきーにいれるひつようがあるというてんにちゅういすることがじゅうようです。eslint-plugin-query の exhaustive-deps をいれると、これをけんしゅつできます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' \"s/queryKey: \\['user'\\]/queryKey: ['user', userId]/\" src/components/UserProfile.tsx"
+        }
+      ]
+    },
+    {
+      "user": "あと誰も選んでないとき userId が空文字で来る。そのまま /api/users/ 叩いて 404 出てる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "enabled に条件を渡すと、false の間は queryFn を呼びません。Note: 止まっているクエリは isPending が true のままなので、そのまま描画すると Loading が出続けます。空のときは先に別の表示を返します。言い換えると、enabled は取得を止めるだけで、画面の分岐は自分で書く必要があります。",
+          "reading": "enabled にじょうけんをわたすと、false のあいだは queryFn をよびません。Note: とまっているくえりは isPending が true のままなので、そのままびょうがすると Loading がでつづけます。からのときはさきにべつのひょうじをかえします。いいかえると、enabled はしゅとくをとめるだけで、がめんのぶんきはじぶんでかくひつようがあります。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "export function UserProfile({ userId }: { userId: string }) {\n  const { data, isPending, isError, error } = useQuery({\n    queryKey: ['user', userId],\n    queryFn: () => fetchUser(userId),\n    enabled: userId !== '',\n  })\n\n  if (userId === '') return <p>Select a user</p>\n  if (isPending) return <p>Loading...</p>\n  if (isError) return <p role=\"alert\">{error.message}</p>\n  return <h2>{data.name}</h2>\n}\n"
+        }
+      ]
+    }
+  ]
+}

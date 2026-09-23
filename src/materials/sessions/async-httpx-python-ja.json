@@ -1,0 +1,75 @@
+{
+  "id": "async-httpx-python-ja",
+  "title": "async def の中の requests を httpx.AsyncClient にする",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "python",
+  "summary": "requests がイベントループを止めていたのを lifespan で作った AsyncClient に替え、gather で並列にし、リダイレクトを追わない違いで 500 を出し、上流の失敗を 502 にする。",
+  "files": [
+    {
+      "path": "app/main.py",
+      "content": "import requests\nfrom fastapi import FastAPI, HTTPException\n\nWEATHER_URL = \"https://api.example.com/weather\"\n\napp = FastAPI()\n\n\n@app.get(\"/weather/{city}\")\nasync def weather(city: str):\n    response = requests.get(WEATHER_URL, params={\"city\": city}, timeout=5)\n    if response.status_code == 404:\n        raise HTTPException(status_code=404, detail=\"unknown city\")\n    response.raise_for_status()\n    return response.json()\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "天気 API をプロキシしてるだけのエンドポイントが負荷かけると全然捌けない。上流は 200ms くらいなのに 10 並列で 2 秒かかる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、requests.get がイベントループを止めています。async def のエンドポイントはイベントループの上で直接動くので、同期の requests が上流を待つ 200ms の間、他のリクエストは一切進みません。10 本が 1 本ずつ順番に処理されて 2 秒です。httpx.AsyncClient なら、await している間にループが他のリクエストを進めます。クライアントをリクエストごとに作ると接続プールも TLS のハンドシェイクも毎回やり直しになるので、lifespan で 1 つだけ作って app.state で共有し、終了時に閉じます。書き換えは requests.get を await http.get にするだけで、挙動は requests と同じです。",
+          "reading": "けつろんからいうと、requests.get がいべんとるーぷをとめています。async def のえんどぽいんとはいべんとるーぷのうえでちょくせつうごくので、どうきの requests がじょうりゅうをまつ 200ms のあいだ、ほかのりくえすとはいっさいすすみません。10 ぽんが 1 ぽんずつじゅんばんにしょりされて 2 びょうです。httpx.AsyncClient なら、await しているあいだにるーぷがほかのりくえすとをすすめます。くらいあんとをりくえすとごとにつくるとせつぞくぷーるも TLS のはんどしぇいくもまいかいやりなおしになるので、lifespan で 1 つだけつくって app.state できょうゆうし、しゅうりょうじにとじます。かきかえは requests.get を await http.get にするだけで、きょどうは requests とおなじです。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from contextlib import asynccontextmanager\n\nimport httpx\nfrom fastapi import FastAPI, HTTPException, Request\n\nWEATHER_URL = \"https://api.example.com/weather\"\n\n\n@asynccontextmanager\nasync def lifespan(app: FastAPI):\n    async with httpx.AsyncClient(timeout=5.0) as client:\n        app.state.http = client\n        yield\n\n\napp = FastAPI(lifespan=lifespan)\n\n\n@app.get(\"/weather/{city}\")\nasync def weather(city: str, request: Request):\n    http: httpx.AsyncClient = request.app.state.http\n    response = await http.get(WEATHER_URL, params={\"city\": city})\n    if response.status_code == 404:\n        raise HTTPException(status_code=404, detail=\"unknown city\")\n    response.raise_for_status()\n    return response.json()\n"
+        }
+      ]
+    },
+    {
+      "user": "速くなった！ついでに大気汚染の API も叩いて一緒に返したい。順番に待つと遅いから同時に",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。asyncio.gather に 2 つのコルーチンを渡せば、同じクライアントで 2 本のリクエストを同時に待てます。結果は渡した順に返るので、天気と大気の取り違えは起きません。",
+          "reading": "しょうちしました。asyncio.gather に 2 つのこるーちんをわたせば、おなじくらいあんとで 2 ほんのりくえすとをどうじにまてます。けっかはわたしたじゅんにかえるので、てんきとたいきのとりちがえはおきません。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "import asyncio\nfrom contextlib import asynccontextmanager\n\nimport httpx\nfrom fastapi import FastAPI, HTTPException, Request\n\nWEATHER_URL = \"https://api.example.com/weather\"\nAIR_URL = \"http://api.example.org/air-quality\"\n\n\n@asynccontextmanager\nasync def lifespan(app: FastAPI):\n    async with httpx.AsyncClient(timeout=5.0) as client:\n        app.state.http = client\n        yield\n\n\napp = FastAPI(lifespan=lifespan)\n\n\n@app.get(\"/weather/{city}\")\nasync def weather(city: str, request: Request):\n    http: httpx.AsyncClient = request.app.state.http\n    weather_res, air_res = await asyncio.gather(\n        http.get(WEATHER_URL, params={\"city\": city}),\n        http.get(AIR_URL, params={\"city\": city}),\n    )\n    if weather_res.status_code == 404:\n        raise HTTPException(status_code=404, detail=\"unknown city\")\n    weather_res.raise_for_status()\n    air_res.raise_for_status()\n    return {**weather_res.json(), \"air\": air_res.json()}\n"
+        }
+      ]
+    },
+    {
+      "user": "大気のほうだけ 500 になる。ログに httpx.HTTPStatusError: Redirect response '301 Moved Permanently' って出てる。ブラウザで開くと普通に見れるんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、先ほどの「挙動は requests と同じ」は正確ではありませんでした。requests はリダイレクトを既定で追いますが、httpx は追いません。301 がそのまま返り、raise_for_status() が 2xx 以外として例外にしています。クライアントを作るところで follow_redirects=True を渡せば、requests と同じ動きになります。これで期待どおりに動作します。",
+          "reading": "あらためてかくにんしたところ、さきほどの「きょどうは requests とおなじ」はせいかくではありませんでした。requests はりだいれくとをきていでおいますが、httpx はおいません。301 がそのままかえり、raise_for_status() が 2xx いがいとしてれいがいにしています。くらいあんとをつくるところで follow_redirects=True をわたせば、requests とおなじうごきになります。これできたいどおりにどうさします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/httpx.AsyncClient(timeout=5.0)/httpx.AsyncClient(timeout=5.0, follow_redirects=True)/' app/main.py"
+        }
+      ]
+    },
+    {
+      "user": "直った。あと上流が落ちてるときに 500 は嫌。502 にして。タイムアウトも",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "httpx の例外は、ステータスエラーも接続エラーもタイムアウトも httpx.HTTPError を継承しています。これに exception_handler を 1 つ登録すれば、どこで投げられても 502 に変換できます。エンドポイントに try を散らさずに済むので、関心の分離の観点からも望ましい形です。天気の 404 は先に HTTPException にしているので、そのまま 404 で返ります。",
+          "reading": "httpx のれいがいは、すてーたすえらーもせつぞくえらーもたいむあうとも httpx.HTTPError をけいしょうしています。これに exception_handler を 1 つとうろくすれば、どこでなげられても 502 にへんかんできます。えんどぽいんとに try をちらさずにすむので、かんしんのぶんりのかんてんからものぞましいかたちです。てんきの 404 はさきに HTTPException にしているので、そのまま 404 でかえります。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from fastapi.responses import JSONResponse\n\n\n@app.exception_handler(httpx.HTTPError)\nasync def upstream_failed(request: Request, exc: httpx.HTTPError):\n    return JSONResponse(status_code=502, content={\"detail\": \"upstream unavailable\"})\n"
+        }
+      ]
+    }
+  ]
+}

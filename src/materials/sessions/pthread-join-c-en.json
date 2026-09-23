@@ -1,0 +1,57 @@
+{
+  "id": "pthread-join-c-en",
+  "title": "Reap fire and forget threads with pthread_join",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "c",
+  "summary": "Join the threads that sleep used to wait for, take the sum back as the return value, then stop joining inside the create loop.",
+  "files": [
+    {
+      "path": "src/sum/checksum.c",
+      "content": "#include <pthread.h>\n#include <stdint.h>\n#include <stdio.h>\n#include <unistd.h>\n\n#define NTHREADS 4\n\nstruct job {\n  int id;\n  const unsigned char *data;\n  size_t len;\n};\n\nstatic struct job jobs[NTHREADS];\n\nstatic void *sum_chunk(void *arg) {\n  struct job *job = arg;\n  uint64_t sum = 0;\n  for (size_t i = 0; i < job->len; i++) sum += job->data[i];\n  printf(\"chunk %d: %llu\\n\", job->id, (unsigned long long)sum);\n  return NULL;\n}\n\nvoid checksum(const unsigned char *data, size_t len) {\n  size_t step = len / NTHREADS;\n  for (int i = 0; i < NTHREADS; i++) {\n    jobs[i].id = i;\n    jobs[i].data = data + step * i;\n    jobs[i].len = i == NTHREADS - 1 ? len - step * i : step;\n    pthread_t tid;\n    pthread_create(&tid, NULL, sum_chunk, &jobs[i]);\n  }\n  sleep(1);\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "checksum thing sometimes prints 3 lines instead of 4 on big files. valgrind also says possibly lost in pthread_create. and i want the total back in the caller, not printf in each thread",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch! checksum starts the threads and then just sleeps for a second, so any thread that takes longer is still running when it returns, and when main exits its output goes with it. A thread that is neither joined nor detached keeps its stack and other resources even after it finishes, which is the possibly lost valgrind reports. pthread_join waits for the thread to end and hands back whatever the thread function returned, so each thread returns a malloc'd sum. jobs only has to live while the threads run, so it moves into the function."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#include <pthread.h>\n#include <stdint.h>\n#include <stdlib.h>\n\n#define NTHREADS 4\n\nstruct job {\n  const unsigned char *data;\n  size_t len;\n};\n\nstatic void *sum_chunk(void *arg) {\n  const struct job *job = arg;\n  uint64_t *sum = malloc(sizeof *sum);\n  if (sum == NULL) return NULL;\n  *sum = 0;\n  for (size_t i = 0; i < job->len; i++) *sum += job->data[i];\n  return sum;\n}\n\nint checksum(const unsigned char *data, size_t len, uint64_t *total) {\n  struct job jobs[NTHREADS];\n  size_t step = len / NTHREADS;\n  *total = 0;\n  for (int i = 0; i < NTHREADS; i++) {\n    jobs[i].data = data + step * i;\n    jobs[i].len = i == NTHREADS - 1 ? len - step * i : step;\n    pthread_t tid;\n    if (pthread_create(&tid, NULL, sum_chunk, &jobs[i]) != 0) return -1;\n    void *ret;\n    pthread_join(tid, &ret);\n    if (ret == NULL) return -1;\n    *total += *(uint64_t *)ret;\n    free(ret);\n  }\n  return 0;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "numbers are right now. but its 4x slower. top shows 100% cpu, not 400",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was wrong. It called pthread_join right after pthread_create inside the same loop, so the second thread did not start until the first one had finished. In other words, it was serial code that happened to use threads. Starting and reaping now happen in two loops. If pthread_create fails partway, every thread already started is still joined before returning."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "int checksum(const unsigned char *data, size_t len, uint64_t *total) {\n  struct job jobs[NTHREADS];\n  pthread_t tids[NTHREADS];\n  size_t step = len / NTHREADS;\n  int started = 0;\n  for (; started < NTHREADS; started++) {\n    jobs[started].data = data + step * started;\n    jobs[started].len = started == NTHREADS - 1 ? len - step * started : step;\n    if (pthread_create(&tids[started], NULL, sum_chunk, &jobs[started]) != 0) break;\n  }\n  int rc = started == NTHREADS ? 0 : -1;\n  *total = 0;\n  for (int i = 0; i < started; i++) {\n    void *ret;\n    pthread_join(tids[i], &ret);\n    if (ret == NULL) {\n      rc = -1;\n      continue;\n    }\n    *total += *(uint64_t *)ret;\n    free(ret);\n  }\n  return rc;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "we moved to 8 core boxes, make it 8",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "The split is computed from NTHREADS, so only the define changes. The last chunk takes the remainder, so nothing is dropped when len does not divide by 8."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/#define NTHREADS 4/#define NTHREADS 8/' src/sum/checksum.c"
+        }
+      ]
+    }
+  ]
+}

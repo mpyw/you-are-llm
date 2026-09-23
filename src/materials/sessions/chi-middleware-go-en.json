@@ -1,0 +1,57 @@
+{
+  "id": "chi-middleware-go-en",
+  "title": "Routes outside chi r.Group skip auth",
+  "language": "en",
+  "codeLanguage": "go",
+  "difficulty": "normal",
+  "files": [
+    {
+      "path": "internal/httpapi/router.go",
+      "content": "package httpapi\n\nimport (\n  \"net/http\"\n\n  \"github.com/go-chi/chi/v5\"\n  \"github.com/go-chi/chi/v5/middleware\"\n)\n\nfunc NewRouter(h *Handler, auth func(http.Handler) http.Handler) http.Handler {\n  r := chi.NewRouter()\n  r.Use(middleware.RequestID)\n  r.Use(middleware.Logger)\n  r.Use(middleware.Recoverer)\n\n  r.Get(\"/healthz\", h.Health)\n\n  r.Route(\"/api\", func(r chi.Router) {\n    r.Get(\"/items\", h.ListItems)\n    r.Group(func(r chi.Router) {\n      r.Use(auth)\n    })\n    r.Post(\"/items\", h.CreateItem)\n    r.Delete(\"/items/{id}\", h.DeleteItem)\n  })\n  return r\n}\n"
+    }
+  ],
+  "summary": "Move POST and DELETE into the Group they were meant for, then put auth back in front of an /admin route built outside it.",
+  "turns": [
+    {
+      "user": "POST /api/items goes through with no token. auth middleware is right there. GET can stay public",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch! r.Group is not a way of saying \"auth from here on\". It builds an inline sub router that only exists inside the function you pass it. Right now that function holds nothing but Use(auth), and POST and DELETE are registered on the outer r after the Group has closed, so they never pass through auth. The fix is to register the routes inside the Group's function too."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "r.Route(\"/api\", func(r chi.Router) {\n  r.Get(\"/items\", h.ListItems)\n  r.Group(func(r chi.Router) {\n    r.Use(auth)\n    r.Post(\"/items\", h.CreateItem)\n    r.Delete(\"/items/{id}\", h.DeleteItem)\n  })\n})\n"
+        }
+      ]
+    },
+    {
+      "user": "ok. also add /api/admin/users, admins only. requireAdmin middleware already exists (reads the user auth put in context)",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! This one wants its own path, so r.Route builds an /admin sub router and requireAdmin goes on it with Use. As a best practice, reach for r.Group to split middleware without adding a path, and r.Route to split off a whole path prefix."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func NewRouter(h *Handler, auth, requireAdmin func(http.Handler) http.Handler) http.Handler {\n  r := chi.NewRouter()\n  r.Use(middleware.RequestID)\n  r.Use(middleware.Logger)\n  r.Use(middleware.Recoverer)\n\n  r.Get(\"/healthz\", h.Health)\n\n  r.Route(\"/api\", func(r chi.Router) {\n    r.Get(\"/items\", h.ListItems)\n    r.Group(func(r chi.Router) {\n      r.Use(auth)\n      r.Post(\"/items\", h.CreateItem)\n      r.Delete(\"/items/{id}\", h.DeleteItem)\n    })\n    r.Route(\"/admin\", func(r chi.Router) {\n      r.Use(requireAdmin)\n      r.Get(\"/users\", h.ListUsers)\n    })\n  })\n  return r\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "hitting it with an admin token still gives 403",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. I built /admin outside the auth Group. requireAdmin reads the user that auth puts in the context, but nothing runs auth on /admin, so it sees an empty context and answers 403 for everyone. Use is variadic and the first one passed runs outermost, so auth goes in front of requireAdmin."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/r\\.Use(requireAdmin)/r.Use(auth, requireAdmin)/' internal/httpapi/router.go"
+        }
+      ]
+    }
+  ]
+}

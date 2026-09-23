@@ -1,0 +1,73 @@
+{
+  "id": "signalr-groups-csharp-en",
+  "title": "Send SignalR notifications per project",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "csharp",
+  "summary": "Task updates go to every client. Scope them to a group. Joining from the client is lost when a reconnect brings a new connection ID, so the server decides membership in OnConnectedAsync.",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using Acme.Data;\nusing Acme.Notifications;\nusing Microsoft.EntityFrameworkCore;\n\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddDbContext<AppDbContext>(o => o.UseNpgsql(builder.Configuration.GetConnectionString(\"App\")));\nbuilder.Services.AddAuthentication().AddJwtBearer();\nbuilder.Services.AddAuthorization();\nbuilder.Services.AddSignalR();\nbuilder.Services.AddScoped<ProjectNotifier>();\n\nvar app = builder.Build();\napp.UseAuthentication();\napp.UseAuthorization();\n\napp.MapHub<NotificationHub>(\"/hubs/notifications\");\n\napp.Run();\n"
+    },
+    {
+      "path": "src/Notifications/NotificationHub.cs",
+      "content": "using Microsoft.AspNetCore.SignalR;\n\nnamespace Acme.Notifications;\n\npublic sealed class NotificationHub : Hub\n{\n}\n"
+    },
+    {
+      "path": "src/Notifications/ProjectNotifier.cs",
+      "content": "using Microsoft.AspNetCore.SignalR;\n\nnamespace Acme.Notifications;\n\npublic sealed class ProjectNotifier(IHubContext<NotificationHub> hub)\n{\n    public Task TaskUpdatedAsync(int projectId, TaskSummary task, CancellationToken ct) =>\n        hub.Clients.All.SendAsync(\"TaskUpdated\", task, ct);\n}\n\npublic sealed record TaskSummary(int Id, string Title, string AssigneeEmail);\n"
+    },
+    {
+      "path": "src/Data/ProjectMember.cs",
+      "content": "namespace Acme.Data;\n\npublic enum MemberRole { Owner, Member, Guest }\n\npublic sealed class ProjectMember\n{\n    public int ProjectId { get; set; }\n    public string UserId { get; set; } = \"\";\n    public MemberRole Role { get; set; }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "task update notifications go to literally everyone rn. people are complaining about projects theyre not even in",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's use SignalR groups. Add JoinProject to the hub and put the calling connection's ID in a group named project:{id}. On the sending side, Clients.All becomes Clients.Group. Once the client calls JoinProject when the page opens, it only receives that project's notifications from then on."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public sealed class NotificationHub : Hub\n{\n    public static string ProjectGroup(int projectId) => $\"project:{projectId}\";\n\n    public Task JoinProject(int projectId) =>\n        Groups.AddToGroupAsync(Context.ConnectionId, ProjectGroup(projectId));\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/hub\\.Clients\\.All\\./hub.Clients.Group(NotificationHub.ProjectGroup(projectId))./' src/Notifications/ProjectNotifier.cs"
+        }
+      ]
+    },
+    {
+      "user": "on my phone after it wakes from sleep the notifications stop. reload fixes it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. Groups belong to connection IDs, and SignalR drops a connection from every group when it closes. withAutomaticReconnect comes back with a new connection ID, so it is in no group at all. Stateful reconnect, added in ASP.NET Core 8.0, is off by default. There is a second problem: JoinProject accepts any projectId, so anyone can join a project they are not in. The fix is to stop trusting the client and let the server decide in OnConnectedAsync from the memberships in the database. It runs on every connection, reconnects included."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using Acme.Data;\nusing Microsoft.AspNetCore.Authorization;\nusing Microsoft.AspNetCore.SignalR;\nusing Microsoft.EntityFrameworkCore;\n\nnamespace Acme.Notifications;\n\n[Authorize]\npublic sealed class NotificationHub(AppDbContext db) : Hub\n{\n    public static string ProjectGroup(int projectId) => $\"project:{projectId}\";\n\n    public override async Task OnConnectedAsync()\n    {\n        var userId = Context.UserIdentifier!;\n        var projectIds = await db.ProjectMembers\n            .Where(m => m.UserId == userId)\n            .Select(m => m.ProjectId)\n            .ToListAsync(Context.ConnectionAborted);\n\n        foreach (var projectId in projectIds)\n        {\n            await Groups.AddToGroupAsync(Context.ConnectionId, ProjectGroup(projectId), Context.ConnectionAborted);\n        }\n\n        await base.OnConnectedAsync();\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "also guests dont need these. theres assignee emails in there",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. The membership query drops Guest. Caveat: there is no API to remove a user from a group, only a connection, so a guest who is connected right now stays in the group until they disconnect."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/\\.Where(m => m\\.UserId == userId)/.Where(m => m.UserId == userId \\&\\& m.Role != MemberRole.Guest)/' src/Notifications/NotificationHub.cs"
+        }
+      ]
+    }
+  ]
+}

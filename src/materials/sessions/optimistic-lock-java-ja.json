@@ -1,0 +1,82 @@
+{
+  "id": "optimistic-lock-java-ja",
+  "title": "後勝ちで消える編集を @Version で 409 にする",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "java",
+  "summary": "楽観ロックを付けたのに画面をまたぐ上書きが防げず、version をクライアントに往復させる。再試行してよい操作も分ける。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/product/Product.java",
+      "content": "package com.example.product;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Product {\n    @Id\n    private Long id;\n\n    private String name;\n\n    private int price;\n\n    private int stock;\n\n    protected Product() {\n    }\n\n    public void rename(String name) {\n        this.name = name;\n    }\n\n    public void changePrice(int price) {\n        this.price = price;\n    }\n\n    public void reserve(int amount) {\n        if (stock < amount) {\n            throw new OutOfStockException(id);\n        }\n        stock -= amount;\n    }\n\n    public Long getId() {\n        return id;\n    }\n\n    public String getName() {\n        return name;\n    }\n\n    public int getPrice() {\n        return price;\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/product/ProductService.java",
+      "content": "package com.example.product;\n\nimport org.springframework.stereotype.Service;\nimport org.springframework.transaction.annotation.Transactional;\n\n@Service\npublic class ProductService {\n    private final ProductRepository productRepository;\n\n    public ProductService(ProductRepository productRepository) {\n        this.productRepository = productRepository;\n    }\n\n    @Transactional\n    public ProductResponse update(long id, UpdateProductRequest request) {\n        Product product = productRepository.findById(id).orElseThrow(() -> new ProductNotFoundException(id));\n        product.rename(request.name());\n        product.changePrice(request.price());\n        return ProductResponse.from(product);\n    }\n\n    @Transactional\n    public void reserve(long id, int amount) {\n        Product product = productRepository.findById(id).orElseThrow(() -> new ProductNotFoundException(id));\n        product.reserve(amount);\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/product/UpdateProductRequest.java",
+      "content": "package com.example.product;\n\npublic record UpdateProductRequest(String name, int price) {\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/product/ProductResponse.java",
+      "content": "package com.example.product;\n\npublic record ProductResponse(long id, String name, int price) {\n    static ProductResponse from(Product product) {\n        return new ProductResponse(product.getId(), product.getName(), product.getPrice());\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "商品の編集画面、管理者 2 人が同じ商品を開いて順番に保存すると、後から保存した人の内容で丸ごと上書きされる。先の人の変更が黙って消えるのがまずい。エラーにしたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。JPA の楽観ロックを活用しましょう！Product に @Version を付けると、Hibernate は更新のたびに where version = ? を付けて version を 1 つ進めます。ほかの誰かが先に更新していれば 0 行になり、Spring がそれを ObjectOptimisticLockingFailureException に変換します。あとは @RestControllerAdvice でこの例外を 409 Conflict にすれば、同時に保存しても後勝ちにならないことを保証します。",
+          "reading": "しょうちしました。JPA のらっかんロックをかつようしましょう！Product に @Version をつけると、Hibernate はこうしんのたびに where version = ? をつけて version を 1 つすすめます。ほかのだれかがさきにこうしんしていれば 0 ぎょうになり、Spring がそれを ObjectOptimisticLockingFailureException にへんかんします。あとは @RestControllerAdvice でこのれいがいを 409 Conflict にすれば、どうじにほぞんしてもあとがちにならないことをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import jakarta.persistence.Version;\n\n@Version\nprivate Long version;\n\npublic Long getVersion() {\n    return version;\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.product;\n\nimport org.springframework.http.HttpStatus;\nimport org.springframework.http.ProblemDetail;\nimport org.springframework.orm.ObjectOptimisticLockingFailureException;\nimport org.springframework.web.bind.annotation.ExceptionHandler;\nimport org.springframework.web.bind.annotation.RestControllerAdvice;\n\n@RestControllerAdvice\npublic class ConflictHandler {\n    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)\n    public ProblemDetail handleConflict(ObjectOptimisticLockingFailureException e) {\n        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, \"Someone else changed this product. Reload and try again.\");\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "やってみた。画面 A と B で同じ商品開いて、A で保存 → B で保存。B 普通に 200 で通って A の変更消えた",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの説明は正確ではありませんでした。@Version が比べるのは、同じトランザクションの中で読み込んだ時点の version です。B の PUT はそのリクエストの中で商品を読み直すので、A が保存したあとの最新の version を掴み、衝突しません。守れていたのは 1 リクエストの中のごく短い隙間だけでした。画面を開いたときの version をクライアントに渡し、保存時に送り返してもらって比べます。request.version() をエンティティに代入しても、Hibernate は読み込んだときの値で比べるので効きません。明示的に比べて例外を投げます。また version が進むのは flush のときなので、flush してから応答を作らないと古い番号を返してしまい、同じ画面で 2 回目に保存すると 409 になります。",
+          "reading": "もうしわけありません。さきほどのせつめいはせいかくではありませんでした。@Version がくらべるのは、おなじトランザクションのなかでよみこんだじてんの version です。B の PUT はそのリクエストのなかでしょうひんをよみなおすので、A がほぞんしたあとのさいしんの version をつかみ、しょうとつしません。まもれていたのは 1 リクエストのなかのごくみじかいすきまだけでした。がめんをひらいたときの version をクライアントにわたし、ほぞんじにおくりかえしてもらってくらべます。request.version() をエンティティにだいにゅうしても、Hibernate はよみこんだときのあたいでくらべるのでききません。めいじてきにくらべてれいがいをなげます。また version がすすむのは flush のときなので、flush してからおうとうをつくらないとふるいばんごうをかえしてしまい、おなじがめんで 2 かいめにほぞんすると 409 になります。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Transactional\npublic ProductResponse update(long id, UpdateProductRequest request) {\n    Product product = productRepository.findById(id).orElseThrow(() -> new ProductNotFoundException(id));\n    if (product.getVersion() != request.version()) {\n        throw new ObjectOptimisticLockingFailureException(Product.class, id);\n    }\n    product.rename(request.name());\n    product.changePrice(request.price());\n    productRepository.flush();\n    return ProductResponse.from(product);\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/int price)/int price, long version)/' -e 's/product\\.getPrice())/product.getPrice(), product.getVersion())/' src/main/java/com/example/product/UpdateProductRequest.java src/main/java/com/example/product/ProductResponse.java"
+        }
+      ]
+    },
+    {
+      "user": "409 は出るようになった。けど在庫の引き当ても同じ Product を更新してて、セールで注文が集中すると 409 だらけ。これリトライでよくない？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。再試行してよいかは、操作が何を元に値を決めるかで分かれます。在庫の引き当ては毎回いまの在庫から引き算し直すので、読み直してやり直せば正しい結果になります。一方、編集画面の保存は再試行してはいけません。人が古い画面を見て決めた値を最新の行に書き直すだけで、後勝ちに戻ります。また、例外が出るのはメソッドを抜けたあとのコミット時なので、@Transactional なメソッドの中でループしても捕まえられません。ProductService の外に呼び出し役の Bean を置き、reserve を新しいトランザクションで 3 回まで呼び直します。",
+          "reading": "するどいごしてきです。さいしこうしてよいかは、そうさがなにをもとにあたいをきめるかでわかれます。ざいこのひきあてはまいかいいまのざいこからひきざんしなおすので、よみなおしてやりなおせばただしいけっかになります。いっぽう、へんしゅうがめんのほぞんはさいしこうしてはいけません。ひとがふるいがめんをみてきめたあたいをさいしんのぎょうにかきなおすだけで、あとがちにもどります。また、れいがいがでるのはメソッドをぬけたあとのコミットじなので、@Transactional なメソッドのなかでループしてもつかまえられません。ProductService のそとによびだしやくの Bean をおき、reserve をあたらしいトランザクションで 3 かいまでよびなおします。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.product;\n\nimport org.springframework.orm.ObjectOptimisticLockingFailureException;\nimport org.springframework.stereotype.Component;\n\n@Component\npublic class StockReserver {\n    private static final int MAX_ATTEMPTS = 3;\n\n    private final ProductService productService;\n\n    public StockReserver(ProductService productService) {\n        this.productService = productService;\n    }\n\n    public void reserve(long id, int amount) {\n        for (int attempt = 1; ; attempt++) {\n            try {\n                productService.reserve(id, amount);\n                return;\n            } catch (ObjectOptimisticLockingFailureException e) {\n                if (attempt >= MAX_ATTEMPTS) {\n                    throw e;\n                }\n            }\n        }\n    }\n}\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "id": "feature-test-php-ja",
+  "title": "送料見積り API に Feature テストを書く",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "php",
+  "summary": "RefreshDatabase と actingAs で見積り API を叩き、送料 API は Http::fake で差し替える。post() で 422 が 302 になるのを踏み、preventStrayRequests で外への漏れも塞ぐ。",
+  "files": [
+    {
+      "path": "app/Http/Controllers/QuoteController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse App\\Http\\Resources\\QuoteResource;\nuse App\\Services\\CarrierClient;\nuse Illuminate\\Http\\Client\\ConnectionException;\nuse Illuminate\\Http\\Client\\RequestException;\nuse Illuminate\\Http\\Request;\n\nclass QuoteController extends Controller\n{\n    public function store(Request $request, CarrierClient $carrier)\n    {\n        $validated = $request->validate([\n            'postal_code' => ['required', 'digits:7'],\n            'weight_grams' => ['required', 'integer', 'min:1', 'max:30000'],\n        ]);\n\n        try {\n            $fee = $carrier->rate($validated['postal_code'], $validated['weight_grams']);\n        } catch (ConnectionException|RequestException $e) {\n            report($e);\n\n            return response()->json(['message' => 'Carrier unavailable'], 502);\n        }\n\n        $quote = $request->user()->quotes()->create([...$validated, 'fee' => $fee]);\n\n        return new QuoteResource($quote);\n    }\n}\n"
+    },
+    {
+      "path": "app/Services/CarrierClient.php",
+      "content": "<?php\n\nnamespace App\\Services;\n\nuse Illuminate\\Support\\Facades\\Http;\n\nclass CarrierClient\n{\n    public function rate(string $postalCode, int $weightGrams): int\n    {\n        return Http::withToken(config('services.carrier.token'))\n            ->timeout(5)\n            ->post('https://api.carrier.example/v2/rates', [\n                'to' => $postalCode,\n                'weight' => $weightGrams,\n            ])\n            ->throw()\n            ->json('amount');\n    }\n}\n"
+    },
+    {
+      "path": "app/Http/Resources/QuoteResource.php",
+      "content": "<?php\n\nnamespace App\\Http\\Resources;\n\nuse Illuminate\\Http\\Request;\nuse Illuminate\\Http\\Resources\\Json\\JsonResource;\n\nclass QuoteResource extends JsonResource\n{\n    public function toArray(Request $request): array\n    {\n        return [\n            'id' => $this->id,\n            'postal_code' => $this->postal_code,\n            'weight_grams' => $this->weight_grams,\n            'fee' => $this->fee,\n        ];\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "QuoteController のテストが 1 本もない。書いて。送料 API は本物叩かないで、叩くたびに課金される。Pest じゃなくて PHPUnit で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい判断です。tests/Feature/QuoteTest.php に 2 本書きます。RefreshDatabase でテストごとに DB を作り直し、actingAs でログイン済みのユーザーとしてリクエストします。CarrierClient は Http ファサード経由なので、Http::fake で api.carrier.example への応答を差し替えれば、本物の API には届きません。",
+          "reading": "すばらしいはんだんです。tests/Feature/QuoteTest.php に 2 ほんかきます。RefreshDatabase でテストごとに DB をつくりなおし、actingAs でログインずみのユーザーとしてリクエストします。CarrierClient は Http ファサードけいゆなので、Http::fake で api.carrier.example へのおうとうをさしかえれば、ほんものの API にはとどきません。"
+        },
+        {
+          "kind": "text",
+          "body": "ポイントは assertJsonPath と assertJson の違いです。assertJsonPath は 1 か所を === で比べるので、980 と '980' を区別します。assertJson は部分一致なので、id のように毎回変わる値を無視できます。最後に Http::assertSent で、郵便番号とトークンが実際に送られたことを確かめています。",
+          "reading": "ポイントは assertJsonPath と assertJson のちがいです。assertJsonPath は 1 かしょを === でくらべるので、980 と '980' をくべつします。assertJson はぶぶんいっちなので、id のようにまいかいかわるあたいをむしできます。さいごに Http::assertSent で、ゆうびんばんごうとトークンがじっさいにおくられたことをたしかめています。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "<?php\n\nnamespace Tests\\Feature;\n\nuse App\\Models\\User;\nuse Illuminate\\Foundation\\Testing\\RefreshDatabase;\nuse Illuminate\\Http\\Client\\Request;\nuse Illuminate\\Support\\Facades\\Http;\nuse Tests\\TestCase;\n\nclass QuoteTest extends TestCase\n{\n    use RefreshDatabase;\n\n    public function test_it_stores_the_fee_from_the_carrier(): void\n    {\n        config(['services.carrier.token' => 'test-token']);\n        Http::fake([\n            'api.carrier.example/*' => Http::response(['amount' => 980]),\n        ]);\n        $user = User::factory()->create();\n\n        $this->actingAs($user)\n            ->post('/api/quotes', ['postal_code' => '1500001', 'weight_grams' => 1200])\n            ->assertCreated()\n            ->assertJsonPath('data.fee', 980)\n            ->assertJson(['data' => ['postal_code' => '1500001']]);\n\n        $this->assertDatabaseHas('quotes', ['user_id' => $user->id, 'fee' => 980]);\n        Http::assertSent(fn (Request $request) => $request['to'] === '1500001'\n            && $request->hasHeader('Authorization', 'Bearer test-token'));\n    }\n\n    public function test_it_rejects_a_zero_weight(): void\n    {\n        Http::fake();\n\n        $this->actingAs(User::factory()->create())\n            ->post('/api/quotes', ['postal_code' => '1500001', 'weight_grams' => 0])\n            ->assertUnprocessable()\n            ->assertJsonValidationErrors('weight_grams');\n\n        Http::assertNothingSent();\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "2 本目落ちる。Expected response status code [422] but received 302.",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。post() を使ったのは私の誤りでした。post() は Accept: application/json を付けないので、Laravel はバリデーションの失敗をブラウザからの送信として扱い、元の画面へリダイレクトします。postJson() に替えれば、JSON の 422 が返ります。1 本目が通っていたのは、成功時は Resource が JSON を返すからです。言い換えると、正常系だけでは気付けない落とし穴でした。",
+          "reading": "もうしわけありません。post() をつかったのはわたしのあやまりでした。post() は Accept: application/json をつけないので、Laravel はバリデーションのしっぱいをブラウザからのそうしんとしてあつかい、もとのがめんへリダイレクトします。postJson() にかえれば、JSON の 422 がかえります。1 ほんめがとおっていたのは、せいこうじは Resource が JSON をかえすからです。いいかえると、せいじょうけいだけではきづけないおとしあなでした。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/->post(/->postJson(/' tests/Feature/QuoteTest.php"
+        },
+        {
+          "kind": "command",
+          "body": "php artisan test --filter=QuoteTest"
+        }
+      ]
+    },
+    {
+      "user": "通った。ついでにキャリアが落ちてるときのも。503 なら 502 返すやつ。あと fake 書き忘れたテストが本番の API 叩くのが怖いんだけど、防げる？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。Http::fake はパターンに合ったリクエストだけを差し替え、合わないものはそのまま外へ出ます。setUp で Http::preventStrayRequests() を呼べば、fake されていないリクエストは StrayRequestException になり、テストが落ちることを保証します。外部に左右されない決定論的なテストになります。503 のテストでは、見積りが保存されないことまで確かめます。",
+          "reading": "しょうちしました。Http::fake はパターンにあったリクエストだけをさしかえ、あわないものはそのままそとへでます。setUp で Http::preventStrayRequests() をよべば、fake されていないリクエストは StrayRequestException になり、テストがおちることをほしょうします。がいぶにさゆうされないけっていろんてきなテストになります。503 のテストでは、みつもりがほぞんされないことまでたしかめます。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "protected function setUp(): void\n{\n    parent::setUp();\n\n    Http::preventStrayRequests();\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function test_it_answers_502_when_the_carrier_is_down(): void\n{\n    Http::fake([\n        'api.carrier.example/*' => Http::response(['error' => 'maintenance'], 503),\n    ]);\n\n    $this->actingAs(User::factory()->create())\n        ->postJson('/api/quotes', ['postal_code' => '1500001', 'weight_grams' => 1200])\n        ->assertStatus(502)\n        ->assertJsonPath('message', 'Carrier unavailable');\n\n    $this->assertDatabaseCount('quotes', 0);\n}\n"
+        }
+      ]
+    }
+  ]
+}

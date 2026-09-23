@@ -1,0 +1,66 @@
+{
+  "id": "await-holding-lock-rust-en",
+  "title": "Holding a std Mutex guard across an await",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "rust",
+  "summary": "A MutexGuard held over an await makes the future not Send, so move the guard into sync helpers, then use tokio::sync::Mutex where the lock really must span the fetch.",
+  "files": [
+    {
+      "path": "src/token.rs",
+      "content": "use std::sync::{Arc, Mutex};\nuse std::time::Instant;\n\n#[derive(Clone)]\npub struct Token {\n    pub value: String,\n    pub expires_at: Instant,\n}\n\n#[derive(Clone, Default)]\npub struct TokenCache {\n    current: Arc<Mutex<Option<Token>>>,\n}\n\nimpl TokenCache {\n    pub fn get(&self) -> Option<String> {\n        let current = self.current.lock().unwrap();\n        current\n            .as_ref()\n            .filter(|token| token.expires_at > Instant::now())\n            .map(|token| token.value.clone())\n    }\n\n    pub fn set(&self, token: Token) {\n        *self.current.lock().unwrap() = Some(token);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "add a token() to TokenCache that fetches when expired and returns it. every caller does get, None, fetch_token, set by hand and im tired of it. workers run under tokio::spawn",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great idea. Doing the check, the fetch and the store under one lock leaves no gap for another task to slip into, so the refresh becomes atomic. fetch_token comes straight from crate::auth."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use crate::auth::{fetch_token, AuthError};\n\npub async fn token(&self) -> Result<String, AuthError> {\n    let mut current = self.current.lock().unwrap();\n    if let Some(token) = current.as_ref().filter(|token| token.expires_at > Instant::now()) {\n        return Ok(token.value.clone());\n    }\n    let fresh = fetch_token().await?;\n    let value = fresh.value.clone();\n    *current = Some(fresh);\n    Ok(value)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "cargo build says\n\nerror: future cannot be sent between threads safely\n   = help: within `{async block}`, the trait `Send` is not implemented for `std::sync::MutexGuard<'_, Option<Token>>`\nnote: future is not `Send` as this value is used across an await",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. Awaiting while holding a std::sync::Mutex guard is the mistake. MutexGuard is not Send, and holding it across an await makes the whole future of token() not Send. tokio::spawn needs Send because it moves tasks between threads, so it refuses. Even if it compiled, the lock would stay held for the whole fetch, and any other task reaching for it would block its worker thread."
+        },
+        {
+          "kind": "text",
+          "body": "The fix is to keep the guard inside sync functions. The existing get and set each take the lock and release it on the spot, so token() just calls them. By the time it awaits, no guard is alive. clippy::await_holding_lock flags the old shape, so it is worth running clippy in CI."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "pub async fn token(&self) -> Result<String, AuthError> {\n    if let Some(value) = self.get() {\n        return Ok(value);\n    }\n    let fresh = fetch_token().await?;\n    let value = fresh.value.clone();\n    self.set(fresh);\n    Ok(value)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "spawn works. but the moment it expires 50 workers all call fetch_token together and the auth server gives us 429. fetch once",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now this is where tokio::sync::Mutex belongs. Here the lock is meant to be held for the whole fetch, so it needs a Mutex that can be held across an await. The first task in fetches, the rest wait in lock().await, and when their turn comes the new token is already there, so the expiry check lets them straight through. tokio's Mutex does not poison, so the unwrap goes too. get and set are folded into token() and removed."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/use std::sync::{Arc, Mutex};/use std::sync::Arc;/' -e 's/Arc<Mutex</Arc<tokio::sync::Mutex</' src/token.rs"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "impl TokenCache {\n    pub async fn token(&self) -> Result<String, AuthError> {\n        let mut current = self.current.lock().await;\n        if let Some(token) = current.as_ref().filter(|token| token.expires_at > Instant::now()) {\n            return Ok(token.value.clone());\n        }\n        let fresh = fetch_token().await?;\n        let value = fresh.value.clone();\n        *current = Some(fresh);\n        Ok(value)\n    }\n}\n"
+        }
+      ]
+    }
+  ]
+}

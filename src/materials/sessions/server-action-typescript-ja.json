@@ -1,0 +1,86 @@
+{
+  "id": "server-action-typescript-ja",
+  "title": "Todo の名前変更を Server Action に移す",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "typescript",
+  "summary": "fetch と Route Handler でやっていた名前変更を Server Action と useActionState に移し、revalidatePath で一覧を更新する。",
+  "files": [
+    {
+      "path": "app/todos/page.tsx",
+      "content": "import { redirect } from 'next/navigation'\nimport { db } from '@/lib/db'\nimport { getSession } from '@/lib/session'\nimport { RenameForm } from './RenameForm'\n\nexport default async function TodosPage() {\n  const session = await getSession()\n  if (!session) redirect('/login')\n\n  const todos = await db.todo.findMany({ where: { userId: session.userId } })\n  return (\n    <ul>\n      {todos.map((todo) => (\n        <li key={todo.id}>\n          <RenameForm id={todo.id} title={todo.title} />\n        </li>\n      ))}\n    </ul>\n  )\n}\n"
+    },
+    {
+      "path": "app/todos/RenameForm.tsx",
+      "content": "'use client'\n\nimport { useState, type FormEvent } from 'react'\nimport { useRouter } from 'next/navigation'\n\nexport function RenameForm({ id, title }: { id: string; title: string }) {\n  const router = useRouter()\n  const [error, setError] = useState<string | null>(null)\n\n  async function handleSubmit(event: FormEvent<HTMLFormElement>) {\n    event.preventDefault()\n    const form = new FormData(event.currentTarget)\n    const res = await fetch(`/api/todos/${id}`, {\n      method: 'PATCH',\n      body: JSON.stringify({ title: form.get('title') }),\n    })\n    if (!res.ok) {\n      setError('Could not rename')\n      return\n    }\n    router.refresh()\n  }\n\n  return (\n    <form onSubmit={handleSubmit}>\n      <input name=\"title\" defaultValue={title} />\n      <button type=\"submit\">Rename</button>\n      {error && <p role=\"alert\">{error}</p>}\n    </form>\n  )\n}\n"
+    },
+    {
+      "path": "app/api/todos/[id]/route.ts",
+      "content": "import { NextResponse } from 'next/server'\nimport { db } from '@/lib/db'\nimport { getSession } from '@/lib/session'\n\ntype Context = { params: Promise<{ id: string }> }\n\nexport async function PATCH(request: Request, { params }: Context) {\n  const session = await getSession()\n  if (!session) {\n    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })\n  }\n  const { id } = await params\n  const { title } = await request.json()\n  await db.todo.updateMany({ where: { id, userId: session.userId }, data: { title } })\n  return NextResponse.json({ ok: true })\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "todo の名前変更、fetch で API 叩いて router.refresh してるのダサいから Server Action にしたい。useActionState ってやつで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。actions.ts に 'use server' を付けて renameTodo を定義し、フォームの action に渡します。useActionState が前回の state と FormData を渡してくれるので、fetch も useRouter も不要になります。更新後は revalidatePath('/todos') で一覧を作り直します。FormData の値は文字列なので as string で受けます。一覧のページで session を確認して本人の Todo だけを出しているので、フォームから届く id は本人のものに限られます。route.ts の認可も要らなくなるので、ファイルごと消します。",
+          "reading": "かしこまりました。actions.ts に 'use server' をつけて renameTodo をていぎし、ふぉーむの action にわたします。useActionState がぜんかいの state と FormData をわたしてくれるので、fetch も useRouter もふようになります。こうしんごは revalidatePath('/todos') でいちらんをつくりなおします。FormData のあたいはもじれつなので as string でうけます。いちらんのぺーじで session をかくにんしてほんにんの Todo だけをだしているので、ふぉーむからとどく id はほんにんのものにかぎられます。route.ts のにんかもいらなくなるので、ふぁいるごとけします。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "'use server'\n\nimport { revalidatePath } from 'next/cache'\nimport { db } from '@/lib/db'\n\nexport type RenameState = { error: string | null }\n\nexport async function renameTodo(\n  _prev: RenameState,\n  formData: FormData,\n): Promise<RenameState> {\n  const id = formData.get('id') as string\n  const title = formData.get('title') as string\n\n  await db.todo.update({ where: { id }, data: { title } })\n  revalidatePath('/todos')\n  return { error: null }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "'use client'\n\nimport { useActionState } from 'react'\nimport { renameTodo } from './actions'\n\nexport function RenameForm({ id, title }: { id: string; title: string }) {\n  const [state, formAction, isPending] = useActionState(renameTodo, { error: null })\n\n  return (\n    <form action={formAction}>\n      <input type=\"hidden\" name=\"id\" value={id} />\n      <input name=\"title\" defaultValue={title} />\n      <button type=\"submit\" disabled={isPending}>Rename</button>\n      {state.error && <p role=\"alert\">{state.error}</p>}\n    </form>\n  )\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "rm 'app/api/todos/[id]/route.ts'"
+        }
+      ]
+    },
+    {
+      "user": "レビューで止められた。hidden の id 書き換えて直接 POST したら他人の todo の名前変えられるって。あと title 空でも通る。route.ts には認可あったよね？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "重要な訂正があります。一覧で絞っていても、Server Action の実体は POST を受けるエンドポイントです。言い換えると、画面を通らずに誰でも直接呼べます。hidden の id は開発者ツールで書き換えられるので、本人のものに限られるという先ほどの説明は正しくありませんでした。route.ts から移すときに認可を落としたのも私の誤りでした。Action の中で session を取り直し、id と userId の両方で絞って更新します。",
+          "reading": "じゅうようなていせいがあります。いちらんでしぼっていても、Server Action のじったいは POST をうけるえんどぽいんとです。いいかえると、がめんをとおらずにだれでもちょくせつよべます。hidden の id はかいはつしゃつーるでかきかえられるので、ほんにんのものにかぎられるというさきほどのせつめいはただしくありませんでした。route.ts からうつすときににんかをおとしたのもわたしのあやまりでした。Action のなかで session をとりなおし、id と userId のりょうほうでしぼってこうしんします。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "'use server'\n\nimport { revalidatePath } from 'next/cache'\nimport { db } from '@/lib/db'\nimport { getSession } from '@/lib/session'\n\nexport type RenameState = { error: string | null }\n\nexport async function renameTodo(\n  _prev: RenameState,\n  formData: FormData,\n): Promise<RenameState> {\n  const session = await getSession()\n  if (!session) return { error: 'Please sign in again' }\n\n  const id = formData.get('id')\n  const title = formData.get('title')\n  if (typeof id !== 'string' || typeof title !== 'string') {\n    return { error: 'Invalid form' }\n  }\n  const trimmed = title.trim()\n  if (trimmed === '' || trimmed.length > 100) {\n    return { error: 'Title must be 1 to 100 characters' }\n  }\n\n  const { count } = await db.todo.updateMany({\n    where: { id, userId: session.userId },\n    data: { title: trimmed },\n  })\n  if (count === 0) return { error: 'Todo not found' }\n\n  revalidatePath('/todos')\n  return { error: null }\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "as string も嘘で、get は null や File を返し得ます。typeof で防御的に確かめてから、trim した長さを検証します。updateMany は一致しなければ count が 0 になるので、他人の id では何も更新されないことを保証します。",
+          "reading": "as string もうそで、get は null や File をかえしえます。typeof でぼうぎょてきにたしかめてから、trim したながさをけんしょうします。updateMany はいっちしなければ count が 0 になるので、たにんの id ではなにもこうしんされないことをほしょうします。"
+        }
+      ]
+    },
+    {
+      "user": "PM が 100 字は短いって。140 で。input にも maxLength つけといて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。Note: maxLength は入力の手助けにすぎず、直接の POST には効きません。サーバ側の検証は残したまま、両方の数字を揃えます。",
+          "reading": "しょうちしました。Note: maxLength はにゅうりょくのてだすけにすぎず、ちょくせつの POST にはききません。さーばがわのけんしょうはのこしたまま、りょうほうのすうじをそろえます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/100/140/g' app/todos/actions.ts"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's|defaultValue={title} />|defaultValue={title} maxLength={140} />|' app/todos/RenameForm.tsx"
+        }
+      ]
+    }
+  ]
+}

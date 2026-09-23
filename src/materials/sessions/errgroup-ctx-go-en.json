@@ -1,0 +1,75 @@
+{
+  "id": "errgroup-ctx-go-en",
+  "title": "Fetch in parallel with errgroup and stop the rest on failure",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "go",
+  "summary": "errgroup.WithContext ran three calls in parallel but nothing stopped, because http.Get threw the ctx away. Fix that, then cap the fan out with SetLimit.",
+  "files": [
+    {
+      "path": "internal/dashboard/load.go",
+      "content": "package dashboard\n\nimport \"context\"\n\ntype Dashboard struct {\n  Profile Profile\n  Orders  []Order\n  Notices []Notice\n}\n\nfunc Load(ctx context.Context, c *Client, userID string) (*Dashboard, error) {\n  var d Dashboard\n  if err := c.get(ctx, \"/users/\"+userID, &d.Profile); err != nil {\n    return nil, err\n  }\n  if err := c.get(ctx, \"/users/\"+userID+\"/orders\", &d.Orders); err != nil {\n    return nil, err\n  }\n  if err := c.get(ctx, \"/users/\"+userID+\"/notices\", &d.Notices); err != nil {\n    return nil, err\n  }\n  return &d, nil\n}\n"
+    },
+    {
+      "path": "internal/dashboard/client.go",
+      "content": "package dashboard\n\nimport (\n  \"context\"\n  \"encoding/json\"\n  \"fmt\"\n  \"net/http\"\n)\n\ntype Client struct {\n  http *http.Client\n  base string\n}\n\nfunc (c *Client) get(ctx context.Context, path string, out any) error {\n  resp, err := c.http.Get(c.base + path)\n  if err != nil {\n    return err\n  }\n  defer resp.Body.Close()\n  if resp.StatusCode != http.StatusOK {\n    return fmt.Errorf(\"GET %s: %s\", path, resp.Status)\n  }\n  return json.NewDecoder(resp.Body).Decode(out)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "dashboard Load is slow, its just 3 calls in a row. make them parallel. if one fails dont bother waiting for the rest",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's a version using errgroup. The ctx returned by errgroup.WithContext is canceled as soon as any function returns a non-nil error. All three calls get that ctx, which guarantees that one failure stops the rest. g.Wait waits for all of them and returns the first error. Each goroutine writes to its own field of Dashboard, so no lock is needed."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func Load(ctx context.Context, c *Client, userID string) (*Dashboard, error) {\n  var d Dashboard\n  g, ctx := errgroup.WithContext(ctx)\n  g.Go(func() error {\n    return c.get(ctx, \"/users/\"+userID, &d.Profile)\n  })\n  g.Go(func() error {\n    return c.get(ctx, \"/users/\"+userID+\"/orders\", &d.Orders)\n  })\n  g.Go(func() error {\n    return c.get(ctx, \"/users/\"+userID+\"/notices\", &d.Notices)\n  })\n  if err := g.Wait(); err != nil {\n    return nil, err\n  }\n  return &d, nil\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "its parallel now. but when profile 404s it still sits there the full 8 seconds for the slow orders call before returning. thats not stopping",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. The ctx is canceled, but Client.get takes it and never uses it: it sends the request with http.Get. Nothing on the request carries the cancellation, so g.Wait waits for the slow call to finish on its own. http.NewRequestWithContext puts the ctx on the request."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (c *Client) get(ctx context.Context, path string, out any) error {\n  req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+path, nil)\n  if err != nil {\n    return err\n  }\n  resp, err := c.http.Do(req)\n  if err != nil {\n    return err\n  }\n  defer resp.Body.Close()\n  if resp.StatusCode != http.StatusOK {\n    return fmt.Errorf(\"GET %s: %s\", path, resp.Status)\n  }\n  return json.NewDecoder(resp.Body).Decode(out)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "stops now. also want friend avatars in the same place. some people have like 500 friends so dont fire them all at once",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "The key is g.SetLimit. It caps how many goroutines run at once, and when the cap is reached g.Go blocks the caller until a slot frees up. So even with 500 friends, at most 8 requests are in flight. Call SetLimit before the first g.Go. The cap counts the first three calls too. Since Go 1.22 each loop iteration gets its own i and id, so the closure can use them directly."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "type Dashboard struct {\n  Profile Profile\n  Orders  []Order\n  Notices []Notice\n  Avatars []Avatar\n}\n\nfunc Load(ctx context.Context, c *Client, userID string, friendIDs []string) (*Dashboard, error) {\n  d := Dashboard{Avatars: make([]Avatar, len(friendIDs))}\n  g, ctx := errgroup.WithContext(ctx)\n  g.SetLimit(8)\n  g.Go(func() error {\n    return c.get(ctx, \"/users/\"+userID, &d.Profile)\n  })\n  g.Go(func() error {\n    return c.get(ctx, \"/users/\"+userID+\"/orders\", &d.Orders)\n  })\n  g.Go(func() error {\n    return c.get(ctx, \"/users/\"+userID+\"/notices\", &d.Notices)\n  })\n  for i, id := range friendIDs {\n    g.Go(func() error {\n      return c.get(ctx, \"/users/\"+id+\"/avatar\", &d.Avatars[i])\n    })\n  }\n  if err := g.Wait(); err != nil {\n    return nil, err\n  }\n  return &d, nil\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "api team says 16 is fine",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. The limit lives in one place, so that is the only line to change."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/g.SetLimit(8)/g.SetLimit(16)/' internal/dashboard/load.go"
+        }
+      ]
+    }
+  ]
+}

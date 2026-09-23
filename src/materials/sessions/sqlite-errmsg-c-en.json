@@ -1,0 +1,44 @@
+{
+  "id": "sqlite-errmsg-c-en",
+  "title": "Surface why SQLite failed",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "c",
+  "summary": "Check SQLITE_OK and SQLITE_DONE on a DELETE that ignored every return value, and print sqlite3_errmsg.",
+  "files": [
+    {
+      "path": "src/db/purge.c",
+      "content": "#include <stdio.h>\n#include <sqlite3.h>\n\nint purge_expired(const char *path) {\n  sqlite3 *db = NULL;\n  sqlite3_stmt *stmt = NULL;\n  sqlite3_open(path, &db);\n  sqlite3_prepare_v2(db, \"DELETE FROM sessions WHERE expires_at < strftime('%s', 'now')\", -1, &stmt, NULL);\n  sqlite3_step(stmt);\n  sqlite3_finalize(stmt);\n  sqlite3_close(db);\n  return 0;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "purge_expired runs but old sessions never go away. no error, returns 0",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch. Nothing from sqlite3_open to sqlite3_step has its return value checked, so any failure still ends in 0. Success is SQLITE_OK for open and prepare, and SQLITE_DONE for the step of a DELETE. On failure, sqlite3_errmsg says why. Note: the message belongs to the connection, so read it before sqlite3_close."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "int purge_expired(const char *path) {\n  sqlite3 *db = NULL;\n  sqlite3_stmt *stmt = NULL;\n  int rc = sqlite3_open(path, &db);\n  if (rc != SQLITE_OK) {\n    fprintf(stderr, \"open %s: %s\\n\", path, sqlite3_errmsg(db));\n    sqlite3_close(db);\n    return rc;\n  }\n  rc = sqlite3_prepare_v2(db, \"DELETE FROM sessions WHERE expires_at < strftime('%s', 'now')\", -1, &stmt, NULL);\n  if (rc == SQLITE_OK) {\n    rc = sqlite3_step(stmt);\n  }\n  if (rc != SQLITE_DONE) {\n    fprintf(stderr, \"purge: %s\\n\", sqlite3_errmsg(db));\n  }\n  sqlite3_finalize(stmt);\n  sqlite3_close(db);\n  return rc == SQLITE_DONE ? SQLITE_OK : rc;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "got no such table: sessions. wrong db path in prod lol. also log how many rows it deleted",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "sqlite3_open quietly creates a missing file, which is why the error only shows up at prepare. The count comes from sqlite3_changes, the rows touched by the last DELETE."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "  if (rc != SQLITE_DONE) {\n    fprintf(stderr, \"purge: %s\\n\", sqlite3_errmsg(db));\n  } else {\n    fprintf(stderr, \"purge: %d rows\\n\", sqlite3_changes(db));\n  }\n"
+        }
+      ]
+    }
+  ]
+}

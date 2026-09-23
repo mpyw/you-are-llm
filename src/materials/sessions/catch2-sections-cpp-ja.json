@@ -1,0 +1,64 @@
+{
+  "id": "catch2-sections-cpp-ja",
+  "title": "Catch2 の SECTION で前準備をまとめる",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "cpp",
+  "summary": "コピペの前準備を一つの TEST_CASE と SECTION にまとめる。セクションごとに先頭から走り直すので、続きのテストは入れ子にする。",
+  "files": [
+    {
+      "path": "tests/lru_cache_test.cpp",
+      "content": "#include <catch2/catch_test_macros.hpp>\n\n#include <string>\n\n#include \"lru_cache.h\"\n\nTEST_CASE(\"get refreshes an entry\") {\n    LruCache<std::string, int> cache(2);\n    cache.put(\"a\", 1);\n    cache.put(\"b\", 2);\n    REQUIRE(cache.get(\"a\") == 1);\n    cache.put(\"c\", 3);\n    CHECK(cache.contains(\"a\"));\n    CHECK_FALSE(cache.contains(\"b\"));\n}\n\nTEST_CASE(\"put evicts the oldest entry\") {\n    LruCache<std::string, int> cache(2);\n    cache.put(\"a\", 1);\n    cache.put(\"b\", 2);\n    cache.put(\"c\", 3);\n    CHECK_FALSE(cache.contains(\"a\"));\n    CHECK(cache.size() == 2);\n}\n\nTEST_CASE(\"put after an eviction evicts the next oldest\") {\n    LruCache<std::string, int> cache(2);\n    cache.put(\"a\", 1);\n    cache.put(\"b\", 2);\n    cache.put(\"c\", 3);\n    cache.put(\"d\", 4);\n    CHECK_FALSE(cache.contains(\"b\"));\n    CHECK(cache.contains(\"c\"));\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "Catch2 v3 に上げたついでに lru のテスト整理したい。3 つとも最初の put 同じだからまとめて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしいタイミングです。共通の準備を TEST_CASE の先頭に置き、3 つのテストをそれぞれ SECTION にします。3 つ目は 2 つ目で c を入れた状態の続きなので、重複する put(\"c\", 3) は省きました。",
+          "reading": "すばらしいタイミングです。きょうつうのじゅんびを TEST_CASE のせんとうにおき、3 つのてすとをそれぞれ SECTION にします。3 つめは 2 つめで c をいれたじょうたいのつづきなので、ちょうふくする put(\"c\", 3) ははぶきました。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include <catch2/catch_test_macros.hpp>\n\n#include <string>\n\n#include \"lru_cache.h\"\n\nTEST_CASE(\"LruCache keeps the most recently used entries\") {\n    LruCache<std::string, int> cache(2);\n    cache.put(\"a\", 1);\n    cache.put(\"b\", 2);\n\n    SECTION(\"get refreshes an entry\") {\n        REQUIRE(cache.get(\"a\") == 1);\n        cache.put(\"c\", 3);\n        CHECK(cache.contains(\"a\"));\n        CHECK_FALSE(cache.contains(\"b\"));\n    }\n\n    SECTION(\"put evicts the oldest entry\") {\n        cache.put(\"c\", 3);\n        CHECK_FALSE(cache.contains(\"a\"));\n        CHECK(cache.size() == 2);\n    }\n\n    SECTION(\"put after an eviction evicts the next oldest\") {\n        cache.put(\"d\", 4);\n        CHECK_FALSE(cache.contains(\"b\"));\n        CHECK(cache.contains(\"c\"));\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "3 つ目だけ落ちる。contains(\"b\") が true で contains(\"c\") が false",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、先ほどの説明は正確ではありませんでした。Catch2 は末端のセクションを一つ走らせるたびに、TEST_CASE を先頭からやり直します。3 つ目のセクションに入った時点でキャッシュにあるのは a と b だけなので、d を入れて追い出されるのは a で、b は残ります。前の状態を引き継ぎたいときは、そのセクションの中に入れ子で書くのがベストプラクティスです。外側の中身は、内側に入るたびにもう一度走ります。",
+          "reading": "あらためてかくにんしたところ、さきほどのせつめいはせいかくではありませんでした。Catch2 はまったんのせくしょんをひとつはしらせるたびに、TEST_CASE をせんとうからやりなおします。3 つめのせくしょんにはいったじてんできゃっしゅにあるのは a と b だけなので、d をいれておいだされるのは a で、b はのこります。まえのじょうたいをひきつぎたいときは、そのせくしょんのなかにいれこでかくのがべすとぷらくてぃすです。そとがわのなかみは、うちがわにはいるたびにもういちどはしります。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "    SECTION(\"put evicts the oldest entry\") {\n        cache.put(\"c\", 3);\n        CHECK_FALSE(cache.contains(\"a\"));\n        CHECK(cache.size() == 2);\n\n        SECTION(\"and the next put evicts the next oldest\") {\n            cache.put(\"d\", 4);\n            CHECK_FALSE(cache.contains(\"b\"));\n            CHECK(cache.contains(\"c\"));\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "通った。CI で lru のだけ回したいんだけどできる？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。TEST_CASE の第 2 引数にタグを付ければ、テストの実行ファイルに \"[lru]\" を渡して絞れます。言い換えると、ファイルを分けなくても、名前ではなくタグで選べるようになります。",
+          "reading": "しょうちしました。TEST_CASE のだい 2 ひきすうにたぐをつければ、てすとのじっこうふぁいるに \"[lru]\" をわたしてしぼれます。いいかえると、ふぁいるをわけなくても、なまえではなくたぐでえらべるようになります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/entries\") {/entries\", \"[lru]\") {/' tests/lru_cache_test.cpp"
+        },
+        {
+          "kind": "command",
+          "body": "./build/tests \"[lru]\""
+        }
+      ]
+    }
+  ]
+}

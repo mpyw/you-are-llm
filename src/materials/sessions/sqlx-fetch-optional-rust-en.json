@@ -1,0 +1,57 @@
+{
+  "id": "sqlx-fetch-optional-rust-en",
+  "title": "Swap sqlx fetch_one for fetch_optional",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "rust",
+  "summary": "Take an unknown email as an Option and answer 401, fold row.get into FromRow, then trip on a NULL column.",
+  "files": [
+    {
+      "path": "src/accounts.rs",
+      "content": "use axum::extract::State;\nuse axum::Json;\nuse serde::{Deserialize, Serialize};\nuse sqlx::{PgPool, Row};\n\nuse crate::error::AppError;\nuse crate::password;\n\npub struct Account {\n    pub id: i64,\n    pub email: String,\n    pub password_hash: String,\n}\n\n#[derive(Deserialize)]\npub struct LoginForm {\n    pub email: String,\n    pub password: String,\n}\n\n#[derive(Serialize)]\npub struct LoginResponse {\n    pub id: i64,\n}\n\npub async fn find_by_email(pool: &PgPool, email: &str) -> Result<Account, sqlx::Error> {\n    let row = sqlx::query(\"SELECT id, email, password_hash FROM accounts WHERE email = $1\")\n        .bind(email)\n        .fetch_one(pool)\n        .await?;\n    Ok(Account {\n        id: row.get(\"id\"),\n        email: row.get(\"email\"),\n        password_hash: row.get(\"password_hash\"),\n    })\n}\n\npub async fn login(\n    State(pool): State<PgPool>,\n    Json(form): Json<LoginForm>,\n) -> Result<Json<LoginResponse>, AppError> {\n    let account = find_by_email(&pool, &form.email).await?;\n    if !password::verify(&form.password, &account.password_hash) {\n        return Err(AppError::Unauthorized);\n    }\n    Ok(Json(LoginResponse { id: account.id }))\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "login with an email that isnt registered gives 500. should be 401. also all those row.get lines are annoying",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's what happens. fetch_one returns RowNotFound when there is no row, ? turns that into AppError::Database, and that answers 500. A missing row is the normal case here, so fetch_optional hands back an Option<Account> instead. The row.get lines become #[derive(sqlx::FromRow)] with query_as. An unknown email and a wrong password both answer the same 401, which ensures nobody can probe which emails exist."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use sqlx::PgPool;\n\n#[derive(sqlx::FromRow)]\npub struct Account {\n    pub id: i64,\n    pub email: String,\n    pub password_hash: String,\n}\n\npub async fn find_by_email(pool: &PgPool, email: &str) -> Result<Option<Account>, sqlx::Error> {\n    sqlx::query_as::<_, Account>(\"SELECT id, email, password_hash FROM accounts WHERE email = $1\")\n        .bind(email)\n        .fetch_optional(pool)\n        .await\n}\n\npub async fn login(\n    State(pool): State<PgPool>,\n    Json(form): Json<LoginForm>,\n) -> Result<Json<LoginResponse>, AppError> {\n    let Some(account) = find_by_email(&pool, &form.email).await? else {\n        return Err(AppError::Unauthorized);\n    };\n    if !password::verify(&form.password, &account.password_hash) {\n        return Err(AppError::Unauthorized);\n    }\n    Ok(Json(LoginResponse { id: account.id }))\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ok works. while youre there put display_name in the response too, its for the header",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. display_name goes into the SELECT, and the same field goes onto Account and LoginResponse. FromRow matches columns to fields by name, so it is important to keep the two names identical."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "#[derive(sqlx::FromRow)]\npub struct Account {\n    pub id: i64,\n    pub email: String,\n    pub password_hash: String,\n    pub display_name: String,\n}\n\n#[derive(Serialize)]\npub struct LoginResponse {\n    pub id: i64,\n    pub display_name: String,\n}\n\npub async fn find_by_email(pool: &PgPool, email: &str) -> Result<Option<Account>, sqlx::Error> {\n    sqlx::query_as::<_, Account>(\n        \"SELECT id, email, password_hash, display_name FROM accounts WHERE email = $1\",\n    )\n    .bind(email)\n    .fetch_optional(pool)\n    .await\n}\n\n// in login\nOk(Json(LoginResponse {\n    id: account.id,\n    display_name: account.display_name,\n}))\n"
+        }
+      ]
+    },
+    {
+      "user": "some accounts get 500 now. log says error occurred while decoding column \"display_name\": unexpected null; try decoding as an `Option`",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, I missed that display_name is a nullable column. sqlx cannot decode NULL into a String and reports it as a ColumnDecode error. Both structs take Option<String> instead. serde writes None as null, so the frontend should treat null as an empty name."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/pub display_name: String/pub display_name: Option<String>/' src/accounts.rs"
+        }
+      ]
+    }
+  ]
+}

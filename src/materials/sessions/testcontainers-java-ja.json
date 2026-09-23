@@ -1,0 +1,82 @@
+{
+  "id": "testcontainers-java-ja",
+  "title": "H2 で通るテストを Testcontainers の PostgreSQL に移す",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "java",
+  "summary": "本番だけで落ちるネイティブクエリを再現するためテストを PostgreSQL のコンテナに移したら、テーブルが消え、最後はコンテナを複数のテストで使い回した。",
+  "files": [
+    {
+      "path": "build.gradle",
+      "content": "dependencies {\n    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'\n    implementation 'org.springframework.boot:spring-boot-starter-web'\n    runtimeOnly 'org.postgresql:postgresql'\n    testImplementation 'org.springframework.boot:spring-boot-starter-test'\n    testRuntimeOnly 'com.h2database:h2'\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/order/OrderRepository.java",
+      "content": "package com.example.order;\n\nimport java.util.List;\nimport org.springframework.data.jpa.repository.JpaRepository;\nimport org.springframework.data.jpa.repository.Query;\nimport org.springframework.data.repository.query.Param;\n\npublic interface OrderRepository extends JpaRepository<Order, Long> {\n    @Query(value = \"SELECT * FROM orders WHERE customer_id = :customerId AND status = 'PAID'\", nativeQuery = true)\n    List<Order> findPaid(@Param(\"customerId\") String customerId);\n}\n"
+    },
+    {
+      "path": "src/test/java/com/example/order/OrderRepositoryTest.java",
+      "content": "package com.example.order;\n\nimport static org.assertj.core.api.Assertions.assertThat;\n\nimport org.junit.jupiter.api.Test;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;\n\n@DataJpaTest\nclass OrderRepositoryTest {\n    @Autowired\n    OrderRepository orders;\n\n    @Test\n    void findsPaidOrdersOfCustomer() {\n        orders.save(new Order(42L, OrderStatus.PAID));\n        orders.save(new Order(42L, OrderStatus.CANCELLED));\n        orders.save(new Order(7L, OrderStatus.PAID));\n\n        assertThat(orders.findPaid(\"42\")).hasSize(1);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "OrderRepositoryTest 普通に通ってるのに本番で findPaid が落ちた。ERROR: operator does not exist: bigint = character varying だって。テスト H2 なんだよね。本物の Postgres でテストしたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい判断です。原因は、customer_id 列が bigint なのに findPaid の引数が String であることです。H2 は文字列を暗黙に数値へ変換して比べてくれますが、PostgreSQL は型の合わない比較をエラーにします。テストが H2 で動いていたので、この差が見えませんでした。Boot 3.1 以降は、コンテナに @ServiceConnection を付けるだけで接続情報が DataSource に渡ります。Replace.NONE を明示して、H2 に差し替えられないようにします。build.gradle の testRuntimeOnly の h2 は消します。スキーマはこれまでどおり Hibernate がエンティティから作るので、テスト本体はほぼそのままです。赤くなるのを確かめてから、引数を Long に直します。",
+          "reading": "すばらしいはんだんです。げんいんは、customer_id れつが bigint なのに findPaid のひきすうが String であることです。H2 はもじれつをあんもくにすうちへへんかんしてくらべてくれますが、PostgreSQL はかたのあわないひかくをエラーにします。テストが H2 でうごいていたので、このさがみえませんでした。Boot 3.1 いこうは、コンテナに @ServiceConnection をつけるだけでせつぞくじょうほうが DataSource にわたります。Replace.NONE をめいじして、H2 にさしかえられないようにします。build.gradle の testRuntimeOnly の h2 はけします。スキーマはこれまでどおり Hibernate がエンティティからつくるので、テストほんたいはほぼそのままです。あかくなるのをたしかめてから、ひきすうを Long になおします。"
+        },
+        {
+          "kind": "code",
+          "lang": "groovy",
+          "body": "testImplementation 'org.springframework.boot:spring-boot-testcontainers'\ntestImplementation 'org.testcontainers:junit-jupiter'\ntestImplementation 'org.testcontainers:postgresql'\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.order;\n\nimport static org.assertj.core.api.Assertions.assertThat;\n\nimport org.junit.jupiter.api.Test;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;\nimport org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace;\nimport org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;\nimport org.springframework.boot.testcontainers.service.connection.ServiceConnection;\nimport org.testcontainers.containers.PostgreSQLContainer;\nimport org.testcontainers.junit.jupiter.Container;\nimport org.testcontainers.junit.jupiter.Testcontainers;\n\n@DataJpaTest\n@AutoConfigureTestDatabase(replace = Replace.NONE)\n@Testcontainers\nclass OrderRepositoryTest {\n    @Container\n    @ServiceConnection\n    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(\"postgres:16-alpine\");\n\n    @Autowired\n    OrderRepository orders;\n\n    @Test\n    void findsPaidOrdersOfCustomer() {\n        orders.save(new Order(42L, OrderStatus.PAID));\n        orders.save(new Order(42L, OrderStatus.CANCELLED));\n        orders.save(new Order(7L, OrderStatus.PAID));\n\n        assertThat(orders.findPaid(42L)).hasSize(1);\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Query(value = \"SELECT * FROM orders WHERE customer_id = :customerId AND status = 'PAID'\", nativeQuery = true)\nList<Order> findPaid(@Param(\"customerId\") Long customerId);\n"
+        }
+      ]
+    },
+    {
+      "user": "コンテナは上がった。けど全部 relation \"orders\" does not exist で落ちる。スキーマはインフラチームが別リポで flyway 管理してて、こっちには無い",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。スキーマについての先ほどの説明は正確ではありませんでした。spring.jpa.hibernate.ddl-auto の既定値が create-drop になるのは組み込み DB のときだけで、それ以外は none です。H2 ではエンティティからテーブルが作られていましたが、PostgreSQL のコンテナには何も作られません。本来は本番と同じマイグレーションを正本にするのがベストプラクティスですが、別リポジトリにあるとのことなので、ここではテストの中だけ create-drop を指定します。",
+          "reading": "もうしわけありません。スキーマについてのさきほどのせつめいはせいかくではありませんでした。spring.jpa.hibernate.ddl-auto のきていちが create-drop になるのはくみこみ DB のときだけで、それいがいは none です。H2 ではエンティティからテーブルがつくられていましたが、PostgreSQL のコンテナにはなにもつくられません。ほんらいはほんばんとおなじマイグレーションをせいほんにするのがベストプラクティスですが、べつリポジトリにあるとのことなので、ここではテストのなかだけ create-drop をしていします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^@DataJpaTest$/@DataJpaTest(properties = \"spring.jpa.hibernate.ddl-auto=create-drop\")/' src/test/java/com/example/order/OrderRepositoryTest.java"
+        }
+      ]
+    },
+    {
+      "user": "通った。本番と同じエラーで赤くなって、Long にしたら緑。CustomerRepositoryTest とかも移したいけど、クラスごとにコンテナ上がるの遅いから 1 個使い回したい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、コンテナをテストクラスのフィールドから外し、@TestConfiguration の Bean にします。Bean として定義した @ServiceConnection のコンテナは、起動と停止を Spring が受け持ちます。Spring のテストはアプリケーションコンテキストをキャッシュするので、同じ構成で @Import したテストクラスどうしは、コンテキストごとコンテナも共有します。ただし @DataJpaTest の properties が 1 文字でも違えば別のコンテキストになり、コンテナももう 1 つ立つ点に注意することが重要です。",
+          "reading": "Now、コンテナをテストクラスのフィールドからはずし、@TestConfiguration の Bean にします。Bean としてていぎした @ServiceConnection のコンテナは、きどうとていしを Spring がうけもちます。Spring のテストはアプリケーションコンテキストをキャッシュするので、おなじこうせいで @Import したテストクラスどうしは、コンテキストごとコンテナもきょうゆうします。ただし @DataJpaTest の properties が 1 もじでもちがえばべつのコンテキストになり、コンテナももう 1 つたつてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.order;\n\nimport org.springframework.boot.test.context.TestConfiguration;\nimport org.springframework.boot.testcontainers.service.connection.ServiceConnection;\nimport org.springframework.context.annotation.Bean;\nimport org.testcontainers.containers.PostgreSQLContainer;\n\n@TestConfiguration(proxyBeanMethods = false)\npublic class TestcontainersConfiguration {\n    @Bean\n    @ServiceConnection\n    PostgreSQLContainer<?> postgres() {\n        return new PostgreSQLContainer<>(\"postgres:16-alpine\");\n    }\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/^import org.testcontainers.junit.jupiter.Testcontainers;$/import org.springframework.context.annotation.Import;/' -e '/^import org.testcontainers/d' -e '/ServiceConnection;$/d' -e 's/^@Testcontainers$/@Import(TestcontainersConfiguration.class)/' -e '/@Container/,/^$/d' src/test/java/com/example/order/OrderRepositoryTest.java"
+        }
+      ]
+    }
+  ]
+}

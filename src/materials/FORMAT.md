@@ -84,7 +84,7 @@ words stay as ASCII. Keep the reading faithful to the body, including particles.
 ## How long a session runs
 
 Difficulty no longer says anything about length. It measures how hard the session is to type,
-across every language rather than within one, which is why Rust rarely lands below Hard.
+across every language rather than within one, which is why Rust mostly lands at Hard or above.
 
 | Difficulty | Score | Sessions today |
 | --- | --- | --- |

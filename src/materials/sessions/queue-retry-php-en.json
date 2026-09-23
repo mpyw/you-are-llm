@@ -1,0 +1,61 @@
+{
+  "id": "queue-retry-php-en",
+  "title": "Give the accounting sync job retries and a failure alert",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "A job that lands in failed_jobs after one 502 gets $tries, backoff() and failed(), and stops retrying on a 4xx.",
+  "files": [
+    {
+      "path": "app/Jobs/SyncInvoiceToAccounting.php",
+      "content": "<?php\n\nnamespace App\\Jobs;\n\nuse App\\Models\\Invoice;\nuse Illuminate\\Contracts\\Queue\\ShouldQueue;\nuse Illuminate\\Foundation\\Queue\\Queueable;\nuse Illuminate\\Support\\Facades\\Http;\n\nclass SyncInvoiceToAccounting implements ShouldQueue\n{\n    use Queueable;\n\n    public function __construct(public Invoice $invoice)\n    {\n    }\n\n    public function handle(): void\n    {\n        Http::withToken(config('services.accounting.token'))\n            ->post('https://accounting.example.com/api/invoices', [\n                'number' => $this->invoice->number,\n                'amount' => $this->invoice->amount,\n            ])\n            ->throw();\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "the job that pushes invoices to accounting goes straight to failed_jobs if they 502 once. add some retries. someone ran the worker with --tries=0 once and it looped forever, so not that. and ping slack if it finally gives up",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! The default for --tries on queue:work is 1, so a single failure is final. Rather than touch the worker, let's put the count on the job itself. A job's $tries wins over the worker's --tries."
+        },
+        {
+          "kind": "text",
+          "body": "Here's the plan. $tries = 5 allows up to five attempts, and backoff() waits 10 seconds, then a minute, then five. When there are more attempts than entries, the last one is reused. After the fifth failure failed() runs and posts to Slack. Note: throw() only raises on a 5xx, so a 4xx will not be retried for nothing."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Illuminate\\Support\\Facades\\Log;\nuse Throwable;\n\npublic $tries = 5;\n\npublic function backoff(): array\n{\n    return [10, 60, 300];\n}\n\npublic function failed(?Throwable $exception): void\n{\n    Log::channel('slack')->error('Invoice sync gave up', [\n        'invoice' => $this->invoice->number,\n        'error' => $exception?->getMessage(),\n    ]);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "the ones with a negative amount get a 422 and we hit them 5 times, accounting complained. didnt you say 4xx doesnt retry?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. throw() raises RequestException on a 4xx as well as a 5xx, so the 422 went out five times. Sending a 4xx again gets the same answer, so fail() now ends the job on the spot. fail() still calls failed(), so Slack hears about it."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function handle(): void\n{\n    $response = Http::withToken(config('services.accounting.token'))\n        ->post('https://accounting.example.com/api/invoices', [\n            'number' => $this->invoice->number,\n            'amount' => $this->invoice->amount,\n        ]);\n\n    if ($response->clientError()) {\n        $this->fail($response->toException());\n\n        return;\n    }\n\n    $response->throw();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "oh wait they rate limit with 429 sometimes. that one does go through if you wait, so retry it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. 429 comes out of the fail() condition and falls through to throw(), so it waits out backoff() like a 5xx."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/if (\\$response->clientError())/if ($response->clientError() \\&\\& ! $response->tooManyRequests())/' app/Jobs/SyncInvoiceToAccounting.php"
+        }
+      ]
+    }
+  ]
+}

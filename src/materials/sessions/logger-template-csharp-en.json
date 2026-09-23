@@ -1,0 +1,44 @@
+{
+  "id": "logger-template-csharp-en",
+  "title": "Cannot filter logs by OrderId",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "csharp",
+  "summary": "Passing an interpolated string to ILogger loses the structured properties. Switch to a message template and pass the values in order.",
+  "files": [
+    {
+      "path": "src/Orders/OrderService.cs",
+      "content": "namespace Acme.Orders;\n\npublic sealed class OrderService(ILogger<OrderService> logger, OrderRepository orders)\n{\n    public async Task ShipAsync(int orderId, string carrier, CancellationToken ct)\n    {\n        var order = await orders.FindAsync(orderId, ct);\n        if (order is null)\n        {\n            logger.LogWarning($\"Order {orderId} not found\");\n            return;\n        }\n\n        await orders.MarkShippedAsync(order, carrier, ct);\n        logger.LogInformation($\"Order {orderId} shipped via {carrier}\");\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "trying to filter by OrderId in Seq and its not there. the number is right there in the message tho",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: the interpolated string is fully built before it ever reaches the logger. ILogger only gets finished text, so it has no idea which part was the OrderId. Best practice is a message template that keeps the placeholders, with the values passed as arguments after it. The name in {OrderId} becomes the property name. The CA2254 analyzer warns about exactly this."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public async Task ShipAsync(int orderId, string carrier, CancellationToken ct)\n{\n    var order = await orders.FindAsync(orderId, ct);\n    if (order is null)\n    {\n        logger.LogWarning(\"Order {OrderId} not found\", orderId);\n        return;\n    }\n\n    await orders.MarkShippedAsync(order, carrier, ct);\n    logger.LogInformation(\"Order {OrderId} shipped via {Carrier}\", orderId, carrier);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "add the tracking number too. the one MarkShippedAsync returns",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. The tracking number goes in a third placeholder. Note: values are matched to the template by position, not by name, so {TrackingNumber} and its argument have to sit in the same place in each list."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "var trackingNumber = await orders.MarkShippedAsync(order, carrier, ct);\nlogger.LogInformation(\n    \"Order {OrderId} shipped via {Carrier} as {TrackingNumber}\",\n    orderId, carrier, trackingNumber);\n"
+        }
+      ]
+    }
+  ]
+}

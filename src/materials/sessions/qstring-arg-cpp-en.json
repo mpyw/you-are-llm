@@ -1,0 +1,44 @@
+{
+  "id": "qstring-arg-cpp-en",
+  "title": "The status message that tr() cannot wrap",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "cpp",
+  "summary": "QString glued together with + splits the sentence into untranslatable pieces. tr() and arg() keep it whole, and QString::number sets the precision.",
+  "files": [
+    {
+      "path": "src/ui/mainwindow.cpp",
+      "content": "#include \"mainwindow.h\"\n\n#include <QStatusBar>\n\nvoid MainWindow::onUploadFinished(int done, int total, double seconds)\n{\n    statusBar()->showMessage(\"Uploaded \" + QString::number(done) + \" of \"\n                             + QString::number(total) + \" files in \"\n                             + QString::number(seconds) + \" s\");\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "want to send this to translators so it needs tr(), but it's chopped up with + and I can't wrap it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! When the sentence is cut up with +, a translator only ever sees fragments like Uploaded and of. A language with a different word order cannot translate those. Put the whole sentence in one tr() and leave %1, %2 and %3 for the numbers, filled in by arg(). A translation can then put %2 first if its grammar wants that."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "    statusBar()->showMessage(tr(\"Uploaded %1 of %2 files in %3 s\")\n                                 .arg(done)\n                                 .arg(total)\n                                 .arg(seconds));\n"
+        }
+      ]
+    },
+    {
+      "user": "seconds come out as 12.3456 s, noisy. one decimal. also chaining arg three times is ugly",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great point! The arg() that takes several values at once is the string version, so the numbers go through QString::number() first, and that is also where the precision goes. It replaces everything in one pass, so a %2 that happens to sit inside an inserted value is never picked up by a later arg()."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "    statusBar()->showMessage(tr(\"Uploaded %1 of %2 files in %3 s\")\n                                 .arg(QString::number(done), QString::number(total),\n                                      QString::number(seconds, 'f', 1)));\n"
+        }
+      ]
+    }
+  ]
+}

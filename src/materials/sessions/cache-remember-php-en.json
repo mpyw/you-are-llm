@@ -1,0 +1,48 @@
+{
+  "id": "cache-remember-php-en",
+  "title": "Wrap the dashboard sales query in Cache::remember",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "Cache the daily sales aggregate that runs on every request for ten minutes, and drop the key when an order is saved.",
+  "files": [
+    {
+      "path": "app/Http/Controllers/DashboardController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse App\\Models\\Order;\n\nclass DashboardController extends Controller\n{\n    public function index()\n    {\n        $sales = Order::query()\n            ->where('status', 'paid')\n            ->selectRaw('DATE(paid_at) as day, SUM(total) as amount')\n            ->groupBy('day')\n            ->orderBy('day')\n            ->get();\n\n        return view('dashboard', ['sales' => $sales]);\n    }\n}\n"
+    },
+    {
+      "path": "app/Models/Order.php",
+      "content": "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass Order extends Model\n{\n    protected $fillable = ['user_id', 'status', 'total', 'paid_at'];\n\n    protected function casts(): array\n    {\n        return [\n            'paid_at' => 'datetime',\n        ];\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "dashboard takes like 2s every load, its the sales aggregate query. just cache it. 10 min stale is fine",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great idea! Let's keep the result in Cache::remember for ten minutes. On a hit it returns the cached value, on a miss it runs the closure and stores what comes back, so the heavy query runs at most once every ten minutes."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Illuminate\\Support\\Facades\\Cache;\n\npublic function index()\n{\n    $sales = Cache::remember('dashboard.sales', now()->addMinutes(10), function () {\n        return Order::query()\n            ->where('status', 'paid')\n            ->selectRaw('DATE(paid_at) as day, SUM(total) as amount')\n            ->groupBy('day')\n            ->orderBy('day')\n            ->get();\n    });\n\n    return view('dashboard', ['sales' => $sales]);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "faster now. but sales says paid orders dont show up on the chart. told them wait 10 min, they were not happy. clear it when stuff changes",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Makes sense. The key goes on saved and deleted for Order, and the next request rebuilds it. Note: a mass update such as Order::where(...)->update() fires no model events, so it will not clear the key."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Illuminate\\Support\\Facades\\Cache;\n\nprotected static function booted(): void\n{\n    static::saved(fn () => Cache::forget('dashboard.sales'));\n    static::deleted(fn () => Cache::forget('dashboard.sales'));\n}\n"
+        }
+      ]
+    }
+  ]
+}

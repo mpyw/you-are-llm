@@ -1,0 +1,46 @@
+{
+  "id": "pandas-loc-python-ja",
+  "title": "pandas の連鎖代入を .loc に直す",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "python",
+  "summary": "キャンセル行の金額を 0 にしたつもりが SettingWithCopyWarning で元の df が変わらないのを .loc で直し、切り出した側は copy する。",
+  "files": [
+    {
+      "path": "report.py",
+      "content": "import pandas as pd\n\ndf = pd.read_csv(\"orders.csv\")\ndf[df.status == \"cancelled\"][\"amount\"] = 0\n\nprint(df.groupby(\"region\")[\"amount\"].sum())\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "キャンセル分の金額を 0 にしてから地域別に集計してるのに、合計が全然変わらない。SettingWithCopyWarning ってのは出てる。pandas は 2.2",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、0 が入っているのは df ではありません。df[df.status == \"cancelled\"] で行を絞った時点で別の DataFrame ができ、その amount 列に代入しても元の df には届きません。警告はそれを知らせています。行の条件と列名を .loc にまとめて渡せば、df 自体への 1 回の代入になります。",
+          "reading": "けつろんからいうと、0 がはいっているのは df ではありません。df[df.status == \"cancelled\"] でぎょうをしぼったじてんでべつの DataFrame ができ、その amount れつにだいにゅうしてももとの df にはとどきません。けいこくはそれをしらせています。ぎょうのじょうけんとれつめいを .loc にまとめてわたせば、df じたいへの 1 かいのだいにゅうになります。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "import pandas as pd\n\ndf = pd.read_csv(\"orders.csv\")\ndf.loc[df.status == \"cancelled\", \"amount\"] = 0\n\nprint(df.groupby(\"region\")[\"amount\"].sum())\n"
+        }
+      ]
+    },
+    {
+      "user": "直った。ついでにキャンセル分だけ別 CSV に出したいんだけど、cancelled = df[df.status == \"cancelled\"] して note 列足したらまた同じ警告出た",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。今回変えたいのは切り出した側なので、.copy() で元の df から切り離します。copy しなくても cancelled には値が入りますが、元の df を変えたつもりなのか pandas には区別がつかないので警告が出ます。言い換えると、元を変えるなら .loc、切り出した側を変えるなら .copy() です。なお pandas 3.0 では Copy-on-Write が既定になり、この警告自体がなくなります。最初の連鎖代入は ChainedAssignmentError という警告に変わり、やはり元の df は変わらない点に注意することが重要です。",
+          "reading": "しょうちしました。こんかいかえたいのはきりだしたがわなので、.copy() でもとの df からきりはなします。copy しなくても cancelled にはあたいがはいりますが、もとの df をかえたつもりなのか pandas にはくべつがつかないのでけいこくがでます。いいかえると、もとをかえるなら .loc、きりだしたがわをかえるなら .copy() です。なお pandas 3.0 では Copy-on-Write がきていになり、このけいこくじたいがなくなります。さいしょのれんさだいにゅうは ChainedAssignmentError というけいこくにかわり、やはりもとの df はかわらないてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "cancelled = df[df.status == \"cancelled\"].copy()\ncancelled[\"note\"] = \"refund\"\ncancelled.to_csv(\"cancelled.csv\", index=False)\n"
+        }
+      ]
+    }
+  ]
+}

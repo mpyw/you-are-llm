@@ -1,0 +1,64 @@
+{
+  "id": "grpc-deadline-go-en",
+  "title": "Put a deadline on a gRPC call",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "go",
+  "summary": "Add a deadline with context.WithTimeout, detect the timeout with status.Code because errors.Is misses it, and pass ctx down to the database on the server.",
+  "files": [
+    {
+      "path": "internal/checkout/reserve.go",
+      "content": "package checkout\n\nimport (\n  \"context\"\n\n  inventorypb \"example.com/shop/gen/inventory/v1\"\n)\n\ntype Service struct {\n  inv inventorypb.InventoryServiceClient\n}\n\nfunc (s *Service) Reserve(ctx context.Context, sku string, qty int32) error {\n  _, err := s.inv.Reserve(ctx, &inventorypb.ReserveRequest{Sku: sku, Quantity: qty})\n  return err\n}\n"
+    },
+    {
+      "path": "internal/inventory/server.go",
+      "content": "package inventory\n\nimport (\n  \"context\"\n  \"database/sql\"\n\n  \"google.golang.org/grpc/codes\"\n  \"google.golang.org/grpc/status\"\n\n  inventorypb \"example.com/shop/gen/inventory/v1\"\n)\n\ntype Server struct {\n  inventorypb.UnimplementedInventoryServiceServer\n  db *sql.DB\n}\n\nfunc (s *Server) Reserve(ctx context.Context, req *inventorypb.ReserveRequest) (*inventorypb.ReserveResponse, error) {\n  res, err := s.db.ExecContext(context.Background(),\n    \"UPDATE stock SET quantity = quantity - $1 WHERE sku = $2 AND quantity >= $1\",\n    req.GetQuantity(), req.GetSku())\n  if err != nil {\n    return nil, err\n  }\n  n, err := res.RowsAffected()\n  if err != nil {\n    return nil, err\n  }\n  if n == 0 {\n    return nil, status.Error(codes.FailedPrecondition, \"out of stock\")\n  }\n  return &inventorypb.ReserveResponse{}, nil\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "checkout api sometimes just never returns. seems to be when inventory is struggling. hangs until the LB cuts it at 60s",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Understood. A gRPC call has no deadline by default. If the ctx you pass has none, it waits until the server answers, and the ctx of an HTTP request has none either. Let's put a 2 second deadline on the call with context.WithTimeout. The deadline also reaches the server, in the grpc-timeout header. While we are here, a timeout becomes ErrInventoryTimeout and the out of stock FailedPrecondition becomes ErrOutOfStock, so the handler can answer 504 and 409."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "package checkout\n\nimport (\n  \"context\"\n  \"errors\"\n  \"time\"\n\n  \"google.golang.org/grpc/codes\"\n  \"google.golang.org/grpc/status\"\n\n  inventorypb \"example.com/shop/gen/inventory/v1\"\n)\n\nvar (\n  ErrOutOfStock       = errors.New(\"out of stock\")\n  ErrInventoryTimeout = errors.New(\"inventory timed out\")\n)\n\ntype Service struct {\n  inv inventorypb.InventoryServiceClient\n}\n\nfunc (s *Service) Reserve(ctx context.Context, sku string, qty int32) error {\n  ctx, cancel := context.WithTimeout(ctx, 2*time.Second)\n  defer cancel()\n  _, err := s.inv.Reserve(ctx, &inventorypb.ReserveRequest{Sku: sku, Quantity: qty})\n  if errors.Is(err, context.DeadlineExceeded) {\n    return ErrInventoryTimeout\n  }\n  if status.Code(err) == codes.FailedPrecondition {\n    return ErrOutOfStock\n  }\n  return err\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "returns in 2s now. but on timeout its 500 not 504. doesnt look like its becoming ErrInventoryTimeout",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "I checked again, and that was my mistake. grpc-go does not return context.DeadlineExceeded as is. It builds a new status error carrying codes.DeadlineExceeded, and errors.Is does not match that error against context.DeadlineExceeded. Check it with status.Code, the same way as FailedPrecondition."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/errors.Is(err, context.DeadlineExceeded)/status.Code(err) == codes.DeadlineExceeded/' internal/checkout/reserve.go"
+        }
+      ]
+    },
+    {
+      "user": "504 now. also in the inventory logs the UPDATE keeps running to the end after checkout has timed out. some rows have stock taken but the reservation counted as failed",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "The server ctx already carries the deadline the client set. But Reserve passes context.Background() to ExecContext. In other words, the deadline is dropped at the server's front door and never reaches the database. Pass the incoming ctx downstream."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/ExecContext(context.Background(),/ExecContext(ctx,/' internal/inventory/server.go"
+        },
+        {
+          "kind": "text",
+          "body": "Note: this only stops a query that is still running after the deadline. If the UPDATE finishes just before the deadline and only the response is late, the stock stays reduced. Closing that gap needs a reservation ID so that Reserve is idempotent."
+        }
+      ]
+    }
+  ]
+}

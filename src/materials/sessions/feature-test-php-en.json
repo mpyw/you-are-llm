@@ -1,0 +1,78 @@
+{
+  "id": "feature-test-php-en",
+  "title": "Write Feature tests for the shipping quote API",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "php",
+  "summary": "Hit the quote API with RefreshDatabase and actingAs, swap the carrier API for Http::fake, trip over post() turning a 422 into a 302, and stop stray requests with preventStrayRequests.",
+  "files": [
+    {
+      "path": "app/Http/Controllers/QuoteController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse App\\Http\\Resources\\QuoteResource;\nuse App\\Services\\CarrierClient;\nuse Illuminate\\Http\\Client\\ConnectionException;\nuse Illuminate\\Http\\Client\\RequestException;\nuse Illuminate\\Http\\Request;\n\nclass QuoteController extends Controller\n{\n    public function store(Request $request, CarrierClient $carrier)\n    {\n        $validated = $request->validate([\n            'postal_code' => ['required', 'digits:7'],\n            'weight_grams' => ['required', 'integer', 'min:1', 'max:30000'],\n        ]);\n\n        try {\n            $fee = $carrier->rate($validated['postal_code'], $validated['weight_grams']);\n        } catch (ConnectionException|RequestException $e) {\n            report($e);\n\n            return response()->json(['message' => 'Carrier unavailable'], 502);\n        }\n\n        $quote = $request->user()->quotes()->create([...$validated, 'fee' => $fee]);\n\n        return new QuoteResource($quote);\n    }\n}\n"
+    },
+    {
+      "path": "app/Services/CarrierClient.php",
+      "content": "<?php\n\nnamespace App\\Services;\n\nuse Illuminate\\Support\\Facades\\Http;\n\nclass CarrierClient\n{\n    public function rate(string $postalCode, int $weightGrams): int\n    {\n        return Http::withToken(config('services.carrier.token'))\n            ->timeout(5)\n            ->post('https://api.carrier.example/v2/rates', [\n                'to' => $postalCode,\n                'weight' => $weightGrams,\n            ])\n            ->throw()\n            ->json('amount');\n    }\n}\n"
+    },
+    {
+      "path": "app/Http/Resources/QuoteResource.php",
+      "content": "<?php\n\nnamespace App\\Http\\Resources;\n\nuse Illuminate\\Http\\Request;\nuse Illuminate\\Http\\Resources\\Json\\JsonResource;\n\nclass QuoteResource extends JsonResource\n{\n    public function toArray(Request $request): array\n    {\n        return [\n            'id' => $this->id,\n            'postal_code' => $this->postal_code,\n            'weight_grams' => $this->weight_grams,\n            'fee' => $this->fee,\n        ];\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "QuoteController has zero tests. write some. do NOT hit the real carrier api, we get billed per call. phpunit, not pest",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great call! Here are two tests in tests/Feature/QuoteTest.php. RefreshDatabase rebuilds the database for each test, and actingAs sends the request as a logged in user. CarrierClient goes through the Http facade, so Http::fake on api.carrier.example keeps every call away from the real API."
+        },
+        {
+          "kind": "text",
+          "body": "Note: assertJsonPath and assertJson check different things. assertJsonPath compares one path with ===, so 980 and '980' are not the same. assertJson is a subset match, so values that change every run, like id, can be left out. Http::assertSent at the end checks that the postal code and the token were really sent."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "<?php\n\nnamespace Tests\\Feature;\n\nuse App\\Models\\User;\nuse Illuminate\\Foundation\\Testing\\RefreshDatabase;\nuse Illuminate\\Http\\Client\\Request;\nuse Illuminate\\Support\\Facades\\Http;\nuse Tests\\TestCase;\n\nclass QuoteTest extends TestCase\n{\n    use RefreshDatabase;\n\n    public function test_it_stores_the_fee_from_the_carrier(): void\n    {\n        config(['services.carrier.token' => 'test-token']);\n        Http::fake([\n            'api.carrier.example/*' => Http::response(['amount' => 980]),\n        ]);\n        $user = User::factory()->create();\n\n        $this->actingAs($user)\n            ->post('/api/quotes', ['postal_code' => '1500001', 'weight_grams' => 1200])\n            ->assertCreated()\n            ->assertJsonPath('data.fee', 980)\n            ->assertJson(['data' => ['postal_code' => '1500001']]);\n\n        $this->assertDatabaseHas('quotes', ['user_id' => $user->id, 'fee' => 980]);\n        Http::assertSent(fn (Request $request) => $request['to'] === '1500001'\n            && $request->hasHeader('Authorization', 'Bearer test-token'));\n    }\n\n    public function test_it_rejects_a_zero_weight(): void\n    {\n        Http::fake();\n\n        $this->actingAs(User::factory()->create())\n            ->post('/api/quotes', ['postal_code' => '1500001', 'weight_grams' => 0])\n            ->assertUnprocessable()\n            ->assertJsonValidationErrors('weight_grams');\n\n        Http::assertNothingSent();\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "second one fails. Expected response status code [422] but received 302.",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, using post() was my mistake. post() sends no Accept: application/json header, so Laravel treats the failed validation as a form submission and redirects back. postJson() gets the JSON 422 instead. The first test passed only because the Resource answers with JSON on success."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/->post(/->postJson(/' tests/Feature/QuoteTest.php"
+        },
+        {
+          "kind": "command",
+          "body": "php artisan test --filter=QuoteTest"
+        }
+      ]
+    },
+    {
+      "user": "green. now one for when the carrier is down, 503 should give us a 502. also scared a test without a fake will hit prod someday, can we block that?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. Http::fake only swaps requests that match a pattern, and anything else goes out to the network as usual. Calling Http::preventStrayRequests() in setUp turns every unfaked request into a StrayRequestException, so the test fails instead. The 503 test also checks that no quote was saved."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "protected function setUp(): void\n{\n    parent::setUp();\n\n    Http::preventStrayRequests();\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function test_it_answers_502_when_the_carrier_is_down(): void\n{\n    Http::fake([\n        'api.carrier.example/*' => Http::response(['error' => 'maintenance'], 503),\n    ]);\n\n    $this->actingAs(User::factory()->create())\n        ->postJson('/api/quotes', ['postal_code' => '1500001', 'weight_grams' => 1200])\n        ->assertStatus(502)\n        ->assertJsonPath('message', 'Carrier unavailable');\n\n    $this->assertDatabaseCount('quotes', 0);\n}\n"
+        }
+      ]
+    }
+  ]
+}

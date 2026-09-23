@@ -1,0 +1,57 @@
+{
+  "id": "pgx-rows-close-go-en",
+  "title": "Unclosed pgx rows drain the pool",
+  "language": "en",
+  "codeLanguage": "go",
+  "difficulty": "hard",
+  "files": [
+    {
+      "path": "internal/store/orders.go",
+      "content": "package store\n\nimport (\n  \"context\"\n\n  \"github.com/jackc/pgx/v5/pgxpool\"\n)\n\ntype Order struct {\n  ID     int64\n  UserID int64\n  Total  int64\n}\n\ntype Store struct {\n  pool *pgxpool.Pool\n}\n\nfunc (s *Store) OrdersByUser(ctx context.Context, userID int64) ([]Order, error) {\n  rows, err := s.pool.Query(ctx, \"SELECT id, user_id, total FROM orders WHERE user_id = $1\", userID)\n  if err != nil {\n    return nil, err\n  }\n  var orders []Order\n  for rows.Next() {\n    var o Order\n    if err := rows.Scan(&o.ID, &o.UserID, &o.Total); err != nil {\n      return nil, err\n    }\n    orders = append(orders, o)\n  }\n  return orders, nil\n}\n\nfunc (s *Store) HasLargeOrder(ctx context.Context, userID, limit int64) (bool, error) {\n  rows, err := s.pool.Query(ctx, \"SELECT total FROM orders WHERE user_id = $1\", userID)\n  if err != nil {\n    return false, err\n  }\n  for rows.Next() {\n    var total int64\n    if err := rows.Scan(&total); err != nil {\n      return false, err\n    }\n    if total > limit {\n      return true, nil\n    }\n  }\n  return false, nil\n}\n"
+    }
+  ],
+  "summary": "An early return left rows open and emptied pgxpool. Close them, move to CollectRows, then take back the SELECT * that came with it.",
+  "turns": [
+    {
+      "user": "prod API freezes every few hours, restart fixes it. dumped pool.Stat() and AcquiredConns is stuck at MaxConns",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: HasLargeOrder returns without closing rows. In pgx v5, rows close themselves once Next has returned false, but leaving the loop early keeps the connection checked out and it never goes back to the pool. Every large order leaks one, and once MaxConns is reached the next Query waits for a free connection forever. OrdersByUser leaks the same way when Scan fails, and it never checks rows.Err(), so a result cut off halfway comes back as success. Both get a defer rows.Close() and a rows.Err() check after the loop."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (s *Store) OrdersByUser(ctx context.Context, userID int64) ([]Order, error) {\n  rows, err := s.pool.Query(ctx, \"SELECT id, user_id, total FROM orders WHERE user_id = $1\", userID)\n  if err != nil {\n    return nil, err\n  }\n  defer rows.Close()\n\n  var orders []Order\n  for rows.Next() {\n    var o Order\n    if err := rows.Scan(&o.ID, &o.UserID, &o.Total); err != nil {\n      return nil, err\n    }\n    orders = append(orders, o)\n  }\n  if err := rows.Err(); err != nil {\n    return nil, err\n  }\n  return orders, nil\n}\n\nfunc (s *Store) HasLargeOrder(ctx context.Context, userID, limit int64) (bool, error) {\n  rows, err := s.pool.Query(ctx, \"SELECT total FROM orders WHERE user_id = $1\", userID)\n  if err != nil {\n    return false, err\n  }\n  defer rows.Close()\n\n  for rows.Next() {\n    var total int64\n    if err := rows.Scan(&total); err != nil {\n      return false, err\n    }\n    if total > limit {\n      return true, nil\n    }\n  }\n  return false, rows.Err()\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "fixed. but writing this Scan loop every time is asking for it again. there's CollectRows right? use that. do something about HasLargeOrder too",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Perfect call! pgx.CollectRows always calls rows.Close() and rows.Err() itself, so a forgotten Close cannot be written at all, and the Scan boilerplate goes with it. pgx.RowToStructByName maps each row onto the struct, and with SELECT * a new column only needs a new field on Order. HasLargeOrder now asks for a single EXISTS row with QueryRow, whose rows close at Scan. Add github.com/jackc/pgx/v5 to the imports."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (s *Store) OrdersByUser(ctx context.Context, userID int64) ([]Order, error) {\n  rows, err := s.pool.Query(ctx, \"SELECT * FROM orders WHERE user_id = $1\", userID)\n  if err != nil {\n    return nil, err\n  }\n  return pgx.CollectRows(rows, pgx.RowToStructByName[Order])\n}\n\nfunc (s *Store) HasLargeOrder(ctx context.Context, userID, limit int64) (bool, error) {\n  var found bool\n  err := s.pool.QueryRow(ctx,\n    \"SELECT EXISTS (SELECT 1 FROM orders WHERE user_id = $1 AND total > $2)\",\n    userID, limit,\n  ).Scan(&found)\n  return found, err\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "now the whole list fails with struct doesn't have corresponding row field note. orders has note and created_at, is that it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. RowToStructByName wants a field for every column in the result, so SELECT * returning note and created_at, which Order lacks, fails on the first row. RowToStructByNameLax relaxes the other direction only, a field with no column, so it does not help here. The query that survives new columns is the one that names its columns, not SELECT *."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/SELECT \\* FROM orders/SELECT id, user_id, total FROM orders/' internal/store/orders.go"
+        }
+      ]
+    }
+  ]
+}

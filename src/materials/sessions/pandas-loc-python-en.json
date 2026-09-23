@@ -1,0 +1,44 @@
+{
+  "id": "pandas-loc-python-en",
+  "title": "Replace chained assignment in pandas with .loc",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "python",
+  "summary": "Zeroing cancelled amounts leaves df unchanged behind a SettingWithCopyWarning. Assign through .loc, then copy the slice you do want to change.",
+  "files": [
+    {
+      "path": "report.py",
+      "content": "import pandas as pd\n\ndf = pd.read_csv(\"orders.csv\")\ndf[df.status == \"cancelled\"][\"amount\"] = 0\n\nprint(df.groupby(\"region\")[\"amount\"].sum())\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "setting cancelled amounts to 0 before grouping by region but the totals don't change at all. getting a SettingWithCopyWarning. pandas 2.2",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: the 0 never lands in df. Filtering with df[df.status == \"cancelled\"] builds a separate DataFrame, and assigning to its amount column does not reach the original. That is what the warning is telling you. Pass the row condition and the column name to .loc together, and it becomes a single assignment on df itself."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "import pandas as pd\n\ndf = pd.read_csv(\"orders.csv\")\ndf.loc[df.status == \"cancelled\", \"amount\"] = 0\n\nprint(df.groupby(\"region\")[\"amount\"].sum())\n"
+        }
+      ]
+    },
+    {
+      "user": "ok that fixed it. also want the cancelled rows in their own csv, but cancelled = df[df.status == \"cancelled\"] and then adding a note column gives the same warning again",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great, this time the frame you want to change is the slice itself, so detach it from df with .copy(). Without it the value does land in cancelled, but pandas cannot tell whether you meant to change df, so it warns. In other words: .loc to change the original, .copy() to change the slice. Note: pandas 3.0 turns on Copy-on-Write by default and drops this warning entirely. The chained assignment from before becomes a ChainedAssignmentError warning instead, and it still leaves df untouched."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "cancelled = df[df.status == \"cancelled\"].copy()\ncancelled[\"note\"] = \"refund\"\ncancelled.to_csv(\"cancelled.csv\", index=False)\n"
+        }
+      ]
+    }
+  ]
+}

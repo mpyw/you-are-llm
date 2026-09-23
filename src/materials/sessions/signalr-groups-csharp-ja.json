@@ -1,0 +1,76 @@
+{
+  "id": "signalr-groups-csharp-ja",
+  "title": "SignalR の通知をプロジェクト単位にする",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "csharp",
+  "summary": "全員に飛んでいたタスク更新をグループ単位にする。クライアント任せの参加は再接続で接続 ID が変わると消えるので、OnConnectedAsync でサーバが所属から決める。",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using Acme.Data;\nusing Acme.Notifications;\nusing Microsoft.EntityFrameworkCore;\n\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddDbContext<AppDbContext>(o => o.UseNpgsql(builder.Configuration.GetConnectionString(\"App\")));\nbuilder.Services.AddAuthentication().AddJwtBearer();\nbuilder.Services.AddAuthorization();\nbuilder.Services.AddSignalR();\nbuilder.Services.AddScoped<ProjectNotifier>();\n\nvar app = builder.Build();\napp.UseAuthentication();\napp.UseAuthorization();\n\napp.MapHub<NotificationHub>(\"/hubs/notifications\");\n\napp.Run();\n"
+    },
+    {
+      "path": "src/Notifications/NotificationHub.cs",
+      "content": "using Microsoft.AspNetCore.SignalR;\n\nnamespace Acme.Notifications;\n\npublic sealed class NotificationHub : Hub\n{\n}\n"
+    },
+    {
+      "path": "src/Notifications/ProjectNotifier.cs",
+      "content": "using Microsoft.AspNetCore.SignalR;\n\nnamespace Acme.Notifications;\n\npublic sealed class ProjectNotifier(IHubContext<NotificationHub> hub)\n{\n    public Task TaskUpdatedAsync(int projectId, TaskSummary task, CancellationToken ct) =>\n        hub.Clients.All.SendAsync(\"TaskUpdated\", task, ct);\n}\n\npublic sealed record TaskSummary(int Id, string Title, string AssigneeEmail);\n"
+    },
+    {
+      "path": "src/Data/ProjectMember.cs",
+      "content": "namespace Acme.Data;\n\npublic enum MemberRole { Owner, Member, Guest }\n\npublic sealed class ProjectMember\n{\n    public int ProjectId { get; set; }\n    public string UserId { get; set; } = \"\";\n    public MemberRole Role { get; set; }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "タスク更新の通知いま全員に飛んでる。関係ないプロジェクトのまで来るってクレーム",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、SignalR のグループを活用します。ハブに JoinProject を足して、呼び出した接続の ID を project:{id} という名前のグループに入れます。送る側は Clients.All を Clients.Group に変えるだけです。画面を開いたときにクライアントから一度 JoinProject を呼べば、以降はそのプロジェクトの通知だけが届きます。",
+          "reading": "Now、SignalR のグループをかつようします。ハブに JoinProject をたして、よびだしたせつぞくの ID を project:{id} というなまえのグループにいれます。おくるがわは Clients.All を Clients.Group にかえるだけです。がめんをひらいたときにクライアントからいちど JoinProject をよべば、いこうはそのプロジェクトのつうちだけがとどきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public sealed class NotificationHub : Hub\n{\n    public static string ProjectGroup(int projectId) => $\"project:{projectId}\";\n\n    public Task JoinProject(int projectId) =>\n        Groups.AddToGroupAsync(Context.ConnectionId, ProjectGroup(projectId));\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/hub\\.Clients\\.All\\./hub.Clients.Group(NotificationHub.ProjectGroup(projectId))./' src/Notifications/ProjectNotifier.cs"
+        }
+      ]
+    },
+    {
+      "user": "スマホでスリープから戻ると通知来なくなる。リロードすれば来る",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、「一度呼べばいい」という先ほどの説明は正確ではありませんでした。グループは接続 ID に紐づいていて、切れた接続は SignalR が全グループから外します。withAutomaticReconnect で繋ぎ直すと新しい接続 ID が振られるので、グループは空のままです。ASP.NET Core 8.0 で入った stateful reconnect も既定では無効です。もう一つ、JoinProject はどんな projectId でも受け付けるので、所属していないプロジェクトにも入れてしまいます。ポイントは、参加をクライアントに任せず、OnConnectedAsync でサーバが DB の所属から決めることです。接続のたびに走るので、再接続しても同じグループに戻ることを保証します。",
+          "reading": "あらためてかくにんしたところ、「いちどよべばいい」というさきほどのせつめいはせいかくではありませんでした。グループはせつぞく ID にひもづいていて、きれたせつぞくは SignalR がぜんグループからはずします。withAutomaticReconnect でつなぎなおすとあたらしいせつぞく ID がふられるので、グループはからのままです。ASP.NET Core 8.0 ではいった stateful reconnect もきていではむこうです。もうひとつ、JoinProject はどんな projectId でもうけつけるので、しょぞくしていないプロジェクトにもはいれてしまいます。ポイントは、さんかをクライアントにまかせず、OnConnectedAsync でサーバが DB のしょぞくからきめることです。せつぞくのたびにはしるので、さいせつぞくしてもおなじグループにもどることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using Acme.Data;\nusing Microsoft.AspNetCore.Authorization;\nusing Microsoft.AspNetCore.SignalR;\nusing Microsoft.EntityFrameworkCore;\n\nnamespace Acme.Notifications;\n\n[Authorize]\npublic sealed class NotificationHub(AppDbContext db) : Hub\n{\n    public static string ProjectGroup(int projectId) => $\"project:{projectId}\";\n\n    public override async Task OnConnectedAsync()\n    {\n        var userId = Context.UserIdentifier!;\n        var projectIds = await db.ProjectMembers\n            .Where(m => m.UserId == userId)\n            .Select(m => m.ProjectId)\n            .ToListAsync(Context.ConnectionAborted);\n\n        foreach (var projectId in projectIds)\n        {\n            await Groups.AddToGroupAsync(Context.ConnectionId, ProjectGroup(projectId), Context.ConnectionAborted);\n        }\n\n        await base.OnConnectedAsync();\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あとゲストには通知いらない。担当者のメアド入ってるし",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。所属を引くクエリで Guest を外します。ただし、グループからユーザー単位で外す API はなく、外せるのは接続単位です。いま繋がっているゲストは、切断されるまでグループに残ります。",
+          "reading": "しょうちしました。しょぞくをひくクエリで Guest をはずします。ただし、グループからユーザーたんいではずす API はなく、はずせるのはせつぞくたんいです。いまつながっているゲストは、せつだんされるまでグループにのこります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/\\.Where(m => m\\.UserId == userId)/.Where(m => m.UserId == userId \\&\\& m.Role != MemberRole.Guest)/' src/Notifications/NotificationHub.cs"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "id": "use-id-label-typescript-en",
+  "title": "Build the label id with useId",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "typescript",
+  "summary": "Two EmailFields on one page and the second label points at the first input. Swap the fixed id for useId.",
+  "files": [
+    {
+      "path": "src/components/EmailField.tsx",
+      "content": "export function EmailField({ label }: { label: string }) {\n  return (\n    <div>\n      <label htmlFor=\"email\">{label}</label>\n      <input id=\"email\" type=\"email\" />\n    </div>\n  )\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "put EmailField twice for billing and shipping, clicking the shipping label focuses the billing input. why",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch. htmlFor and id are fixed to \"email\", so two fields put the same id on the page twice. The browser links a label to the first element it finds with that id, so the second label points at the first input as well. useId returns an id that is unique to each place the component is rendered, so any number of fields can sit side by side. It also guarantees the same value on the server and in the client."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { useId } from 'react'\n\nexport function EmailField({ label }: { label: string }) {\n  const id = useId()\n  return (\n    <div>\n      <label htmlFor={id}>{label}</label>\n      <input id={id} type=\"email\" />\n    </div>\n  )\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "oh also want a hint under it like \"work address preferred\". screen readers should read it too",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. Link the hint paragraph to the input with aria-describedby. For related ids, the best practice is one useId with a suffix added to it. There is no need to call useId twice."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { useId } from 'react'\n\nexport function EmailField({ label, hint }: { label: string; hint: string }) {\n  const id = useId()\n  const hintId = `${id}-hint`\n  return (\n    <div>\n      <label htmlFor={id}>{label}</label>\n      <input id={id} type=\"email\" aria-describedby={hintId} />\n      <p id={hintId}>{hint}</p>\n    </div>\n  )\n}\n"
+        }
+      ]
+    }
+  ]
+}

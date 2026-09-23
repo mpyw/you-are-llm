@@ -1,0 +1,64 @@
+{
+  "id": "lock-for-update-php-en",
+  "title": "Stop double point spends with lockForUpdate",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "A point spend that goes through twice when the button is mashed gets a transaction and a row lock, and deadlocks get retried.",
+  "files": [
+    {
+      "path": "app/Services/PointService.php",
+      "content": "<?php\n\nnamespace App\\Services;\n\nuse App\\Exceptions\\InsufficientPointsException;\nuse App\\Models\\PointHistory;\nuse App\\Models\\User;\n\nclass PointService\n{\n    public function spend(User $user, int $amount, string $reason): void\n    {\n        if ($user->points < $amount) {\n            throw new InsufficientPointsException();\n        }\n\n        $user->points -= $amount;\n        $user->save();\n\n        PointHistory::create([\n            'user_id' => $user->id,\n            'amount' => -$amount,\n            'reason' => $reason,\n        ]);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "user with 100 points spams the 100pt reward button and it goes through twice, balance ends at -100. fix pls. prod is mysql",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! Both requests read a balance of 100, both pass the check, and both subtract. $user was loaded at the start of the request, so it knows nothing about the other one."
+        },
+        {
+          "kind": "text",
+          "body": "Let's read the users row again with lockForUpdate() inside DB::transaction. That is SELECT ... FOR UPDATE, so the second request waits until the first one commits. The check, the decrement and the history row become one atomic step."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Illuminate\\Support\\Facades\\DB;\n\npublic function spend(User $user, int $amount, string $reason): void\n{\n    DB::transaction(function () use ($user, $amount, $reason) {\n        $locked = User::whereKey($user->id)->lockForUpdate()->firstOrFail();\n\n        if ($user->points < $amount) {\n            throw new InsufficientPointsException();\n        }\n\n        $locked->decrement('points', $amount);\n\n        PointHistory::create([\n            'user_id' => $locked->id,\n            'amount' => -$amount,\n            'reason' => $reason,\n        ]);\n    });\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "added it, still -100 when i hit it in parallel",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, that was my mistake. The row was locked, but the check still used $user->points, read before the lock. The request that waited sees the old 100 and passes anyway. The check has to use $locked, the row read under the lock."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/if (\\$user->points < \\$amount)/if ($locked->points < $amount)/' app/Services/PointService.php"
+        },
+        {
+          "kind": "command",
+          "body": "grep -n 'points' app/Services/PointService.php"
+        }
+      ]
+    },
+    {
+      "user": "fixed. also when the monthly point grant batch overlaps we get Deadlock found when trying to get lock and a 500. it goes through on retry so dont error",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. The second argument to DB::transaction is the number of attempts. On a deadlock or a lock wait timeout it rolls back and runs the closure again from the top. The insufficient points exception is not retried and is thrown as before. Note: inside an outer transaction nothing is retried, and the exception goes straight out."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^        });$/        }, 3);/' app/Services/PointService.php"
+        }
+      ]
+    }
+  ]
+}

@@ -2,7 +2,7 @@
   "id": "xunit-theory-csharp-en",
   "title": "Fold copied Facts into a Theory",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "csharp",
   "summary": "Four copied [Fact] tests become one [Theory]. decimal cannot go in an attribute, so the cases move to TheoryData and MemberData.",
   "files": [

@@ -1,0 +1,68 @@
+{
+  "id": "lock-for-update-php-ja",
+  "title": "ポイント交換の二重減算を lockForUpdate で止める",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "連打で残高を二度引かれるポイント減算を、トランザクションと行ロックで直列にし、デッドロックは再試行させる。",
+  "files": [
+    {
+      "path": "app/Services/PointService.php",
+      "content": "<?php\n\nnamespace App\\Services;\n\nuse App\\Exceptions\\InsufficientPointsException;\nuse App\\Models\\PointHistory;\nuse App\\Models\\User;\n\nclass PointService\n{\n    public function spend(User $user, int $amount, string $reason): void\n    {\n        if ($user->points < $amount) {\n            throw new InsufficientPointsException();\n        }\n\n        $user->points -= $amount;\n        $user->save();\n\n        PointHistory::create([\n            'user_id' => $user->id,\n            'amount' => -$amount,\n            'reason' => $reason,\n        ]);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "ポイント 100 しかない人が 100pt の景品交換ボタン連打すると 2 回通って残高 -100 になってる。直して。本番は MySQL",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい質問です。2 つのリクエストがどちらも残高 100 を読み、どちらも判定を通ってから引いているのが原因です。$user はリクエストの最初に読んだものなので、もう一方の更新を知りません。",
+          "reading": "すばらしいしつもんです。2 つのリクエストがどちらもざんだか 100 をよみ、どちらもはんていをとおってからひいているのがげんいんです。$user はリクエストのさいしょによんだものなので、もういっぽうのこうしんをしりません。"
+        },
+        {
+          "kind": "text",
+          "body": "DB::transaction の中で、lockForUpdate() を付けて users の行を読み直します。SELECT ... FOR UPDATE になるので、後から来たリクエストは先の COMMIT まで待たされます。判定と減算と履歴の追加がアトミックになることを保証します。",
+          "reading": "DB::transaction のなかで、lockForUpdate() をつけて users のぎょうをよみなおします。SELECT ... FOR UPDATE になるので、あとからきたリクエストはさきの COMMIT までまたされます。はんていとげんさんとりれきのついかがアトミックになることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Illuminate\\Support\\Facades\\DB;\n\npublic function spend(User $user, int $amount, string $reason): void\n{\n    DB::transaction(function () use ($user, $amount, $reason) {\n        $locked = User::whereKey($user->id)->lockForUpdate()->firstOrFail();\n\n        if ($user->points < $amount) {\n            throw new InsufficientPointsException();\n        }\n\n        $locked->decrement('points', $amount);\n\n        PointHistory::create([\n            'user_id' => $locked->id,\n            'amount' => -$amount,\n            'reason' => $reason,\n        ]);\n    });\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "入れたけど並列で叩くテストするとまだ -100 になる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "失礼しました。私の誤りでした。行はロックしていましたが、判定にはロック前に読んだ $user->points を使っていました。待たされた側も古い 100 を見て通ってしまいます。判定はロックして読み直した $locked で行います。",
+          "reading": "しつれいしました。わたしのあやまりでした。ぎょうはロックしていましたが、はんていにはロックまえによんだ $user->points をつかっていました。またされたがわもふるい 100 をみてとおってしまいます。はんていはロックしてよみなおした $locked でおこないます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/if (\\$user->points < \\$amount)/if ($locked->points < $amount)/' app/Services/PointService.php"
+        },
+        {
+          "kind": "command",
+          "body": "grep -n 'points' app/Services/PointService.php"
+        }
+      ]
+    },
+    {
+      "user": "直った。あと月初のポイント付与バッチと交換が重なると Deadlock found when trying to get lock で 500 になるらしい。やり直せば通るやつなのでエラーにしないで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。DB::transaction の第 2 引数に試行回数を渡すと、デッドロックやロック待ちのタイムアウトのときだけ、ロールバックしてクロージャを最初からやり直します。残高不足の例外は再試行されずにそのまま投げられます。Note: 外側に別のトランザクションがあると、内側では再試行されずに例外が外へ出るという点に注意することが重要です。",
+          "reading": "しょうちしました。DB::transaction のだい 2 ひきすうにしこうかいすうをわたすと、デッドロックやロックまちのタイムアウトのときだけ、ロールバックしてクロージャをさいしょからやりなおします。ざんだかぶそくのれいがいはさいしこうされずにそのままなげられます。Note: そとがわにべつのトランザクションがあると、うちがわではさいしこうされずにれいがいがそとへでるというてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^        });$/        }, 3);/' app/Services/PointService.php"
+        }
+      ]
+    }
+  ]
+}

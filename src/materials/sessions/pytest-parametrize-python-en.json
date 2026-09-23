@@ -2,7 +2,7 @@
   "id": "pytest-parametrize-python-en",
   "title": "Fold copied tests into parametrize and a fixture",
   "language": "en",
-  "difficulty": "expert",
+  "difficulty": "hard",
   "codeLanguage": "python",
   "summary": "Merge near identical 422 tests into one, break another test by mutating a shared dict, fix it, then add a case.",
   "files": [

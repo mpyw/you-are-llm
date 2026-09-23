@@ -1,0 +1,70 @@
+{
+  "id": "rate-limiter-csharp-en",
+  "title": "Rate limit the report API per user",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "csharp",
+  "summary": "Partition AddRateLimiter by user, replace the default 503 with 429, and move the UseRateLimiter call that ran before authentication.",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using Microsoft.AspNetCore.Authentication.JwtBearer;\n\nvar builder = WebApplication.CreateBuilder(args);\n\nbuilder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)\n    .AddJwtBearer();\nbuilder.Services.AddAuthorization();\nbuilder.Services.AddScoped<ReportService>();\n\nvar app = builder.Build();\n\napp.UseHttpsRedirection();\napp.UseAuthentication();\napp.UseAuthorization();\n\nvar reports = app.MapGroup(\"/api/reports\")\n    .RequireAuthorization();\n\nreports.MapGet(\"/\", (ReportService service, CancellationToken ct) =>\n    service.ListAsync(ct));\nreports.MapPost(\"/{id:int}/export\", (int id, ReportService service, CancellationToken ct) =>\n    service.ExportAsync(id, ct));\n\napp.MapGet(\"/health\", () => \"ok\");\n\napp.Run();\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "someone is hammering the report api with a script and the db is dying. 10 requests per minute per user. leave health alone",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the plan. Use AddRateLimiter, built into ASP.NET Core since .NET 7. AddPolicy creates a fixed window partitioned by user name, and RequireRateLimiting applies it only to the reports group. /health gets nothing, so it stays unlimited. Caveat: a rejected request gets 503 by default, not 429, and that is still true on .NET 10. RejectionStatusCode sets it explicitly."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using System.Threading.RateLimiting;\n\nbuilder.Services.AddRateLimiter(options =>\n{\n    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;\n    options.AddPolicy(\"per-user\", httpContext =>\n        RateLimitPartition.GetFixedWindowLimiter(\n            partitionKey: httpContext.User.Identity?.Name ?? \"anonymous\",\n            factory: _ => new FixedWindowRateLimiterOptions\n            {\n                PermitLimit = 10,\n                Window = TimeSpan.FromMinutes(1),\n                QueueLimit = 0,\n            }));\n});\n"
+        },
+        {
+          "kind": "text",
+          "body": "The middleware goes before authentication so wasted requests are turned away as early as possible. The group gets RequireRateLimiting next to RequireAuthorization."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "var app = builder.Build();\n\napp.UseHttpsRedirection();\napp.UseRateLimiter();\napp.UseAuthentication();\napp.UseAuthorization();\n\nvar reports = app.MapGroup(\"/api/reports\")\n    .RequireAuthorization()\n    .RequireRateLimiting(\"per-user\");\n"
+        }
+      ]
+    },
+    {
+      "user": "ok 429 works now. but when user A hits it 10 times user B gets 429 too?? thats not per user",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "My mistake. UseRateLimiter runs before UseAuthentication, so when the partition key is chosen, HttpContext.User is still anonymous. Identity?.Name is null, and everyone was sharing the same \"anonymous\" bucket. To partition by user, the limiter has to run after authentication. Placing it after authorization also means an unauthenticated request fails with 401 first and never uses up a permit."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e '/^app\\.UseRateLimiter();$/d' -e '/^app\\.UseAuthorization();$/a\\\napp.UseRateLimiter();' src/Program.cs"
+        }
+      ]
+    },
+    {
+      "user": "fixed. now they say 10 is way too strict, make it 30. also can 429 say how long to wait, frontend has no idea when to retry",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "The limit is a sed. For the wait, Retry-After is the HTTP header for exactly this. A fixed window limiter attaches RetryAfter metadata to the lease it rejects, so OnRejected reads it and writes the header. The status is already 429 from RejectionStatusCode by the time OnRejected runs, so it stays untouched. The client now gets a deterministic time for its next attempt."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/PermitLimit = 10,/PermitLimit = 30,/' src/Program.cs"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using System.Globalization;\n\noptions.OnRejected = (context, ct) =>\n{\n    if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))\n    {\n        context.HttpContext.Response.Headers.RetryAfter =\n            ((int)retryAfter.TotalSeconds).ToString(NumberFormatInfo.InvariantInfo);\n    }\n    return ValueTask.CompletedTask;\n};\n"
+        }
+      ]
+    }
+  ]
+}

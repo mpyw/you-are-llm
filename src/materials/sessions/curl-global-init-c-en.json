@@ -1,0 +1,44 @@
+{
+  "id": "curl-global-init-c-en",
+  "title": "Initialize libcurl once and reuse the connection",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "c",
+  "summary": "Stop calling curl_global_init per request, and loop over URLs on one easy handle so connections get reused.",
+  "files": [
+    {
+      "path": "src/health/ping.c",
+      "content": "#include <curl/curl.h>\n\nint ping(const char *url) {\n  curl_global_init(CURL_GLOBAL_DEFAULT);\n  CURL *curl = curl_easy_init();\n  if (curl == NULL) return -1;\n  curl_easy_setopt(curl, CURLOPT_URL, url);\n  curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);\n  CURLcode rc = curl_easy_perform(curl);\n  curl_easy_cleanup(curl);\n  curl_global_cleanup();\n  return rc == CURLE_OK ? 0 : -1;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "monitoring script pings like 200 urls and its way too slow. feels like every single one redoes TLS",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's what is going on. curl_global_init and curl_global_cleanup are meant to run once per process, and right now every ping sets up and tears down the TLS library. The connection cache also lives on the easy handle, so throwing the handle away each time throws the open connection away with it. Keep one handle, swap only the URL, and connections and TLS sessions to the same host get reused. The global init moves to main."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#include <stddef.h>\n#include <curl/curl.h>\n\nint ping_all(const char *const *urls, size_t n) {\n  CURL *curl = curl_easy_init();\n  if (curl == NULL) return -1;\n  curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);\n  int failed = 0;\n  for (size_t i = 0; i < n; i++) {\n    curl_easy_setopt(curl, CURLOPT_URL, urls[i]);\n    if (curl_easy_perform(curl) != CURLE_OK) failed++;\n  }\n  curl_easy_cleanup(curl);\n  return failed;\n}\n\nint main(int argc, char **argv) {\n  if (curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK) return 1;\n  int failed = ping_all((const char *const *)(argv + 1), (size_t)(argc - 1));\n  curl_global_cleanup();\n  return failed == 0 ? 0 : 1;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "oh and a 404 should count as failed. right now it says 0",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "An HTTP status is separate from whether the transfer worked, so a 404 is still CURLE_OK. Setting CURLOPT_FAILONERROR makes anything 400 or above return CURLE_HTTP_RETURNED_ERROR. Options stay on the handle, so setting it once outside the loop covers every request after it."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "  curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);\n  curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);\n"
+        }
+      ]
+    }
+  ]
+}

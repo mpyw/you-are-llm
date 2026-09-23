@@ -1,0 +1,57 @@
+{
+  "id": "web-mvc-test-java-en",
+  "title": "Turn a @SpringBootTest controller test into @WebMvcTest",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "java",
+  "summary": "A slow test that booted the whole app moves to MockMvc, and @MockBean turns out to be deprecated.",
+  "files": [
+    {
+      "path": "src/test/java/com/example/book/BookControllerTest.java",
+      "content": "package com.example.book;\n\nimport static org.assertj.core.api.Assertions.assertThat;\nimport static org.mockito.Mockito.when;\n\nimport org.junit.jupiter.api.Test;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport org.springframework.boot.test.context.SpringBootTest;\nimport org.springframework.boot.test.mock.mockito.MockBean;\nimport org.springframework.boot.test.web.client.TestRestTemplate;\nimport org.springframework.http.HttpStatus;\nimport org.springframework.http.ResponseEntity;\n\n@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)\nclass BookControllerTest {\n    @Autowired\n    TestRestTemplate restTemplate;\n\n    @MockBean\n    BookService bookService;\n\n    @Test\n    void returnsBook() {\n        when(bookService.find(1L)).thenReturn(new Book(1L, \"Dune\"));\n\n        ResponseEntity<String> response = restTemplate.getForEntity(\"/books/1\", String.class);\n\n        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);\n        assertThat(response.getBody()).contains(\"Dune\");\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "BookControllerTest takes like 20s for one test. the log shows it connecting to the db AND kafka. its a controller test",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great observation! @SpringBootTest starts the whole application, so even a single controller test loads the database and Kafka configuration. With @WebMvcTest(BookController.class) only the Spring MVC infrastructure and this one controller are loaded. No server starts either, MockMvc dispatches the request directly. @MockBean keeps working as it is, so the BookService mock needs no change."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.book;\n\nimport static org.mockito.Mockito.when;\nimport static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;\nimport static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;\nimport static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;\n\nimport org.junit.jupiter.api.Test;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;\nimport org.springframework.boot.test.mock.mockito.MockBean;\nimport org.springframework.test.web.servlet.MockMvc;\n\n@WebMvcTest(BookController.class)\nclass BookControllerTest {\n    @Autowired\n    MockMvc mockMvc;\n\n    @MockBean\n    BookService bookService;\n\n    @Test\n    void returnsBook() throws Exception {\n        when(bookService.find(1L)).thenReturn(new Book(1L, \"Dune\"));\n\n        mockMvc.perform(get(\"/books/1\"))\n            .andExpect(status().isOk())\n            .andExpect(jsonPath(\"$.title\").value(\"Dune\"));\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "down to 2s. but MockBean has a strikethrough in the IDE. we are on boot 3.5",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was not accurate. @MockBean was deprecated in Spring Boot 3.4 and is gone in 4.0. Its replacement is @MockitoBean from Spring Framework 6.2, which lives in org.springframework.test.context.bean.override.mockito. It is used the same way, so only the import and the annotation change."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/import org\\.springframework\\.boot\\.test\\.mock\\.mockito\\.MockBean;/import org.springframework.test.context.bean.override.mockito.MockitoBean;/' -e 's/@MockBean/@MockitoBean/' src/test/java/com/example/book/BookControllerTest.java"
+        }
+      ]
+    },
+    {
+      "user": "also test that a missing id gives 404. ApiExceptionHandler maps BookNotFoundException to 404",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the 404 case. @WebMvcTest also loads @ControllerAdvice beans, so ApiExceptionHandler applies as it is. What it leaves out is @Service and @Repository, so if the handler ever depends on another bean, that bean needs a @MockitoBean too."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Test\nvoid returnsNotFound() throws Exception {\n    when(bookService.find(99L)).thenThrow(new BookNotFoundException(99L));\n\n    mockMvc.perform(get(\"/books/99\"))\n        .andExpect(status().isNotFound());\n}\n"
+        }
+      ]
+    }
+  ]
+}

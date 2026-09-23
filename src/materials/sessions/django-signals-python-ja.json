@@ -1,0 +1,63 @@
+{
+  "id": "django-signals-python-ja",
+  "title": "post_save シグナルで増殖するプロフィールを直す",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "python",
+  "summary": "created を見ずに保存のたびに Profile を作っていたのを直し、post_save の中で save() して再帰させ、pre_save に移す。",
+  "files": [
+    {
+      "path": "accounts/models.py",
+      "content": "from django.conf import settings\nfrom django.db import models\n\n\nclass Profile(models.Model):\n    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)\n    display_name = models.CharField(max_length=100, blank=True)\n"
+    },
+    {
+      "path": "accounts/signals.py",
+      "content": "from django.contrib.auth import get_user_model\nfrom django.db.models.signals import post_save\nfrom django.dispatch import receiver\n\nfrom .models import Profile\n\nUser = get_user_model()\n\n\n@receiver(post_save, sender=User)\ndef create_profile(sender, instance, **kwargs):\n    Profile.objects.create(user=instance)\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "profile テーブル、1 ユーザーに何十行もある。ログインするたびに増えてる気がする",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "よく気づかれました。post_save は作成時だけでなく、save() のたびに送られます。ログインすると Django が last_login を更新するために user.save() を呼ぶので、そのたびに Profile が 1 行増えます。ポイントは receiver が受け取る created 引数で、INSERT のときだけ True になります。これを見て、作成時だけ Profile を作ります。既存の重複を消したあとで user を OneToOneField にすれば、DB の側でも二重登録を拒めます。",
+          "reading": "よくきづかれました。post_save はさくせいじだけでなく、save() のたびにおくられます。ろぐいんすると Django が last_login をこうしんするために user.save() をよぶので、そのたびに Profile が 1 ぎょうふえます。ぽいんとは receiver がうけとる created ひきすうで、INSERT のときだけ True になります。これをみて、さくせいじだけ Profile をつくります。きぞんのちょうふくをけしたあとで user を OneToOneField にすれば、DB のがわでもにじゅうとうろくをこばめます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/create_profile(sender, instance, \\*\\*kwargs)/create_profile(sender, instance, created, **kwargs)/' -e 's/^\\( *\\)Profile.objects.create(user=instance)$/\\1if created:\\n\\1    Profile.objects.create(user=instance)/' accounts/signals.py"
+        }
+      ]
+    },
+    {
+      "user": "直った。あとメアドを小文字に揃えたい。大文字混じりで登録する人がいるので。signals.py にまとめて書いといて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。同じ post_save に receiver をもう 1 つ足し、email を小文字にしてから保存し直します。signals.py にまとめておけば、ユーザーの保存に付随する処理の正本がここ 1 か所になります。",
+          "reading": "かしこまりました。おなじ post_save に receiver をもう 1 つたし、email をこもじにしてからほぞんしなおします。signals.py にまとめておけば、ゆーざーのほぞんにふずいするしょりのせいほんがここ 1 かしょになります。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from django.contrib.auth import get_user_model\nfrom django.db.models.signals import post_save\nfrom django.dispatch import receiver\n\nfrom .models import Profile\n\nUser = get_user_model()\n\n\n@receiver(post_save, sender=User)\ndef create_profile(sender, instance, created, **kwargs):\n    if created:\n        Profile.objects.create(user=instance)\n\n\n@receiver(post_save, sender=User)\ndef normalize_email(sender, instance, **kwargs):\n    instance.email = instance.email.lower()\n    instance.save()\n"
+        }
+      ]
+    },
+    {
+      "user": "ユーザー作ろうとしたら RecursionError: maximum recursion depth exceeded で落ちた",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの receiver は、post_save の中で save() を呼んでいました。その save() がまた post_save を送り、同じ receiver がまた save() を呼ぶので、止まりません。保存前の値を直したいだけなら pre_save が適切です。pre_save で instance.email を書き換えれば、その値がそのまま DB に書き込まれるので、save() を呼び直す必要はありません。sed は範囲を指定して、normalize_email の直前の @receiver だけを書き換えます。",
+          "reading": "もうしわけありません。さきほどの receiver は、post_save のなかで save() をよんでいました。その save() がまた post_save をおくり、おなじ receiver がまた save() をよぶので、とまりません。ほぞんまえのあたいをなおしたいだけなら pre_save がてきせつです。pre_save で instance.email をかきかえれば、そのあたいがそのまま DB にかきこまれるので、save() をよびなおすひつようはありません。sed ははんいをしていして、normalize_email のちょくぜんの @receiver だけをかきかえます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/import post_save$/import post_save, pre_save/' -e '/^def create_profile/,/^def normalize_email/s/^@receiver(post_save/@receiver(pre_save/' -e '/^    instance.save()$/d' accounts/signals.py"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "id": "optimistic-update-typescript-en",
+  "title": "Optimistic updates with useMutation",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "typescript",
+  "summary": "Change the screen before the server answers and roll back on failure. The checkbox that flips back on fast clicks is a missing cancelQueries.",
+  "files": [
+    {
+      "path": "src/todos/useToggleTodo.ts",
+      "content": "import { useMutation, useQueryClient } from '@tanstack/react-query'\n\nexport type Todo = { id: string; title: string; done: boolean }\n\nasync function saveTodo(todo: Todo): Promise<Todo> {\n  const res = await fetch(`/api/todos/${todo.id}`, {\n    method: 'PATCH',\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({ done: todo.done }),\n  })\n  if (!res.ok) throw new Error(`HTTP ${res.status}`)\n  return res.json()\n}\n\nexport function useToggleTodo() {\n  const queryClient = useQueryClient()\n  return useMutation({\n    mutationFn: saveTodo,\n    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['todos'] }),\n  })\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "todo checkbox feels sluggish, nothing changes until the server answers. update the screen first and undo it if it fails",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! Here's an optimistic update. onMutate takes a snapshot of the current cache and writes the new value with setQueryData right away. Whatever onMutate returns arrives as the third argument of onError, so a failure restores the snapshot from there. Finally onSettled calls invalidateQueries, which brings the cache back in line with the server whether the request succeeded or not. The screen reacts at once, and the server stays the single source of truth."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "export function useToggleTodo() {\n  const queryClient = useQueryClient()\n  return useMutation({\n    mutationFn: saveTodo,\n    onMutate: (next: Todo) => {\n      const previous = queryClient.getQueryData<Todo[]>(['todos'])\n      queryClient.setQueryData<Todo[]>(['todos'], (old) =>\n        old?.map((todo) => (todo.id === next.id ? next : todo)),\n      )\n      return { previous }\n    },\n    onError: (_error, _next, result) => {\n      queryClient.setQueryData(['todos'], result?.previous)\n    },\n    onSettled: () => queryClient.invalidateQueries({ queryKey: ['todos'] }),\n  })\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "faster now. but if i click fast the check flips back for a moment and then comes back",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. The onMutate I wrote was missing cancelQueries. The onSettled of the first click starts a refetch, and when its result lands after the second write, it overwrites the cache with an older server state that knows nothing of the second click. That is the flicker. Stop any in-flight todos query with cancelQueries before writing, and await it before taking the snapshot. Caveat: if the queryFn does not use its signal, the request itself still runs to the end, but its result is thrown away."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "export function useToggleTodo() {\n  const queryClient = useQueryClient()\n  return useMutation({\n    mutationFn: saveTodo,\n    onMutate: async (next: Todo) => {\n      await queryClient.cancelQueries({ queryKey: ['todos'] })\n      const previous = queryClient.getQueryData<Todo[]>(['todos'])\n      queryClient.setQueryData<Todo[]>(['todos'], (old) =>\n        old?.map((todo) => (todo.id === next.id ? next : todo)),\n      )\n      return { previous }\n    },\n    onError: (_error, _next, result) => {\n      queryClient.setQueryData(['todos'], result?.previous)\n    },\n    onSettled: () => queryClient.invalidateQueries({ queryKey: ['todos'] }),\n  })\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "backend says they dropped PATCH on that endpoint, it is PUT now",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "PUT replaces the whole resource, so sending only done could wipe the title. Change the body to the whole Todo along with the method. Both are one line each, so sed replaces the two in place. The request is now idempotent, as PUT is meant to be."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e \"s/method: 'PATCH'/method: 'PUT'/\" -e 's/{ done: todo.done }/todo/' src/todos/useToggleTodo.ts"
+        }
+      ]
+    }
+  ]
+}

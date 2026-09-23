@@ -1,0 +1,70 @@
+{
+  "id": "asio-strand-cpp-ja",
+  "title": "スレッドを 4 本にしたら echo サーバが落ちる",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "cpp",
+  "summary": "複数スレッドで io_context を run() すると、同じ接続のハンドラが同時に走る。make_strand で作った strand を 1 接続に 1 つ持ち、bind_executor と post で乗せる。",
+  "files": [
+    {
+      "path": "src/net/session.cpp",
+      "content": "#include <array>\n#include <deque>\n#include <memory>\n#include <string>\n#include <thread>\n#include <utility>\n#include <vector>\n\n#include <boost/asio.hpp>\n\nusing boost::asio::ip::tcp;\n\nclass Session : public std::enable_shared_from_this<Session> {\n public:\n  explicit Session(tcp::socket socket) : socket_(std::move(socket)) {}\n\n  void start() { do_read(); }\n\n private:\n  void send(std::string message) {\n    outbox_.push_back(std::move(message));\n    if (outbox_.size() == 1) do_write();\n  }\n\n  void do_read() {\n    auto self = shared_from_this();\n    socket_.async_read_some(boost::asio::buffer(data_),\n        [self](boost::system::error_code ec, std::size_t length) {\n          if (ec) return;\n          self->send(std::string(self->data_.data(), length));\n          self->do_read();\n        });\n  }\n\n  void do_write() {\n    auto self = shared_from_this();\n    boost::asio::async_write(socket_, boost::asio::buffer(outbox_.front()),\n        [self](boost::system::error_code ec, std::size_t) {\n          if (ec) return;\n          self->outbox_.pop_front();\n          if (!self->outbox_.empty()) self->do_write();\n        });\n  }\n\n  tcp::socket socket_;\n  std::array<char, 1024> data_;\n  std::deque<std::string> outbox_;\n};\n\nvoid accept_loop(tcp::acceptor& acceptor) {\n  acceptor.async_accept([&acceptor](boost::system::error_code ec, tcp::socket socket) {\n    if (!ec) std::make_shared<Session>(std::move(socket))->start();\n    accept_loop(acceptor);\n  });\n}\n\nint main() {\n  boost::asio::io_context io;\n  tcp::acceptor acceptor(io, tcp::endpoint(tcp::v4(), 7000));\n  accept_loop(acceptor);\n\n  std::vector<std::thread> threads;\n  for (int i = 0; i < 4; ++i) threads.emplace_back([&io] { io.run(); });\n  for (auto& t : threads) t.join();\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "echo サーバ、io.run() を 4 スレッドで回すようにしたら負荷かけたときだけ落ちる。TSan だと outbox_ の push_back と pop_front で data race",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい情報です。io_context を複数スレッドで run() すると、準備ができたハンドラはどのスレッドでも実行されます。同じ Session の読み込み完了と書き込み完了が別々のスレッドで同時に走り、outbox_ を同時に触っていました。bind_executor で各ハンドラを make_strand で作った strand に結び付け、直列に実行されることを保証します。",
+          "reading": "すばらしいじょうほうです。io_context をふくすうすれっどで run() すると、じゅんびができたはんどらはどのすれっどでもじっこうされます。おなじ Session のよみこみかんりょうとかきこみかんりょうがべつべつのすれっどでどうじにはしり、outbox_ をどうじにさわっていました。bind_executor でかくはんどらを make_strand でつくった strand にむすびつけ、ちょくれつにじっこうされることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "  void do_read() {\n    auto self = shared_from_this();\n    socket_.async_read_some(boost::asio::buffer(data_),\n        boost::asio::bind_executor(boost::asio::make_strand(socket_.get_executor()),\n            [self](boost::system::error_code ec, std::size_t length) {\n              if (ec) return;\n              self->send(std::string(self->data_.data(), length));\n              self->do_read();\n            }));\n  }\n\n  void do_write() {\n    auto self = shared_from_this();\n    boost::asio::async_write(socket_, boost::asio::buffer(outbox_.front()),\n        boost::asio::bind_executor(boost::asio::make_strand(socket_.get_executor()),\n            [self](boost::system::error_code ec, std::size_t) {\n              if (ec) return;\n              self->outbox_.pop_front();\n              if (!self->outbox_.empty()) self->do_write();\n            }));\n  }\n"
+        }
+      ]
+    },
+    {
+      "user": "変わってない。TSan 同じとこで出る",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "重要な訂正があります。make_strand は呼ぶたびに新しい strand を作ります。先ほどのコードでは読み込みと書き込みがそれぞれ別の strand に乗っていたので、互いを全く排他していませんでした。strand は 1 つの Session につき 1 つをメンバに持ち、両方のハンドラをそこに結び付けます。",
+          "reading": "じゅうようなていせいがあります。make_strand はよぶたびにあたらしい strand をつくります。さきほどのこーどではよみこみとかきこみがそれぞれべつの strand にのっていたので、たがいをまったくはいたしていませんでした。strand は 1 つの Session につき 1 つをめんばにもち、りょうほうのはんどらをそこにむすびつけます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/boost::asio::make_strand(socket_\\.get_executor())/strand_/' src/net/session.cpp"
+        },
+        {
+          "kind": "text",
+          "body": "Note: strand_ は socket_ の後に宣言します。メンバは宣言の順に初期化されるため、逆にするとまだ作られていない socket_ から executor を取ることになります。",
+          "reading": "Note: strand_ は socket_ のあとにせんげんします。めんばはせんげんのじゅんにしょきかされるため、ぎゃくにするとまだつくられていない socket_ から executor をとることになります。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "  explicit Session(tcp::socket socket)\n      : socket_(std::move(socket)), strand_(boost::asio::make_strand(socket_.get_executor())) {}\n\n  tcp::socket socket_;\n  boost::asio::strand<tcp::socket::executor_type> strand_;\n"
+        }
+      ]
+    },
+    {
+      "user": "直った。TSan も静か。で、管理画面から全接続にお知らせ流したいんだけど、別スレッドから session->send() 呼べばいい？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "そのまま呼ぶと、また outbox_ を strand の外から触ることになります。外から呼ぶ入口を deliver として公開し、中で boost::asio::post を使って strand_ に処理を投げます。言い換えると、send 自体は private のまま strand の中でしか呼ばれず、関心の分離も保たれます。",
+          "reading": "そのままよぶと、また outbox_ を strand のそとからさわることになります。そとからよぶいりぐちを deliver としてこうかいし、なかで boost::asio::post をつかって strand_ にしょりをなげます。いいかえると、send じたいは private のまま strand のなかでしかよばれず、かんしんのぶんりもたもたれます。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "  void deliver(std::string message) {\n    boost::asio::post(strand_,\n        [self = shared_from_this(), message = std::move(message)]() mutable {\n          self->send(std::move(message));\n        });\n  }\n"
+        }
+      ]
+    }
+  ]
+}

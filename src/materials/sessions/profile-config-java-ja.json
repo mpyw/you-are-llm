@@ -1,0 +1,73 @@
+{
+  "id": "profile-config-java-ja",
+  "title": "環境ごとの if を application-{profile}.yml と @Profile に移す",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "java",
+  "summary": "NotificationService の prod / staging 分岐を設定ファイルと Bean の切り替えに移したら、あとから staging でも本物のメールを送ることになった。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/notify/NotificationService.java",
+      "content": "package com.example.notify;\n\nimport org.slf4j.Logger;\nimport org.slf4j.LoggerFactory;\nimport org.springframework.core.env.Environment;\nimport org.springframework.stereotype.Service;\n\n@Service\npublic class NotificationService {\n    private static final Logger log = LoggerFactory.getLogger(NotificationService.class);\n\n    private final Environment env;\n    private final SmtpClient smtp;\n\n    public NotificationService(Environment env, SmtpClient smtp) {\n        this.env = env;\n        this.smtp = smtp;\n    }\n\n    public void notifyShipped(Order order) {\n        String appEnv = env.getProperty(\"app.env\", \"local\");\n        String baseUrl;\n        if (appEnv.equals(\"prod\")) {\n            baseUrl = \"https://shop.example.com\";\n        } else if (appEnv.equals(\"staging\")) {\n            baseUrl = \"https://staging.shop.example.com\";\n        } else {\n            baseUrl = \"http://localhost:8080\";\n        }\n        String link = baseUrl + \"/orders/\" + order.id();\n        if (appEnv.equals(\"prod\")) {\n            smtp.send(order.email(), \"Your order has shipped\", link);\n        } else {\n            log.info(\"mail to {}: {}\", order.email(), link);\n        }\n    }\n}\n"
+    },
+    {
+      "path": "src/main/resources/application.yml",
+      "content": "app:\n  env: local\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "NotificationService、app.env 見て if で分けてるとこが増えてきてつらい。環境で違うのは URL とメール本当に送るかどうかだけなんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。分岐は 2 種類に分けられます。URL のような値の違いは application-{profile}.yml に書き、どれを読むかは Spring に任せます。メールを本当に送るか、ログに出すだけかという振る舞いの違いは、Mailer の実装を 2 つ用意して @Profile で片方だけを Bean にします。これで NotificationService は自分がどの環境にいるかを知らなくなり、関心の分離が実現します。",
+          "reading": "しょうちしました。ぶんきは 2 しゅるいにわけられます。URL のようなあたいのちがいは application-{profile}.yml にかき、どれをよむかは Spring にまかせます。メールをほんとうにおくるか、ログにだすだけかというふるまいのちがいは、Mailer のじっそうを 2 つよういして @Profile でかたほうだけを Bean にします。これで NotificationService はじぶんがどのかんきょうにいるかをしらなくなり、かんしんのぶんりがじつげんします。"
+        },
+        {
+          "kind": "code",
+          "lang": "yaml",
+          "body": "# application.yml\napp:\n  base-url: http://localhost:8080\n\n# application-staging.yml\napp:\n  base-url: https://staging.shop.example.com\n\n# application-prod.yml\napp:\n  base-url: https://shop.example.com\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.notify;\n\npublic interface Mailer {\n    void send(String to, String subject, String body);\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.notify;\n\nimport org.springframework.context.annotation.Profile;\nimport org.springframework.stereotype.Component;\n\n@Component\n@Profile(\"prod\")\npublic class SmtpMailer implements Mailer {\n    private final SmtpClient smtp;\n\n    public SmtpMailer(SmtpClient smtp) {\n        this.smtp = smtp;\n    }\n\n    @Override\n    public void send(String to, String subject, String body) {\n        smtp.send(to, subject, body);\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.notify;\n\nimport org.slf4j.Logger;\nimport org.slf4j.LoggerFactory;\nimport org.springframework.context.annotation.Profile;\nimport org.springframework.stereotype.Component;\n\n@Component\n@Profile(\"!prod\")\npublic class LoggingMailer implements Mailer {\n    private static final Logger log = LoggerFactory.getLogger(LoggingMailer.class);\n\n    @Override\n    public void send(String to, String subject, String body) {\n        log.info(\"mail to {} [{}]: {}\", to, subject, body);\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Service\npublic class NotificationService {\n    private final Mailer mailer;\n    private final String baseUrl;\n\n    public NotificationService(Mailer mailer, @Value(\"${app.base-url}\") String baseUrl) {\n        this.mailer = mailer;\n        this.baseUrl = baseUrl;\n    }\n\n    public void notifyShipped(Order order) {\n        String link = baseUrl + \"/orders/\" + order.id();\n        mailer.send(order.email(), \"Your order has shipped\", link);\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "いい感じ。あ、やっぱ staging も本物の SMTP で送りたい、QA がメール実物見たいって。あと起動のとき profile どうやって指定すんの",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "@Profile には ! のほかに & と | も書けます。SmtpMailer を prod と staging の両方で有効にし、LoggingMailer はそのどちらでもないときだけにします。sed の置換側に書いた & はマッチした文字列全体に化けるので、\\& とエスケープしている点に注意することが重要です。profile は起動時に --spring.profiles.active で渡すか、環境変数 SPRING_PROFILES_ACTIVE に入れます。",
+          "reading": "@Profile には ! のほかに & と | もかけます。SmtpMailer を prod と staging のりょうほうでゆうこうにし、LoggingMailer はそのどちらでもないときだけにします。sed のちかんがわにかいた & はマッチしたもじれつぜんたいにばけるので、\\& とエスケープしているてんにちゅういすることがじゅうようです。profile はきどうじに --spring.profiles.active でわたすか、かんきょうへんすう SPRING_PROFILES_ACTIVE にいれます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/@Profile(\"prod\")/@Profile({\"prod\", \"staging\"})/' -e 's/@Profile(\"!prod\")/@Profile(\"!prod \\& !staging\")/' src/main/java/com/example/notify/SmtpMailer.java src/main/java/com/example/notify/LoggingMailer.java"
+        },
+        {
+          "kind": "command",
+          "body": "java -jar build/libs/shop.jar --spring.profiles.active=staging"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "id": "spdlog-logger-cpp-ja",
+  "title": "デバッグ用の std::cout を spdlog に",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "cpp",
+  "summary": "垂れ流しの std::cout を spdlog のレベル付きログにし、既定のレベルと書式は main で一度だけ決める。",
+  "files": [
+    {
+      "path": "src/sync/uploader.cpp",
+      "content": "#include \"uploader.h\"\n\n#include <iostream>\n\nvoid Uploader::upload(const Chunk &chunk)\n{\n    std::cout << \"[DEBUG] sending chunk \" << chunk.index << \" (\" << chunk.data.size() << \" bytes)\" << std::endl;\n    auto res = client_.put(chunk);\n    if (!res.ok()) {\n        std::cout << \"!!! chunk \" << chunk.index << \" failed status=\" << res.status << std::endl;\n        return;\n    }\n    std::cout << \"chunk \" << chunk.index << \" ok\" << std::endl;\n}\n"
+    },
+    {
+      "path": "src/main.cpp",
+      "content": "#include \"uploader.h\"\n\nint main(int argc, char *argv[])\n{\n    Uploader uploader(Config::load(argc, argv));\n    return uploader.run();\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "uploader の cout だらけで本番のログが読めない。spdlog 入れたから置き換えて。失敗だけは目立たせたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。三つの cout を、中身に合わせて spdlog の debug、warn、info に振り分けます。spdlog は {fmt} と同じ {} の書式で引数を受け取るので、<< で細切れにつないでいた文字列は一行にまとまります。既定のレベルと書式は main で一度だけ決めます。%^ と %$ で囲んだ部分は端末でレベルごとに色が付くので、warning が目立ちます。言い換えると、どこから出すかは main が決め、呼び出し側はメッセージの重さだけを選ぶという関心の分離になります。",
+          "reading": "しょうちしました。みっつの cout を、なかみにあわせて spdlog の debug、warn、info にふりわけます。spdlog は {fmt} とおなじ {} のしょしきでひきすうをうけとるので、<< でこまぎれにつないでいたもじれつはいちぎょうにまとまります。きていのれべるとしょしきは main でいちどだけきめます。%^ と %$ でかこんだぶぶんはたんまつでれべるごとにいろがつくので、warning がめだちます。いいかえると、どこからだすかは main がきめ、よびだしがわはめっせーじのおもさだけをえらぶというかんしんのぶんりになります。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include \"uploader.h\"\n\n#include <spdlog/spdlog.h>\n\nvoid Uploader::upload(const Chunk &chunk)\n{\n    spdlog::debug(\"sending chunk {} ({} bytes)\", chunk.index, chunk.data.size());\n    auto res = client_.put(chunk);\n    if (!res.ok()) {\n        spdlog::warn(\"chunk {} failed: status={}\", chunk.index, res.status);\n        return;\n    }\n    spdlog::info(\"chunk {} ok\", chunk.index);\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include \"uploader.h\"\n\n#include <spdlog/spdlog.h>\n\nint main(int argc, char *argv[])\n{\n    spdlog::set_level(spdlog::level::info);\n    spdlog::set_pattern(\"%H:%M:%S.%e [%^%l%$] %v\");\n\n    Uploader uploader(Config::load(argc, argv));\n    return uploader.run();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "いいね。けど手元だと debug も見たい。毎回ビルドし直すのはやだ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "spdlog::cfg::load_env_levels を呼ぶと、環境変数 SPDLOG_LEVEL からレベルを読みます。set_level より後に呼ぶことに注意することが重要です。先に呼ぶと、直後の set_level が環境変数の指定を上書きしてしまいます。変数がなければ info のまま動くので、本番の設定はそのままです。",
+          "reading": "spdlog::cfg::load_env_levels をよぶと、かんきょうへんすう SPDLOG_LEVEL かられべるをよみます。set_level よりあとによぶことにちゅういすることがじゅうようです。さきによぶと、ちょくごの set_level がかんきょうへんすうのしていをうわがきしてしまいます。へんすうがなければ info のままうごくので、ほんばんのせっていはそのままです。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include <spdlog/cfg/env.h>\n#include <spdlog/spdlog.h>\n\nint main(int argc, char *argv[])\n{\n    spdlog::set_level(spdlog::level::info);\n    spdlog::set_pattern(\"%H:%M:%S.%e [%^%l%$] %v\");\n    spdlog::cfg::load_env_levels();\n\n    Uploader uploader(Config::load(argc, argv));\n    return uploader.run();\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "SPDLOG_LEVEL=debug ./build/uploader"
+        }
+      ]
+    }
+  ]
+}

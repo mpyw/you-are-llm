@@ -1,0 +1,82 @@
+{
+  "id": "event-listener-php-ja",
+  "title": "レビュー投稿の後処理を Event と Listener に切り出す",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "コントローラで同期送信していた出品者への通知とログを ReviewPosted に載せ替え、通知だけキューに回す。AppServiceProvider での二重登録を踏む。",
+  "files": [
+    {
+      "path": "app/Http/Controllers/ReviewController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse App\\Models\\Product;\nuse App\\Notifications\\ReviewReceived;\nuse Illuminate\\Http\\Request;\nuse Illuminate\\Support\\Facades\\Log;\n\nclass ReviewController extends Controller\n{\n    public function store(Request $request, Product $product)\n    {\n        $validated = $request->validate([\n            'rating' => ['required', 'integer', 'between:1,5'],\n            'body' => ['required', 'string', 'max:2000'],\n        ]);\n\n        $review = $product->reviews()->create([\n            ...$validated,\n            'user_id' => $request->user()->id,\n        ]);\n\n        $product->seller->notify(new ReviewReceived($review));\n        Log::info('review.posted', ['review_id' => $review->id, 'product_id' => $product->id]);\n\n        return redirect()->route('products.show', $product);\n    }\n}\n"
+    },
+    {
+      "path": "app/Providers/AppServiceProvider.php",
+      "content": "<?php\n\nnamespace App\\Providers;\n\nuse Illuminate\\Support\\ServiceProvider;\n\nclass AppServiceProvider extends ServiceProvider\n{\n    public function register(): void\n    {\n        //\n    }\n\n    public function boot(): void\n    {\n        //\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "レビュー投稿のレスポンス 2〜3 秒かかってる。出品者へのメールをコントローラでそのまま送ってるせい。イベントに切り出してキューで。API からも同じ後処理呼びたいし。あ、ログはキュー通さないで即書いて。ワーカー詰まってるときに消えると追えない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、後処理を ReviewPosted イベントに載せ替えます。コントローラはイベントを発火するだけにして、通知とログはそれぞれ別の Listener が受け持ちます。API 側のコントローラも同じイベントを投げるだけで済むので、関心の分離が保たれます。",
+          "reading": "Now、あとしょりを ReviewPosted イベントにのせかえます。コントローラはイベントをはっかするだけにして、つうちとログはそれぞれべつの Listener がうけもちます。API がわのコントローラもおなじイベントをなげるだけですむので、かんしんのぶんりがたもたれます。"
+        },
+        {
+          "kind": "command",
+          "body": "php artisan make:event ReviewPosted\nphp artisan make:listener NotifySeller --event=ReviewPosted --queued\nphp artisan make:listener LogReviewPosted --event=ReviewPosted"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "namespace App\\Events;\n\nuse App\\Models\\Review;\nuse Illuminate\\Foundation\\Events\\Dispatchable;\nuse Illuminate\\Queue\\SerializesModels;\n\nclass ReviewPosted\n{\n    use Dispatchable, SerializesModels;\n\n    public function __construct(public Review $review)\n    {\n    }\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "NotifySeller は ShouldQueue を実装しているので、handle はワーカーで動きます。キューに載るのは Review の ID だけで、SerializesModels がワーカー側で引き直します。LogReviewPosted には ShouldQueue を付けていないので、リクエストの中で即座に書かれることを保証します。Laravel 11 からは EventServiceProvider がないため、AppServiceProvider の boot で明示的に登録します。",
+          "reading": "NotifySeller は ShouldQueue をじっそうしているので、handle はワーカーでうごきます。キューにのるのは Review の ID だけで、SerializesModels がワーカーがわでひきなおします。LogReviewPosted には ShouldQueue をつけていないので、リクエストのなかでそくざにかかれることをほしょうします。Laravel 11 からは EventServiceProvider がないため、AppServiceProvider の boot でめいじてきにとうろくします。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "class NotifySeller implements ShouldQueue\n{\n    use InteractsWithQueue;\n\n    public function handle(ReviewPosted $event): void\n    {\n        $review = $event->review;\n\n        $review->product->seller->notify(new ReviewReceived($review));\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "class LogReviewPosted\n{\n    public function handle(ReviewPosted $event): void\n    {\n        Log::info('review.posted', [\n            'review_id' => $event->review->id,\n            'product_id' => $event->review->product_id,\n        ]);\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use App\\Events\\ReviewPosted;\nuse App\\Listeners\\LogReviewPosted;\nuse App\\Listeners\\NotifySeller;\nuse Illuminate\\Support\\Facades\\Event;\n\npublic function boot(): void\n{\n    Event::listen(ReviewPosted::class, NotifySeller::class);\n    Event::listen(ReviewPosted::class, LogReviewPosted::class);\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "$review = $product->reviews()->create([\n    ...$validated,\n    'user_id' => $request->user()->id,\n]);\n\nReviewPosted::dispatch($review);\n\nreturn redirect()->route('products.show', $product);\n"
+        }
+      ]
+    },
+    {
+      "user": "ステージングで投稿したら出品者にメール 2 通届いた。ログも 2 行ずつ出てる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ご指摘のとおりです。改めて確認したところ、先ほどの登録は不要でした。Laravel 11 からはイベントディスカバリが既定で有効で、app/Listeners のクラスは handle の型宣言を見て自動で登録されます。そこへ Event::listen を重ねたので、同じ Listener が 2 回ずつ登録されていました。足した行と use 文を消し、登録が 1 つずつになったことを event:list で確かめます。",
+          "reading": "ごしてきのとおりです。あらためてかくにんしたところ、さきほどのとうろくはふようでした。Laravel 11 からはイベントディスカバリがきていでゆうこうで、app/Listeners のクラスは handle のかたせんげんをみてじどうでとうろくされます。そこへ Event::listen をかさねたので、おなじ Listener が 2 かいずつとうろくされていました。たしたぎょうと use ぶんをけし、とうろくが 1 つずつになったことを event:list でたしかめます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -E '/Event::listen|^use App\\\\|Facades\\\\Event;/d' app/Providers/AppServiceProvider.php"
+        },
+        {
+          "kind": "command",
+          "body": "php artisan event:list --event=ReviewPosted"
+        }
+      ]
+    }
+  ]
+}

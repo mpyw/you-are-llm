@@ -1,0 +1,57 @@
+{
+  "id": "tanstack-query-typescript-en",
+  "title": "Replace a hand-rolled fetch with useQuery",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "typescript",
+  "summary": "Move UserProfile from useEffect and useState to TanStack Query, then find the queryKey that forgot userId.",
+  "files": [
+    {
+      "path": "src/components/UserProfile.tsx",
+      "content": "import { useEffect, useState } from 'react'\n\ntype User = { id: string; name: string }\n\nexport function UserProfile({ userId }: { userId: string }) {\n  const [user, setUser] = useState<User | null>(null)\n  const [loading, setLoading] = useState(true)\n  const [error, setError] = useState<Error | null>(null)\n\n  useEffect(() => {\n    setLoading(true)\n    fetch(`/api/users/${userId}`)\n      .then((res) => {\n        if (!res.ok) throw new Error(`HTTP ${res.status}`)\n        return res.json()\n      })\n      .then((data: User) => setUser(data))\n      .catch((reason: Error) => setError(reason))\n      .finally(() => setLoading(false))\n  }, [userId])\n\n  if (loading) return <p>Loading...</p>\n  if (error !== null) return <p role=\"alert\">{error.message}</p>\n  return <h2>{user?.name}</h2>\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "want to move the useEffect fetch in UserProfile onto TanStack Query. QueryClientProvider is already in main.tsx",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great call. You no longer hold loading, error and result as three pieces of state yourself. Give useQuery a queryKey and a queryFn, and the library takes care of caching and refetching. The key point: fetch does not reject on a 500. Check res.ok and throw inside the queryFn, or an error is treated as a success."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { useQuery } from '@tanstack/react-query'\n\ntype User = { id: string; name: string }\n\nasync function fetchUser(userId: string): Promise<User> {\n  const res = await fetch(`/api/users/${userId}`)\n  if (!res.ok) throw new Error(`HTTP ${res.status}`)\n  return res.json()\n}\n\nexport function UserProfile({ userId }: { userId: string }) {\n  const { data, isPending, isError, error } = useQuery({\n    queryKey: ['user'],\n    queryFn: () => fetchUser(userId),\n  })\n\n  if (isPending) return <p>Loading...</p>\n  if (isError) return <p role=\"alert\">{error.message}</p>\n  return <h2>{data.name}</h2>\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "doesn't switch. click someone else in the list and it still shows the first person",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer left userId out of the queryKey. TanStack Query looks up its cache by queryKey, so with the key stuck at ['user'] every userId gets the same entry, and nothing is fetched again. Every value the queryFn reads has to be part of the key. The exhaustive-deps rule in eslint-plugin-query catches exactly this."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' \"s/queryKey: \\['user'\\]/queryKey: ['user', userId]/\" src/components/UserProfile.tsx"
+        }
+      ]
+    },
+    {
+      "user": "also when nobody is selected userId comes in as an empty string. it still hits /api/users/ and gets a 404",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Pass a condition to enabled, and the queryFn is not called while it is false. Note: a disabled query stays at isPending true, so rendering it as is shows Loading forever. Return something else first when the id is empty. In other words, enabled stops the fetch, and the branch on screen is still yours to write."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "export function UserProfile({ userId }: { userId: string }) {\n  const { data, isPending, isError, error } = useQuery({\n    queryKey: ['user', userId],\n    queryFn: () => fetchUser(userId),\n    enabled: userId !== '',\n  })\n\n  if (userId === '') return <p>Select a user</p>\n  if (isPending) return <p>Loading...</p>\n  if (isError) return <p role=\"alert\">{error.message}</p>\n  return <h2>{data.name}</h2>\n}\n"
+        }
+      ]
+    }
+  ]
+}

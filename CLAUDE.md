@@ -152,7 +152,11 @@ The length term counts symbol keystrokes only, and its exponent is well under on
 the score rather than driving it. What drives it is hardness per keystroke: the Shift share times
 the number of distinct symbol shapes.
 
-The result is the one that matches anyone who has typed both. Rust lands below Hard only three
-times, for `serde-rename`, `serde-tagged-enum` and `reqwest-status`, which are attributes on a type or
-one client call and really are easier. No Java session lands above Hard. The only Expert+ session is
-the Rust `transaction` that takes a closure, which scores 40.2 against 31.6 for the next one down.
+The result is the one that matches anyone who has typed both. Rust mostly lands at Hard or
+above, and the exceptions are attributes on a type or one library call, which really are easier.
+Java mostly lands at Hard or below, and the exceptions have a `sed` dense with escapes or a long test
+setup. The only Expert+ session is the Rust `transaction` that takes a closure, which scores 39.6
+against 33.1 for the next one down.
+
+The grade is relative to the whole set, so adding a batch moves old sessions too. Describe these
+patterns as tendencies, not as lists of names, or every batch breaks the sentence.

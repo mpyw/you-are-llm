@@ -2,7 +2,7 @@
   "id": "pytest-parametrize-python-ja",
   "title": "コピペされたテストを parametrize と fixture にまとめる",
   "language": "ja",
-  "difficulty": "expert",
+  "difficulty": "hard",
   "codeLanguage": "python",
   "summary": "422 を見るだけのテストを 1 本にまとめ、共有した dict を書き換えて別のテストを壊し、直してからケースを足す。",
   "files": [

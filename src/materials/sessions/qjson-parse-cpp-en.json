@@ -1,0 +1,57 @@
+{
+  "id": "qjson-parse-cpp-en",
+  "title": "The app that starts on a broken config",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "cpp",
+  "summary": "A failed QJsonDocument::fromJson turns into an empty object. QJsonParseError and isObject() stop it, and toInt's default quietly swallows a wrong type too.",
+  "files": [
+    {
+      "path": "src/config/settings.cpp",
+      "content": "#include \"settings.h\"\n\n#include <QFile>\n#include <QJsonDocument>\n#include <QJsonObject>\n\nSettings loadSettings(const QString &path)\n{\n    QFile file(path);\n    if (!file.open(QIODevice::ReadOnly))\n        return {};\n\n    const QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();\n\n    Settings settings;\n    settings.host = root.value(\"host\").toString();\n    settings.port = root.value(\"port\").toInt();\n    settings.retries = root.value(\"retries\").toInt();\n    return settings;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "someone put a // comment in config.json and the app came up on port 0. if the file is broken it shouldn't start",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: fromJson is failing silently. When parsing fails it returns an empty QJsonDocument, its object() is empty too, and value(\"port\").toInt() gives 0. Pass a QJsonParseError as the second argument, check its error field, and on failure log offset and errorString() and return std::nullopt. An array like [1, 2] is valid JSON as well, so check isObject() too."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include <optional>\n\n#include <QDebug>\n\nstd::optional<Settings> loadSettings(const QString &path)\n{\n    QFile file(path);\n    if (!file.open(QIODevice::ReadOnly)) {\n        qWarning() << path << file.errorString();\n        return std::nullopt;\n    }\n\n    QJsonParseError error;\n    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &error);\n    if (error.error != QJsonParseError::NoError) {\n        qWarning() << path << \"at offset\" << error.offset << error.errorString();\n        return std::nullopt;\n    }\n    if (!doc.isObject()) {\n        qWarning() << path << \"top level must be an object\";\n        return std::nullopt;\n    }\n\n    const QJsonObject root = doc.object();\n    Settings settings;\n    settings.host = root.value(\"host\").toString();\n    settings.port = root.value(\"port\").toInt();\n    settings.retries = root.value(\"retries\").toInt();\n    return settings;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ok. also defaults: port 8080 if missing, retries 3, host localhost",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. toInt() and toString() on QJsonValue take the value to return when the key is missing. toInt(8080) also converts a value written as a string, like \"9000\", so it is robust against loose types as well."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/value(\"host\")\\.toString()/value(\"host\").toString(\"localhost\")/; s/value(\"port\")\\.toInt()/value(\"port\").toInt(8080)/; s/value(\"retries\")\\.toInt()/value(\"retries\").toInt(3)/' src/config/settings.cpp"
+        }
+      ]
+    },
+    {
+      "user": "staging has port as the string \"9000\" and it came up on 8080. thought it converted? just make strings an error, they can fix their file",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. toInt() only returns the number when the value is a JSON number. For the string \"9000\" it returns the default, 8080. That is the same silent fallback we removed in the first step. If the key is present and is not a number, it is now an error."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "    const QJsonValue port = root.value(\"port\");\n    if (!port.isUndefined() && !port.isDouble()) {\n        qWarning() << path << \"port must be a number, got\" << port;\n        return std::nullopt;\n    }\n    settings.port = port.toInt(8080);\n"
+        }
+      ]
+    }
+  ]
+}

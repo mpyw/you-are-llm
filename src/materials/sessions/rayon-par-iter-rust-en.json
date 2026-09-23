@@ -1,0 +1,48 @@
+{
+  "id": "rayon-par-iter-rust-en",
+  "title": "Spread the hashing over every core with par_iter",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "rust",
+  "summary": "Turn a single core SHA-256 batch into par_iter, then cap it at four threads with a dedicated pool.",
+  "files": [
+    {
+      "path": "src/hash.rs",
+      "content": "use std::path::PathBuf;\n\nuse sha2::{Digest, Sha256};\n\npub fn hash_all(paths: &[PathBuf]) -> Vec<(PathBuf, String)> {\n    paths\n        .iter()\n        .map(|path| {\n            let bytes = std::fs::read(path).unwrap();\n            let digest = Sha256::digest(&bytes);\n            (path.clone(), format!(\"{digest:x}\"))\n        })\n        .collect()\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "this batch hashes a few thousand files and top shows exactly one core at 100%. the box has 8",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the thing: each file is hashed on its own, so the map body has nothing shared and rayon can split it as is. Add rayon, bring in the prelude, and swap iter for par_iter. collect keeps the input order, so the output lines up exactly as before."
+        },
+        {
+          "kind": "command",
+          "body": "cargo add rayon"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::path::PathBuf;\n\nuse rayon::prelude::*;\nuse sha2::{Digest, Sha256};\n\npub fn hash_all(paths: &[PathBuf]) -> Vec<(PathBuf, String)> {\n    paths\n        .par_iter()\n        .map(|path| {\n            let bytes = std::fs::read(path).unwrap();\n            let digest = Sha256::digest(&bytes);\n            (path.clone(), format!(\"{digest:x}\"))\n        })\n        .collect()\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "fast now. but the api runs on the same machine and cant lose every core. max 4",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Perfect use case for a dedicated pool. build_global would cap the whole process, but a local pool keeps the limit next to the batch. Every par_iter inside install runs on those four threads only, so hash_all itself stays untouched."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "let pool = rayon::ThreadPoolBuilder::new()\n    .num_threads(4)\n    .build()\n    .expect(\"failed to build thread pool\");\nlet hashes = pool.install(|| hash_all(&paths));\n"
+        }
+      ]
+    }
+  ]
+}

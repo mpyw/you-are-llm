@@ -1,0 +1,46 @@
+{
+  "id": "mockito-captor-java-ja",
+  "title": "any() で済ませた verify を ArgumentCaptor で確かめる",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "java",
+  "summary": "メールが送られたことしか見ていないテストで、宛先と件名まで確かめる。",
+  "files": [
+    {
+      "path": "src/test/java/com/example/signup/SignupServiceTest.java",
+      "content": "package com.example.signup;\n\nimport static org.mockito.ArgumentMatchers.any;\nimport static org.mockito.Mockito.verify;\n\nimport org.junit.jupiter.api.Test;\nimport org.junit.jupiter.api.extension.ExtendWith;\nimport org.mockito.InjectMocks;\nimport org.mockito.Mock;\nimport org.mockito.junit.jupiter.MockitoExtension;\n\n@ExtendWith(MockitoExtension.class)\nclass SignupServiceTest {\n    @Mock\n    MailSender mailSender;\n\n    @InjectMocks\n    SignupService signupService;\n\n    @Test\n    void sendsWelcomeMail() {\n        signupService.register(\"alice@example.com\", \"Alice\");\n\n        verify(mailSender).send(any(Mail.class));\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "SignupServiceTest、send が呼ばれたかしか見てなくて宛先がデタラメでも通る。中身も見たい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。any(Mail.class) は何が渡っても一致するので、いまは呼ばれた回数しか確かめていません。ArgumentCaptor で実際に渡った Mail を捕まえ、宛先と件名を AssertJ で確かめます。言い換えると、verify は「呼ばれたか」、キャプチャは「何を渡したか」を受け持ちます。",
+          "reading": "しょうちしました。any(Mail.class) はなにがわたってもいっちするので、いまはよばれたかいすうしかたしかめていません。ArgumentCaptor でじっさいにわたった Mail をつかまえ、あてさきとけんめいを AssertJ でたしかめます。いいかえると、verify は「よばれたか」、キャプチャは「なにをわたしたか」をうけもちます。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import static org.assertj.core.api.Assertions.assertThat;\n\nimport org.mockito.ArgumentCaptor;\nimport org.mockito.Captor;\n\n@Captor\nArgumentCaptor<Mail> mailCaptor;\n\n@Test\nvoid sendsWelcomeMail() {\n    signupService.register(\"alice@example.com\", \"Alice\");\n\n    verify(mailSender).send(mailCaptor.capture());\n    Mail mail = mailCaptor.getValue();\n    assertThat(mail.to()).isEqualTo(\"alice@example.com\");\n    assertThat(mail.subject()).contains(\"Alice\");\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あー招待経由だと招待した人にも通知メール行くんだった。2 通。これもテストして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: getValue は最後の 1 回分しか返さないので、2 通のときは getAllValues で全部を取り出します。verify に times(2) を付けて、ちょうど 2 回送ったことを保証します。順番まで見るなら containsExactly、順番を問わないなら containsExactlyInAnyOrder です。",
+          "reading": "Note: getValue はさいごの 1 かいぶんしかかえさないので、2 つうのときは getAllValues でぜんぶをとりだします。verify に times(2) をつけて、ちょうど 2 かいおくったことをほしょうします。じゅんばんまでみるなら containsExactly、じゅんばんをとわないなら containsExactlyInAnyOrder です。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import static org.mockito.Mockito.times;\n\n@Test\nvoid notifiesInviter() {\n    signupService.register(\"alice@example.com\", \"Alice\", \"bob@example.com\");\n\n    verify(mailSender, times(2)).send(mailCaptor.capture());\n    assertThat(mailCaptor.getAllValues())\n        .extracting(Mail::to)\n        .containsExactly(\"alice@example.com\", \"bob@example.com\");\n}\n"
+        }
+      ]
+    }
+  ]
+}

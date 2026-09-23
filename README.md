@@ -13,7 +13,7 @@
 
 ## Status
 
-The trainer runs end to end. 258 sessions cover nine programming languages and two natural
+The trainer runs end to end. 366 sessions cover nine programming languages and two natural
 languages, graded from Easy to Expert+. AZIK is not implemented yet.
 
 ## Commands
@@ -131,14 +131,14 @@ Each session sits on three axes.
 | Code language | C, C++, C#, Go, Java, PHP, Python, Rust, TypeScript |
 
 Difficulty is measured, not chosen. `scripts/typing-load.mjs` scores every session across the whole
-set rather than within one language, so Rust rarely lands below Hard.
+set rather than within one language, so Rust mostly lands at Hard or above.
 
 | Difficulty | Score | Sessions |
 | --- | --- | --- |
-| Easy | under 11 | 54 |
-| Normal | 11 to 16 | 76 |
-| Hard | 16 to 22 | 90 |
-| Expert | 22 to 34 | 36 |
+| Easy | under 11 | 66 |
+| Normal | 11 to 16 | 102 |
+| Hard | 16 to 22 | 130 |
+| Expert | 22 to 34 | 66 |
 | Expert+ | over 34 | 2 |
 
 The score is how hard a session is per keystroke, stretched a little by how much of it there is.
@@ -151,9 +151,10 @@ dozen others.
 Length counts symbol keystrokes rather than all of them. A session is not harder for spelling out
 `htmlspecialchars`, which is the easiest kind of key there is.
 
-Rust comes out below Hard three times: `serde-rename`, `serde-tagged-enum` and `reqwest-status`,
-which are attributes on a type or one client call. No Java session comes out above Hard. The only
-Expert+ session is the Rust `transaction` that takes a closure.
+Rust mostly comes out at Hard or above. The exceptions are attributes on a type or one library
+call. Java mostly comes out at Hard or below, and the exceptions are the ones whose `sed` is dense
+with escapes or whose test setup is long. The only Expert+ session is the Rust `transaction` that
+takes a closure.
 
 The front page filters on all three, and a filtered view is a shareable URL. It opens on Japanese,
 because that is what most of the material is for. `All` shows both languages and says so in the

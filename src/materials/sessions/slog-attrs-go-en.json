@@ -1,0 +1,44 @@
+{
+  "id": "slog-attrs-go-en",
+  "title": "From log.Printf to structured slog",
+  "language": "en",
+  "codeLanguage": "go",
+  "difficulty": "hard",
+  "files": [
+    {
+      "path": "internal/worker/worker.go",
+      "content": "package worker\n\nimport (\n  \"log\"\n  \"time\"\n)\n\ntype Job struct {\n  ID      string\n  Tenant  string\n  Payload []byte\n}\n\nfunc Run(job Job, process func([]byte) error) {\n  start := time.Now()\n  log.Printf(\"job %s started tenant=%s\", job.ID, job.Tenant)\n  if err := process(job.Payload); err != nil {\n    log.Printf(\"job %s failed tenant=%s: %v\", job.ID, job.Tenant, err)\n    return\n  }\n  log.Printf(\"job %s done tenant=%s took=%s\", job.ID, job.Tenant, time.Since(start))\n}\n"
+    }
+  ],
+  "summary": "Move the job_id out of the message into slog key value pairs, then put the shared attributes on one slog.With.",
+  "turns": [
+    {
+      "user": "want to filter worker logs by job_id in datadog but its baked into the string. switch to slog, json output",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! log.Printf becomes the standard log/slog, and the values go in as key value pairs instead of being baked into the message. With a JSON handler set as the default logger in main, job_id turns into a field you can search on. Note: after SetDefault, any log.Printf left over goes through the same handler at INFO."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func main() {\n  slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))\n  // ...\n}\n\nfunc Run(job Job, process func([]byte) error) {\n  start := time.Now()\n  slog.Info(\"job started\", \"job_id\", job.ID, \"tenant\", job.Tenant)\n  if err := process(job.Payload); err != nil {\n    slog.Error(\"job failed\", \"job_id\", job.ID, \"tenant\", job.Tenant, \"err\", err)\n    return\n  }\n  slog.Info(\"job done\", \"job_id\", job.ID, \"tenant\", job.Tenant, \"took\", time.Since(start))\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "repeating job_id and tenant every line is ugly, someone will forget one. also took comes out in nanoseconds, way too many digits",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great point. slog.With builds a child logger that carries job_id and tenant, and the function logs through that alone. The shared attributes now live in a single source of truth, so every line gets them. The JSON handler writes a time.Duration as integer nanoseconds, so took becomes took_ms through slog.Int64."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func Run(job Job, process func([]byte) error) {\n  logger := slog.With(\"job_id\", job.ID, \"tenant\", job.Tenant)\n  start := time.Now()\n  logger.Info(\"job started\")\n  if err := process(job.Payload); err != nil {\n    logger.Error(\"job failed\", \"err\", err)\n    return\n  }\n  logger.Info(\"job done\", slog.Int64(\"took_ms\", time.Since(start).Milliseconds()))\n}\n"
+        }
+      ]
+    }
+  ]
+}

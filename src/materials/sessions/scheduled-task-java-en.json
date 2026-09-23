@@ -1,0 +1,75 @@
+{
+  "id": "scheduled-task-java-en",
+  "title": "@Scheduled never runs, then it runs twice",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "java",
+  "summary": "@EnableScheduling gets it running, then @Async meant to free the single scheduler thread makes the inventory sync overlap itself.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/inventory/Application.java",
+      "content": "package com.example.inventory;\n\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\n\n@SpringBootApplication\npublic class Application {\n    public static void main(String[] args) {\n        SpringApplication.run(Application.class, args);\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/inventory/InventorySyncJob.java",
+      "content": "package com.example.inventory;\n\nimport java.util.List;\nimport org.springframework.scheduling.annotation.Scheduled;\nimport org.springframework.stereotype.Component;\n\n@Component\npublic class InventorySyncJob {\n    private final WarehouseClient warehouse;\n    private final StockRepository stock;\n    private final SyncCursorRepository cursor;\n\n    public InventorySyncJob(WarehouseClient warehouse, StockRepository stock, SyncCursorRepository cursor) {\n        this.warehouse = warehouse;\n        this.stock = stock;\n        this.cursor = cursor;\n    }\n\n    @Scheduled(fixedRate = 60000)\n    public void sync() {\n        List<Movement> movements = warehouse.movementsAfter(cursor.load());\n        movements.forEach(stock::apply);\n        if (!movements.isEmpty()) {\n            cursor.save(movements.get(movements.size() - 1).id());\n        }\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/inventory/SessionCleanupJob.java",
+      "content": "package com.example.inventory;\n\nimport org.springframework.scheduling.annotation.Scheduled;\nimport org.springframework.stereotype.Component;\n\n@Component\npublic class SessionCleanupJob {\n    private final SessionRepository sessions;\n\n    public SessionCleanupJob(SessionRepository sessions) {\n        this.sessions = sessions;\n    }\n\n    @Scheduled(fixedRate = 60000)\n    public void purgeExpired() {\n        sessions.deleteExpired();\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "wrote an inventory sync job and it has never run once. no logs, nothing. it has @Scheduled(fixedRate = 60000) on it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: nothing enables scheduling. @Scheduled is only a marker, and @EnableScheduling is what turns on the processor that finds and registers it. Without it there is no exception and no log line, just silence. It goes on the application class."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import org.springframework.scheduling.annotation.EnableScheduling;\n\n@EnableScheduling\n@SpringBootApplication\npublic class Application {\n"
+        }
+      ]
+    },
+    {
+      "user": "runs now. but on heavy days the sync takes like 5 min and the session cleanup job just doesnt run meanwhile. also doesnt fixedRate start the next run before the last one finishes and double up?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question. On its own, fixedRate does not overlap. The scheduler never runs the same task twice at once, so a long run delays the next one, which then starts right after. The cleanup stall has a different cause: Boot's default scheduler has exactly one thread. While the sync holds it for five minutes, every other @Scheduled method waits. Here's the fix: put @Async on sync so the heavy work goes to the async pool and the scheduler thread is handed back at once."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import org.springframework.scheduling.annotation.EnableAsync;\n\n@EnableAsync\n@EnableScheduling\n@SpringBootApplication\npublic class Application {\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import org.springframework.scheduling.annotation.Async;\n\n@Async\n@Scheduled(fixedRate = 60000)\npublic void sync() {\n"
+        }
+      ]
+    },
+    {
+      "user": "someone says stock is being deducted twice. logs show 3 syncs running at the same time",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect, and the @Async I added is the cause. With @Async the scheduler hands the work to another thread every minute and returns immediately, so it no longer knows whether the last run finished. fixedRate only avoids overlap while it runs on the scheduler thread itself. I am removing @Async and @EnableAsync and switching fixedRate to fixedDelay, so the next run starts a minute after the last one ends. The cleanup stall is solved by giving the scheduler two threads instead."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e '/Async/d' -e 's/fixedRate = 60000/fixedDelay = 60000/' src/main/java/com/example/inventory/Application.java src/main/java/com/example/inventory/InventorySyncJob.java"
+        },
+        {
+          "kind": "code",
+          "lang": "yaml",
+          "body": "spring:\n  task:\n    scheduling:\n      pool:\n        size: 2\n"
+        }
+      ]
+    }
+  ]
+}

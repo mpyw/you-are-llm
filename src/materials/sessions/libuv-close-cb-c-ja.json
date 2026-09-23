@@ -1,0 +1,70 @@
+{
+  "id": "libuv-close-cb-c-ja",
+  "title": "libuv のハンドルを close コールバックで解放する",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "c",
+  "summary": "uv_close の直後に free していたクライアントを close コールバックで解放し、Ctrl-C で uv_loop_close まで綺麗に終わらせる。",
+  "files": [
+    {
+      "path": "src/net/server.c",
+      "content": "#include <stdio.h>\n#include <stdlib.h>\n#include <uv.h>\n\nstatic void alloc_cb(uv_handle_t *handle, size_t suggested, uv_buf_t *buf) {\n  buf->base = malloc(suggested);\n  buf->len = suggested;\n}\n\nstatic void on_read(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf) {\n  if (nread < 0) {\n    uv_close((uv_handle_t *)client, NULL);\n    free(client);\n  }\n  free(buf->base);\n}\n\nstatic void on_connection(uv_stream_t *server, int status) {\n  if (status < 0) return;\n  uv_tcp_t *client = malloc(sizeof *client);\n  uv_tcp_init(server->loop, client);\n  if (uv_accept(server, (uv_stream_t *)client) == 0) {\n    uv_read_start((uv_stream_t *)client, alloc_cb, on_read);\n  } else {\n    uv_close((uv_handle_t *)client, NULL);\n    free(client);\n  }\n}\n\nint main(void) {\n  uv_loop_t *loop = uv_default_loop();\n  uv_tcp_t server;\n  struct sockaddr_in addr;\n  uv_ip4_addr(\"0.0.0.0\", 7000, &addr);\n  uv_tcp_init(loop, &server);\n  uv_tcp_bind(&server, (const struct sockaddr *)&addr, 0);\n  int rc = uv_listen((uv_stream_t *)&server, 128, on_connection);\n  if (rc != 0) {\n    fprintf(stderr, \"listen: %s\\n\", uv_strerror(rc));\n    return 1;\n  }\n  return uv_run(loop, UV_RUN_DEFAULT);\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "クライアント切断したタイミングでたまにサーバー落ちる。ASan だと heap-use-after-free で uv_run の中",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ご指摘のとおり、uv_run の中で落ちているのが手がかりです。uv_close はその場でハンドルを閉じるのではなく、閉じる予約をループに入れるだけです。実際の後始末は次の周回で行われ、終わった時点で close コールバックが呼ばれます。その前に free すると、libuv は解放済みのメモリを触ります。解放は close コールバックに任せるのがベストプラクティスです。on_read の上に置きます。",
+          "reading": "ごしてきのとおり、uv_run のなかでおちているのがてがかりです。uv_close はそのばではんどるをとじるのではなく、とじるよやくをるーぷにいれるだけです。じっさいのあとしまつはつぎのしゅうかいでおこなわれ、おわったじてんで close こーるばっくがよばれます。そのまえに free すると、libuv はかいほうずみのめもりをさわります。かいほうは close こーるばっくにまかせるのがべすとぷらくてぃすです。on_read のうえにおきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "static void on_close(uv_handle_t *handle) {\n  free(handle);\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/uv_close((uv_handle_t \\*)client, NULL);/uv_close((uv_handle_t *)client, on_close);/; /free(client);/d' src/net/server.c"
+        }
+      ]
+    },
+    {
+      "user": "直った。あと Ctrl-C でちゃんと終わらせたい。uv_loop_close まで呼んで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "uv_signal_t で SIGINT を受け、uv_stop でループを止めてから uv_loop_close を呼びます。これで終了処理がアトミックに完結することを保証します。",
+          "reading": "uv_signal_t で SIGINT をうけ、uv_stop でるーぷをとめてから uv_loop_close をよびます。これでしゅうりょうしょりがあとみっくにかんけつすることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "static void on_signal(uv_signal_t *sig, int signum) {\n  uv_stop(sig->loop);\n}\n\nint main(void) {\n  uv_loop_t *loop = uv_default_loop();\n  uv_tcp_t server;\n  uv_signal_t sig;\n  struct sockaddr_in addr;\n  uv_ip4_addr(\"0.0.0.0\", 7000, &addr);\n  uv_tcp_init(loop, &server);\n  uv_tcp_bind(&server, (const struct sockaddr *)&addr, 0);\n  int rc = uv_listen((uv_stream_t *)&server, 128, on_connection);\n  if (rc != 0) {\n    fprintf(stderr, \"listen: %s\\n\", uv_strerror(rc));\n    return 1;\n  }\n  uv_signal_init(loop, &sig);\n  uv_signal_start(&sig, on_signal, SIGINT);\n  uv_run(loop, UV_RUN_DEFAULT);\n  rc = uv_loop_close(loop);\n  if (rc != 0) fprintf(stderr, \"loop close: %s\\n\", uv_strerror(rc));\n  return rc == 0 ? 0 : 1;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "loop close: resource busy or locked って出る",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、先ほどの終わらせ方は正しくありませんでした。uv_stop はループを抜けるだけで、ハンドルは開いたまま残ります。uv_loop_close は閉じていないハンドルがあると UV_EBUSY を返します。止めるのではなく、全部のハンドルを uv_close して、uv_run が自然に戻るのを待ちます。サーバーとシグナルはスタックにあるので NULL で閉じ、残りのクライアントは uv_walk で拾って on_close で解放します。サーバーは sig.data から辿ります。",
+          "reading": "あらためてかくにんしたところ、さきほどのおわらせかたはただしくありませんでした。uv_stop はるーぷをぬけるだけで、はんどるはひらいたままのこります。uv_loop_close はとじていないはんどるがあると UV_EBUSY をかえします。とめるのではなく、ぜんぶのはんどるを uv_close して、uv_run がしぜんにもどるのをまちます。さーばーとしぐなるはすたっくにあるので NULL でとじ、のこりのくらいあんとは uv_walk でひろって on_close でかいほうします。さーばーは sig.data からたどります。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "static void close_rest(uv_handle_t *handle, void *arg) {\n  if (!uv_is_closing(handle)) uv_close(handle, on_close);\n}\n\nstatic void on_signal(uv_signal_t *sig, int signum) {\n  uv_close((uv_handle_t *)sig->data, NULL);\n  uv_close((uv_handle_t *)sig, NULL);\n  uv_walk(sig->loop, close_rest, NULL);\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "  uv_signal_init(loop, &sig);\n  sig.data = &server;\n  uv_signal_start(&sig, on_signal, SIGINT);\n  uv_run(loop, UV_RUN_DEFAULT);\n"
+        }
+      ]
+    }
+  ]
+}

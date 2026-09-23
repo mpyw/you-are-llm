@@ -1,0 +1,59 @@
+{
+  "id": "openssl-evp-digest-c-ja",
+  "title": "SHA256_Init を EVP に移す",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "c",
+  "summary": "OpenSSL 3 で非推奨の SHA256_Init 系を EVP_MD_CTX と EVP_Digest 系に置き換え、アルゴリズムを引数で選べるようにする。",
+  "files": [
+    {
+      "path": "src/crypto/digest.c",
+      "content": "#include <stdio.h>\n#include <openssl/sha.h>\n\nint sha256_file(FILE *fp, unsigned char out[SHA256_DIGEST_LENGTH]) {\n  SHA256_CTX ctx;\n  unsigned char buf[4096];\n  size_t n;\n  SHA256_Init(&ctx);\n  while ((n = fread(buf, 1, sizeof buf, fp)) > 0) {\n    SHA256_Update(&ctx, buf, n);\n  }\n  SHA256_Final(out, &ctx);\n  return ferror(fp) ? -1 : 0;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "OpenSSL 3 に上げたら SHA256_Init が deprecated で -Werror に引っかかる。とりあえず黙らせたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。警告を消すだけなら OPENSSL_SUPPRESS_DEPRECATED を定義する手もありますが、SHA256_Init 系は 3.0 で非推奨になった低レベル API なので、EVP に移すことをお勧めします。EVP_MD_CTX_new でコンテキストを作り、EVP_DigestInit_ex、EVP_DigestUpdate、EVP_DigestFinal_ex の順に呼びます。これらは C の慣習どおり成功時に 0 を返すので、0 以外なら失敗として後始末に飛ばします。",
+          "reading": "かしこまりました。けいこくをけすだけなら OPENSSL_SUPPRESS_DEPRECATED をていぎするてもありますが、SHA256_Init けいは 3.0 でひすいしょうになったていれべる API なので、EVP にうつすことをおすすめします。EVP_MD_CTX_new でこんてきすとをつくり、EVP_DigestInit_ex、EVP_DigestUpdate、EVP_DigestFinal_ex のじゅんによびます。これらは C のかんしゅうどおりせいこうじに 0 をかえすので、0 いがいならしっぱいとしてあとしまつにとばします。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#include <stdio.h>\n#include <openssl/evp.h>\n#include <openssl/sha.h>\n\nint sha256_file(FILE *fp, unsigned char out[SHA256_DIGEST_LENGTH]) {\n  unsigned char buf[4096];\n  size_t n;\n  int ret = -1;\n  EVP_MD_CTX *ctx = EVP_MD_CTX_new();\n  if (ctx == NULL) return -1;\n  if (EVP_DigestInit_ex(ctx, EVP_sha256(), NULL) != 0) goto done;\n  while ((n = fread(buf, 1, sizeof buf, fp)) > 0) {\n    if (EVP_DigestUpdate(ctx, buf, n) != 0) goto done;\n  }\n  if (ferror(fp)) goto done;\n  if (EVP_DigestFinal_ex(ctx, out, NULL) != 0) goto done;\n  ret = 0;\ndone:\n  EVP_MD_CTX_free(ctx);\n  return ret;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "警告は消えた。けど常に -1 返ってくるんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの説明は正確ではありませんでした。EVP_Digest 系は成功時に 1、失敗時に 0 を返します。正常に通るたびに goto done していたので、毎回 -1 になっていました。比較を 3 か所とも != 1 に直します。",
+          "reading": "もうしわけありません。さきほどのせつめいはせいかくではありませんでした。EVP_Digest けいはせいこうじに 1、しっぱいじに 0 をかえします。せいじょうにとおるたびに goto done していたので、まいかい -1 になっていました。ひかくを 3 かしょとも != 1 になおします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/) != 0) goto done/) != 1) goto done/' src/crypto/digest.c"
+        }
+      ]
+    },
+    {
+      "user": "あ、SHA-512 も使いたいんだった。関数名も sha256 じゃなくしといて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ポイントは、アルゴリズムを引数の EVP_MD で受け取ることです。呼び出し側が EVP_sha256() か EVP_sha512() を渡せば、中で分岐する必要はありません。出力は最大の EVP_MAX_MD_SIZE で確保し、実際の長さは EVP_DigestFinal_ex が out_len に書き込みます。言い換えると、呼び出し側は 32 バイトの決め打ちをやめる必要があります。",
+          "reading": "ぽいんとは、あるごりずむをひきすうの EVP_MD でうけとることです。よびだしがわが EVP_sha256() か EVP_sha512() をわたせば、なかでぶんきするひつようはありません。しゅつりょくはさいだいの EVP_MAX_MD_SIZE でかくほし、じっさいのながさは EVP_DigestFinal_ex が out_len にかきこみます。いいかえると、よびだしがわは 32 ばいとのきめうちをやめるひつようがあります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/sha256_file(FILE \\*fp, unsigned char out\\[SHA256_DIGEST_LENGTH\\])/digest_file(FILE *fp, const EVP_MD *md, unsigned char out[EVP_MAX_MD_SIZE], unsigned int *out_len)/; s/EVP_sha256()/md/; s/out, NULL)/out, out_len)/; /openssl\\/sha.h/d' src/crypto/digest.c"
+        }
+      ]
+    }
+  ]
+}

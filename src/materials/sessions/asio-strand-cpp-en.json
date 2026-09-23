@@ -1,0 +1,66 @@
+{
+  "id": "asio-strand-cpp-en",
+  "title": "Four threads and the echo server crashes",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "cpp",
+  "summary": "Running io_context on several threads lets one connection's handlers run at once. Keep one strand per connection from make_strand, and get onto it with bind_executor and post.",
+  "files": [
+    {
+      "path": "src/net/session.cpp",
+      "content": "#include <array>\n#include <deque>\n#include <memory>\n#include <string>\n#include <thread>\n#include <utility>\n#include <vector>\n\n#include <boost/asio.hpp>\n\nusing boost::asio::ip::tcp;\n\nclass Session : public std::enable_shared_from_this<Session> {\n public:\n  explicit Session(tcp::socket socket) : socket_(std::move(socket)) {}\n\n  void start() { do_read(); }\n\n private:\n  void send(std::string message) {\n    outbox_.push_back(std::move(message));\n    if (outbox_.size() == 1) do_write();\n  }\n\n  void do_read() {\n    auto self = shared_from_this();\n    socket_.async_read_some(boost::asio::buffer(data_),\n        [self](boost::system::error_code ec, std::size_t length) {\n          if (ec) return;\n          self->send(std::string(self->data_.data(), length));\n          self->do_read();\n        });\n  }\n\n  void do_write() {\n    auto self = shared_from_this();\n    boost::asio::async_write(socket_, boost::asio::buffer(outbox_.front()),\n        [self](boost::system::error_code ec, std::size_t) {\n          if (ec) return;\n          self->outbox_.pop_front();\n          if (!self->outbox_.empty()) self->do_write();\n        });\n  }\n\n  tcp::socket socket_;\n  std::array<char, 1024> data_;\n  std::deque<std::string> outbox_;\n};\n\nvoid accept_loop(tcp::acceptor& acceptor) {\n  acceptor.async_accept([&acceptor](boost::system::error_code ec, tcp::socket socket) {\n    if (!ec) std::make_shared<Session>(std::move(socket))->start();\n    accept_loop(acceptor);\n  });\n}\n\nint main() {\n  boost::asio::io_context io;\n  tcp::acceptor acceptor(io, tcp::endpoint(tcp::v4(), 7000));\n  accept_loop(acceptor);\n\n  std::vector<std::thread> threads;\n  for (int i = 0; i < 4; ++i) threads.emplace_back([&io] { io.run(); });\n  for (auto& t : threads) t.join();\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "switched the echo server to io.run() on 4 threads and now it crashes under load. TSan says data race on outbox_ push_back vs pop_front",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great find! When several threads call run() on one io_context, a ready handler can run on any of them. The read completion and the write completion of the same Session ran at the same time on different threads, and both touched outbox_. Wrapping each handler with bind_executor onto a strand from make_strand makes them run one at a time."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "  void do_read() {\n    auto self = shared_from_this();\n    socket_.async_read_some(boost::asio::buffer(data_),\n        boost::asio::bind_executor(boost::asio::make_strand(socket_.get_executor()),\n            [self](boost::system::error_code ec, std::size_t length) {\n              if (ec) return;\n              self->send(std::string(self->data_.data(), length));\n              self->do_read();\n            }));\n  }\n\n  void do_write() {\n    auto self = shared_from_this();\n    boost::asio::async_write(socket_, boost::asio::buffer(outbox_.front()),\n        boost::asio::bind_executor(boost::asio::make_strand(socket_.get_executor()),\n            [self](boost::system::error_code ec, std::size_t) {\n              if (ec) return;\n              self->outbox_.pop_front();\n              if (!self->outbox_.empty()) self->do_write();\n            }));\n  }\n"
+        }
+      ]
+    },
+    {
+      "user": "no change. TSan fires at the same spot",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. make_strand creates a new strand on every call. In my code the read and the write each sat on a strand of their own, so they excluded nothing. A Session needs exactly one strand, held as a member, with both handlers bound to it."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/boost::asio::make_strand(socket_\\.get_executor())/strand_/' src/net/session.cpp"
+        },
+        {
+          "kind": "text",
+          "body": "Note: declare strand_ after socket_. Members are initialised in declaration order, so the other way round would take the executor from a socket_ that does not exist yet."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "  explicit Session(tcp::socket socket)\n      : socket_(std::move(socket)), strand_(boost::asio::make_strand(socket_.get_executor())) {}\n\n  tcp::socket socket_;\n  boost::asio::strand<tcp::socket::executor_type> strand_;\n"
+        }
+      ]
+    },
+    {
+      "user": "works, TSan is quiet. next: the admin panel wants to push a notice to every connection. can I just call session->send() from that thread?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Called directly, it would touch outbox_ from outside the strand again. Expose deliver as the entry point for other threads, and have it use boost::asio::post to hand the work to strand_. send stays private and only ever runs inside the strand."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "  void deliver(std::string message) {\n    boost::asio::post(strand_,\n        [self = shared_from_this(), message = std::move(message)]() mutable {\n          self->send(std::move(message));\n        });\n  }\n"
+        }
+      ]
+    }
+  ]
+}

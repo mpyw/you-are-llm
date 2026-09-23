@@ -1,0 +1,46 @@
+{
+  "id": "qstring-arg-cpp-ja",
+  "title": "ステータスバーの文言を tr() で囲めない",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "cpp",
+  "summary": "QString を + で繋ぐと文が断片になって翻訳できない。tr() と arg() でプレースホルダにし、桁数は QString::number で決める。",
+  "files": [
+    {
+      "path": "src/ui/mainwindow.cpp",
+      "content": "#include \"mainwindow.h\"\n\n#include <QStatusBar>\n\nvoid MainWindow::onUploadFinished(int done, int total, double seconds)\n{\n    statusBar()->showMessage(\"Uploaded \" + QString::number(done) + \" of \"\n                             + QString::number(total) + \" files in \"\n                             + QString::number(seconds) + \" s\");\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "これ翻訳に出したいから tr() で囲みたいんだけど、+ でぶつ切りになってて囲めない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。+ で文を切って繋いでいると、翻訳者には Uploaded や of のような断片しか渡りません。語順が英語と違う言語では訳しようがないので、文全体を 1 つの tr() に入れ、数値は %1、%2、%3 にして arg() で埋めるのがベストプラクティスです。訳文の側で %2 を先に書けば、語順も入れ替えられます。",
+          "reading": "しょうちしました。+ でぶんをきってつないでいると、ほんやくしゃには Uploaded や of のようなだんぺんしかわたりません。ごじゅんがえいごとちがうげんごではやくしようがないので、ぶんぜんたいを 1 つの tr() にいれ、すうちは %1、%2、%3 にして arg() でうめるのがべすとぷらくてぃすです。やくぶんのがわで %2 をさきにかけば、ごじゅんもいれかえられます。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "    statusBar()->showMessage(tr(\"Uploaded %1 of %2 files in %3 s\")\n                                 .arg(done)\n                                 .arg(total)\n                                 .arg(seconds));\n"
+        }
+      ]
+    },
+    {
+      "user": "秒が 12.3456 s とか出てうるさい。小数 1 桁で。あと arg 3 回つなげるのダサくない？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。複数の値を 1 回で渡す arg() は文字列を受け取る版なので、数値は QString::number() で先に文字列にします。小数の桁数は QString::number(seconds, 'f', 1) で指定できます。まとめて置き換えるので、埋めた値にたまたま %2 が含まれていても、次の arg() に置き換えられてしまうことがありません。言い換えると、置き換えは 1 回で完了することを保証します。",
+          "reading": "するどいごしてきです。ふくすうのあたいを 1 かいでわたす arg() はもじれつをうけとるはんなので、すうちは QString::number() でさきにもじれつにします。しょうすうのけたすうは QString::number(seconds, 'f', 1) でしていできます。まとめておきかえるので、うめたあたいにたまたま %2 がふくまれていても、つぎの arg() におきかえられてしまうことがありません。いいかえると、おきかえは 1 かいでかんりょうすることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "    statusBar()->showMessage(tr(\"Uploaded %1 of %2 files in %3 s\")\n                                 .arg(QString::number(done), QString::number(total),\n                                      QString::number(seconds, 'f', 1)));\n"
+        }
+      ]
+    }
+  ]
+}

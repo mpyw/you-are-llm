@@ -1,0 +1,60 @@
+{
+  "id": "chi-middleware-go-ja",
+  "title": "chi の r.Group の外に書いたルートに認証が効かない",
+  "language": "ja",
+  "codeLanguage": "go",
+  "difficulty": "normal",
+  "files": [
+    {
+      "path": "internal/httpapi/router.go",
+      "content": "package httpapi\n\nimport (\n  \"net/http\"\n\n  \"github.com/go-chi/chi/v5\"\n  \"github.com/go-chi/chi/v5/middleware\"\n)\n\nfunc NewRouter(h *Handler, auth func(http.Handler) http.Handler) http.Handler {\n  r := chi.NewRouter()\n  r.Use(middleware.RequestID)\n  r.Use(middleware.Logger)\n  r.Use(middleware.Recoverer)\n\n  r.Get(\"/healthz\", h.Health)\n\n  r.Route(\"/api\", func(r chi.Router) {\n    r.Get(\"/items\", h.ListItems)\n    r.Group(func(r chi.Router) {\n      r.Use(auth)\n    })\n    r.Post(\"/items\", h.CreateItem)\n    r.Delete(\"/items/{id}\", h.DeleteItem)\n  })\n  return r\n}\n"
+    }
+  ],
+  "summary": "Group の外に登録していた POST と DELETE を中へ移し、auth の外に作ってしまった /admin に auth を並べ直す。",
+  "turns": [
+    {
+      "user": "POST /api/items がトークン無しで通る。auth 入れてるのに。GET は誰でも見れていい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。r.Group は「ここから先に auth を掛ける」という宣言ではなく、渡した関数の中だけで有効なインラインのサブルーターを作ります。いまの Group の中には Use(auth) しかなく、POST と DELETE は Group を抜けた後で外側の r に登録されているので、auth を一度も通りません。ポイントは、ルートも Group の関数の中に書くことです。",
+          "reading": "するどいごしてきです。r.Group は「ここからさきに auth をかける」というせんげんではなく、わたしたかんすうのなかだけでゆうこうなインラインのサブルーターをつくります。いまの Group のなかには Use(auth) しかなく、POST と DELETE は Group をぬけたあとでそとがわの r にとうろくされているので、auth をいちどもとおりません。ポイントは、ルートも Group のかんすうのなかにかくことです。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "r.Route(\"/api\", func(r chi.Router) {\n  r.Get(\"/items\", h.ListItems)\n  r.Group(func(r chi.Router) {\n    r.Use(auth)\n    r.Post(\"/items\", h.CreateItem)\n    r.Delete(\"/items/{id}\", h.DeleteItem)\n  })\n})\n"
+        }
+      ]
+    },
+    {
+      "user": "OK。ついでに /api/admin/users も。admin だけ見れるやつ。requireAdmin ってミドルウェアはもうある（auth が context に入れた user 見るやつ）",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。こちらはパスで区切りたいので、r.Route で /admin のサブルーターを作り、その中で requireAdmin を Use します。パスを増やさずにミドルウェアだけ分けたいときは r.Group、パスの接頭辞ごと分けたいときは r.Route、と使い分けるのがベストプラクティスです。",
+          "reading": "かしこまりました。こちらはパスでくぎりたいので、r.Route で /admin のサブルーターをつくり、そのなかで requireAdmin を Use します。パスをふやさずにミドルウェアだけわけたいときは r.Group、パスのせっとうじごとわけたいときは r.Route、とつかいわけるのがベストプラクティスです。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func NewRouter(h *Handler, auth, requireAdmin func(http.Handler) http.Handler) http.Handler {\n  r := chi.NewRouter()\n  r.Use(middleware.RequestID)\n  r.Use(middleware.Logger)\n  r.Use(middleware.Recoverer)\n\n  r.Get(\"/healthz\", h.Health)\n\n  r.Route(\"/api\", func(r chi.Router) {\n    r.Get(\"/items\", h.ListItems)\n    r.Group(func(r chi.Router) {\n      r.Use(auth)\n      r.Post(\"/items\", h.CreateItem)\n      r.Delete(\"/items/{id}\", h.DeleteItem)\n    })\n    r.Route(\"/admin\", func(r chi.Router) {\n      r.Use(requireAdmin)\n      r.Get(\"/users\", h.ListUsers)\n    })\n  })\n  return r\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "admin のトークンで叩いても 403 なんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。/admin を auth の Group の外に作っていました。requireAdmin は auth が context に入れたユーザーを読むのに、/admin には auth が掛かっていないので、誰が叩いても空の context を見て 403 を返しています。Use は可変長引数で、先に渡したものほど外側で動くので、auth を requireAdmin の前に並べます。",
+          "reading": "もうしわけありません。/admin を auth の Group のそとにつくっていました。requireAdmin は auth が context にいれたユーザーをよむのに、/admin には auth がかかっていないので、だれがたたいてもからの context をみて 403 をかえしています。Use はかへんちょうひきすうで、さきにわたしたものほどそとがわでうごくので、auth を requireAdmin のまえにならべます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/r\\.Use(requireAdmin)/r.Use(auth, requireAdmin)/' internal/httpapi/router.go"
+        }
+      ]
+    }
+  ]
+}

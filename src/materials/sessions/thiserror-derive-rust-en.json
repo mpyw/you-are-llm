@@ -1,0 +1,43 @@
+{
+  "id": "thiserror-derive-rust-en",
+  "title": "Fold a hand-written Display into thiserror",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "rust",
+  "summary": "Replace impl Display, impl Error and From with derive(Error), then stop printing the cause twice.",
+  "files": [
+    {
+      "path": "src/store.rs",
+      "content": "use std::fmt;\nuse std::io;\n\n#[derive(Debug)]\npub enum StoreError {\n    Io(io::Error),\n    Corrupt { line: usize },\n}\n\nimpl fmt::Display for StoreError {\n    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {\n        match self {\n            StoreError::Io(err) => write!(f, \"cannot read store: {err}\"),\n            StoreError::Corrupt { line } => write!(f, \"corrupt entry at line {line}\"),\n        }\n    }\n}\n\nimpl std::error::Error for StoreError {\n    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {\n        match self {\n            StoreError::Io(err) => Some(err),\n            StoreError::Corrupt { .. } => None,\n        }\n    }\n}\n\nimpl From<io::Error> for StoreError {\n    fn from(err: io::Error) -> Self {\n        StoreError::Io(err)\n    }\n}\n\npub fn load(path: &str) -> Result<Vec<String>, StoreError> {\n    let text = std::fs::read_to_string(path)?;\n    let mut entries = Vec::new();\n    for (index, line) in text.lines().enumerate() {\n        if !line.contains('=') {\n            return Err(StoreError::Corrupt { line: index + 1 });\n        }\n        entries.push(line.to_string());\n    }\n    Ok(entries)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "the impls in store.rs are way too long. we already have thiserror, use that",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! Display becomes #[error(\"...\")], and source plus From fold into a single #[from]. The boilerplate goes away and the error type is the single source of truth for its own messages. load keeps working unchanged."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::io;\n\n#[derive(Debug, thiserror::Error)]\npub enum StoreError {\n    #[error(\"cannot read store: {0}\")]\n    Io(#[from] io::Error),\n    #[error(\"corrupt entry at line {line}\")]\n    Corrupt { line: usize },\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "logged it with anyhow {:#} and No such file or directory shows up twice",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Good catch. #[from] also makes the io::Error the source, so anyhow appends the cause after the message on its own. The {0} was copied over from the hand-written version, and it printed the cause a second time. Dropping it from the message."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/cannot read store: {0}/cannot read store/' src/store.rs"
+        }
+      ]
+    }
+  ]
+}

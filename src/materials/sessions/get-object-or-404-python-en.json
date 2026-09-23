@@ -1,0 +1,47 @@
+{
+  "id": "get-object-or-404-python-en",
+  "title": "Turn a Django detail view's 500 into a 404 with get_object_or_404",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "python",
+  "summary": "A detail view answers 500 for a missing pk. Swap in get_object_or_404, then hide drafts behind the same 404.",
+  "files": [
+    {
+      "path": "blog/models.py",
+      "content": "from django.db import models\n\n\nclass Article(models.Model):\n    title = models.CharField(max_length=200)\n    body = models.TextField()\n    is_published = models.BooleanField(default=False)\n"
+    },
+    {
+      "path": "blog/views.py",
+      "content": "from django.http import JsonResponse\n\nfrom .models import Article\n\n\ndef article_detail(request, pk):\n    article = Article.objects.get(pk=pk)\n    return JsonResponse({\"title\": article.title, \"body\": article.body})\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "/articles/999/ gives a 500. should obviously be a 404 if it doesn't exist",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Good catch! Article.objects.get raises Article.DoesNotExist when no row matches. Nothing in the view catches it, so Django turns it into a 500. get_object_or_404 from django.shortcuts raises Http404 instead, and Django answers that with a 404."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from django.http import JsonResponse\nfrom django.shortcuts import get_object_or_404\n\nfrom .models import Article\n\n\ndef article_detail(request, pk):\n    article = get_object_or_404(Article, pk=pk)\n    return JsonResponse({\"title\": article.title, \"body\": article.body})\n"
+        }
+      ]
+    },
+    {
+      "user": "oh and drafts show up if you type the url directly. published only",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. get_object_or_404 takes the same keyword arguments as filter, so adding is_published=True is all it needs. In other words, a draft now gets the same 404 as an article that does not exist. It is not a 403, so nobody outside can tell that the draft is there."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/get_object_or_404(Article, pk=pk)/get_object_or_404(Article, pk=pk, is_published=True)/' blog/views.py"
+        }
+      ]
+    }
+  ]
+}

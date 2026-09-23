@@ -1,0 +1,57 @@
+{
+  "id": "split-query-csharp-en",
+  "title": "Split a product list that includes two collections",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "csharp",
+  "summary": "Two sibling Includes multiply the row count. Split the query with AsSplitQuery, then close the ordering trap that EF Core 9 and earlier have with ThenBy.",
+  "files": [
+    {
+      "path": "src/Catalog/ProductQueries.cs",
+      "content": "using Acme.Data;\nusing Microsoft.EntityFrameworkCore;\n\nnamespace Acme.Catalog;\n\npublic sealed class ProductQueries(ShopDbContext db)\n{\n    public Task<List<Product>> ListLatestAsync(int page, CancellationToken ct)\n    {\n        return db.Products\n            .AsNoTracking()\n            .Include(p => p.Images)\n            .Include(p => p.Reviews)\n            .OrderByDescending(p => p.UpdatedAt)\n            .Skip(page * 20)\n            .Take(20)\n            .ToListAsync(ct);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "product list is super slow. we return 20 items but the sql log says like 30k rows came back",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: the two Includes sit at the same level. Images and Reviews are both collections on Product, so one SQL statement with two JOINs returns their cross product. A product with 15 images and 100 reviews becomes 1500 rows on its own. With AsSplitQuery, EF Core reads Product, Images and Reviews in separate statements and stitches them together in memory. The result is exactly the same as the single query."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "return db.Products\n    .AsNoTracking()\n    .Include(p => p.Images)\n    .Include(p => p.Reviews)\n    .AsSplitQuery()\n    .OrderByDescending(p => p.UpdatedAt)\n    .Skip(page * 20)\n    .Take(20)\n    .ToListAsync(ct);\n"
+        }
+      ]
+    },
+    {
+      "user": "way faster! but on page 2 some products randomly have zero images. reload and theyre back sometimes. oh we are still on EF Core 8",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. \"Exactly the same\" does not hold. Each split statement runs its own Skip and Take. When several products share an UpdatedAt, the order is not unique, and the statement that loads Images can pick a different 20 products. That happens on EF Core 9 and earlier, so add a ThenBy on the primary key to make the order unique. EF Core 10 no longer needs this, and keeping it there does no harm."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/\\.OrderByDescending(p => p\\.UpdatedAt)/&.ThenBy(p => p.Id)/' src/Catalog/ProductQueries.cs"
+        }
+      ]
+    },
+    {
+      "user": "pretty sure there are more queries with 2 includes. can split just be the default? also is the warning in the logs about this",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Yes. Pass UseQuerySplittingBehavior in the second argument of UseSqlServer and the whole context splits by default, so nobody has to remember AsSplitQuery per query. The warning is the one EF Core logs when a query loads more than one collection and no splitting mode is set. A global setting silences it. Any query that should stay as one statement can opt back with AsSingleQuery. While you stay on EF Core 8, a query with Skip and Take still needs a unique order."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "builder.Services.AddDbContext<ShopDbContext>(options =>\n    options.UseSqlServer(\n        builder.Configuration.GetConnectionString(\"Shop\"),\n        sql => sql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery)));\n"
+        }
+      ]
+    }
+  ]
+}

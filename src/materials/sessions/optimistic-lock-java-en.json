@@ -1,0 +1,79 @@
+{
+  "id": "optimistic-lock-java-en",
+  "title": "Turn a last write wins edit into a 409 with @Version",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "java",
+  "summary": "Optimistic locking does not stop an overwrite across two screens until the version makes a round trip, and only some operations may retry.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/product/Product.java",
+      "content": "package com.example.product;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Product {\n    @Id\n    private Long id;\n\n    private String name;\n\n    private int price;\n\n    private int stock;\n\n    protected Product() {\n    }\n\n    public void rename(String name) {\n        this.name = name;\n    }\n\n    public void changePrice(int price) {\n        this.price = price;\n    }\n\n    public void reserve(int amount) {\n        if (stock < amount) {\n            throw new OutOfStockException(id);\n        }\n        stock -= amount;\n    }\n\n    public Long getId() {\n        return id;\n    }\n\n    public String getName() {\n        return name;\n    }\n\n    public int getPrice() {\n        return price;\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/product/ProductService.java",
+      "content": "package com.example.product;\n\nimport org.springframework.stereotype.Service;\nimport org.springframework.transaction.annotation.Transactional;\n\n@Service\npublic class ProductService {\n    private final ProductRepository productRepository;\n\n    public ProductService(ProductRepository productRepository) {\n        this.productRepository = productRepository;\n    }\n\n    @Transactional\n    public ProductResponse update(long id, UpdateProductRequest request) {\n        Product product = productRepository.findById(id).orElseThrow(() -> new ProductNotFoundException(id));\n        product.rename(request.name());\n        product.changePrice(request.price());\n        return ProductResponse.from(product);\n    }\n\n    @Transactional\n    public void reserve(long id, int amount) {\n        Product product = productRepository.findById(id).orElseThrow(() -> new ProductNotFoundException(id));\n        product.reserve(amount);\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/product/UpdateProductRequest.java",
+      "content": "package com.example.product;\n\npublic record UpdateProductRequest(String name, int price) {\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/product/ProductResponse.java",
+      "content": "package com.example.product;\n\npublic record ProductResponse(long id, String name, int price) {\n    static ProductResponse from(Product product) {\n        return new ProductResponse(product.getId(), product.getName(), product.getPrice());\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "product edit screen: two admins open the same product and save one after the other, the second save just overwrites everything. the first persons changes vanish silently. want an error instead",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Perfect use case for JPA optimistic locking. With @Version on Product, Hibernate adds where version = ? to every update and bumps the version by one. If someone else updated the row first, zero rows match and Spring translates that into ObjectOptimisticLockingFailureException. Map that exception to 409 Conflict in a @RestControllerAdvice and concurrent saves no longer silently overwrite each other."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import jakarta.persistence.Version;\n\n@Version\nprivate Long version;\n\npublic Long getVersion() {\n    return version;\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.product;\n\nimport org.springframework.http.HttpStatus;\nimport org.springframework.http.ProblemDetail;\nimport org.springframework.orm.ObjectOptimisticLockingFailureException;\nimport org.springframework.web.bind.annotation.ExceptionHandler;\nimport org.springframework.web.bind.annotation.RestControllerAdvice;\n\n@RestControllerAdvice\npublic class ConflictHandler {\n    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)\n    public ProblemDetail handleConflict(ObjectOptimisticLockingFailureException e) {\n        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, \"Someone else changed this product. Reload and try again.\");\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "tried it. opened the product on screen A and B, saved A, then saved B. B got a normal 200 and As changes are gone",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous explanation was incorrect. @Version compares against the version loaded inside the same transaction. B's PUT loads the product again within its own request, so it picks up the version A just wrote and nothing conflicts. All it protected was the short gap inside a single request. The version the screen was opened with has to go to the client and come back with the save, and the service compares the two. Assigning request.version() to the entity does not help, because Hibernate compares against the value it loaded, so the check is explicit. The version also only moves on flush, so the response has to be built after a flush. Otherwise it returns the old number and the second save from the same screen gets a 409."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Transactional\npublic ProductResponse update(long id, UpdateProductRequest request) {\n    Product product = productRepository.findById(id).orElseThrow(() -> new ProductNotFoundException(id));\n    if (product.getVersion() != request.version()) {\n        throw new ObjectOptimisticLockingFailureException(Product.class, id);\n    }\n    product.rename(request.name());\n    product.changePrice(request.price());\n    productRepository.flush();\n    return ProductResponse.from(product);\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/int price)/int price, long version)/' -e 's/product\\.getPrice())/product.getPrice(), product.getVersion())/' src/main/java/com/example/product/UpdateProductRequest.java src/main/java/com/example/product/ProductResponse.java"
+        }
+      ]
+    },
+    {
+      "user": "ok 409 works now. but stock reservation updates the same Product and during a sale its 409s everywhere. cant we just retry",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Whether a retry is safe depends on what the operation bases its value on. Reserving stock subtracts from the current stock every time, so reading again and redoing it gives the right result. The edit screen must not retry. It would write values a person chose from a stale screen onto the newest row, which is last write wins all over again. Note: the exception is thrown at commit, after the method returns, so a loop inside the @Transactional method never sees it. A separate bean outside ProductService calls reserve again, each time in a fresh transaction, up to three times."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.product;\n\nimport org.springframework.orm.ObjectOptimisticLockingFailureException;\nimport org.springframework.stereotype.Component;\n\n@Component\npublic class StockReserver {\n    private static final int MAX_ATTEMPTS = 3;\n\n    private final ProductService productService;\n\n    public StockReserver(ProductService productService) {\n        this.productService = productService;\n    }\n\n    public void reserve(long id, int amount) {\n        for (int attempt = 1; ; attempt++) {\n            try {\n                productService.reserve(id, amount);\n                return;\n            } catch (ObjectOptimisticLockingFailureException e) {\n                if (attempt >= MAX_ATTEMPTS) {\n                    throw e;\n                }\n            }\n        }\n    }\n}\n"
+        }
+      ]
+    }
+  ]
+}

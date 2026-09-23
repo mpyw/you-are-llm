@@ -1,0 +1,68 @@
+{
+  "id": "grpc-deadline-go-ja",
+  "title": "gRPC の呼び出しに期限を付ける",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "go",
+  "summary": "context.WithTimeout で期限を付け、errors.Is では拾えない期限切れを status.Code で判定し直し、サーバ側でも ctx を DB まで渡す。",
+  "files": [
+    {
+      "path": "internal/checkout/reserve.go",
+      "content": "package checkout\n\nimport (\n  \"context\"\n\n  inventorypb \"example.com/shop/gen/inventory/v1\"\n)\n\ntype Service struct {\n  inv inventorypb.InventoryServiceClient\n}\n\nfunc (s *Service) Reserve(ctx context.Context, sku string, qty int32) error {\n  _, err := s.inv.Reserve(ctx, &inventorypb.ReserveRequest{Sku: sku, Quantity: qty})\n  return err\n}\n"
+    },
+    {
+      "path": "internal/inventory/server.go",
+      "content": "package inventory\n\nimport (\n  \"context\"\n  \"database/sql\"\n\n  \"google.golang.org/grpc/codes\"\n  \"google.golang.org/grpc/status\"\n\n  inventorypb \"example.com/shop/gen/inventory/v1\"\n)\n\ntype Server struct {\n  inventorypb.UnimplementedInventoryServiceServer\n  db *sql.DB\n}\n\nfunc (s *Server) Reserve(ctx context.Context, req *inventorypb.ReserveRequest) (*inventorypb.ReserveResponse, error) {\n  res, err := s.db.ExecContext(context.Background(),\n    \"UPDATE stock SET quantity = quantity - $1 WHERE sku = $2 AND quantity >= $1\",\n    req.GetQuantity(), req.GetSku())\n  if err != nil {\n    return nil, err\n  }\n  n, err := res.RowsAffected()\n  if err != nil {\n    return nil, err\n  }\n  if n == 0 {\n    return nil, status.Error(codes.FailedPrecondition, \"out of stock\")\n  }\n  return &inventorypb.ReserveResponse{}, nil\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "checkout の API がたまに返ってこなくなる。inventory が詰まってるときっぽい。LB が 60 秒で切るまでずっと固まってる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。gRPC の呼び出しには既定の期限がなく、渡した ctx に期限が無ければサーバが応答するまで待ち続けます。HTTP リクエストの ctx にも期限はありません。呼び出しの直前に context.WithTimeout で 2 秒の期限を付けます。この期限は grpc-timeout ヘッダでサーバにも伝わります。ついでに、期限切れは ErrInventoryTimeout、在庫切れの FailedPrecondition は ErrOutOfStock に変換して、ハンドラで 504 と 409 に分けられるようにします。",
+          "reading": "しょうちしました。gRPC のよびだしにはきていのきげんがなく、わたした ctx にきげんがなければさーばがおうとうするまでまちつづけます。HTTP りくえすとの ctx にもきげんはありません。よびだしのちょくぜんに context.WithTimeout で 2 びょうのきげんをつけます。このきげんは grpc-timeout へっだでさーばにもつたわります。ついでに、きげんぎれは ErrInventoryTimeout、ざいこぎれの FailedPrecondition は ErrOutOfStock にへんかんして、はんどらで 504 と 409 にわけられるようにします。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "package checkout\n\nimport (\n  \"context\"\n  \"errors\"\n  \"time\"\n\n  \"google.golang.org/grpc/codes\"\n  \"google.golang.org/grpc/status\"\n\n  inventorypb \"example.com/shop/gen/inventory/v1\"\n)\n\nvar (\n  ErrOutOfStock       = errors.New(\"out of stock\")\n  ErrInventoryTimeout = errors.New(\"inventory timed out\")\n)\n\ntype Service struct {\n  inv inventorypb.InventoryServiceClient\n}\n\nfunc (s *Service) Reserve(ctx context.Context, sku string, qty int32) error {\n  ctx, cancel := context.WithTimeout(ctx, 2*time.Second)\n  defer cancel()\n  _, err := s.inv.Reserve(ctx, &inventorypb.ReserveRequest{Sku: sku, Quantity: qty})\n  if errors.Is(err, context.DeadlineExceeded) {\n    return ErrInventoryTimeout\n  }\n  if status.Code(err) == codes.FailedPrecondition {\n    return ErrOutOfStock\n  }\n  return err\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "2 秒で返るようにはなった。でもタイムアウトのとき 504 じゃなくて 500。ErrInventoryTimeout になってないっぽい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、私の誤りでした。grpc-go は期限切れを context.DeadlineExceeded のまま返さず、codes.DeadlineExceeded を持つ status のエラーに作り直して返します。このエラーは errors.Is で context.DeadlineExceeded と比べても一致しません。FailedPrecondition と同じく status.Code で判定します。",
+          "reading": "あらためてかくにんしたところ、わたしのあやまりでした。grpc-go はきげんぎれを context.DeadlineExceeded のままかえさず、codes.DeadlineExceeded をもつ status のえらーにつくりなおしてかえします。このえらーは errors.Is で context.DeadlineExceeded とくらべてもいっちしません。FailedPrecondition とおなじく status.Code ではんていします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/errors.Is(err, context.DeadlineExceeded)/status.Code(err) == codes.DeadlineExceeded/' internal/checkout/reserve.go"
+        }
+      ]
+    },
+    {
+      "user": "504 になった。あと inventory のログ見たら、checkout がタイムアウトした後も UPDATE が最後まで走ってる。在庫だけ減ってて予約は失敗扱いのやつがある",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、サーバの ctx には、クライアントが付けた期限がそのまま入っています。ところが Reserve は ExecContext に context.Background() を渡しています。言い換えると、期限はサーバの入口で捨てられていて、DB まで届いていません。受け取った ctx を下流に渡します。",
+          "reading": "Now、さーばの ctx には、くらいあんとがつけたきげんがそのままはいっています。ところが Reserve は ExecContext に context.Background() をわたしています。いいかえると、きげんはさーばのいりぐちですてられていて、DB までとどいていません。うけとった ctx をかりゅうにわたします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/ExecContext(context.Background(),/ExecContext(ctx,/' internal/inventory/server.go"
+        },
+        {
+          "kind": "text",
+          "body": "Note: これで止まるのは、期限の後も走り続けるクエリだけです。UPDATE が期限の直前に終わって応答だけが間に合わなかった場合は、在庫は減ったままです。そこまで塞ぐなら、予約 ID を持たせて Reserve をべき等にする必要があります。",
+          "reading": "Note: これでとまるのは、きげんのあともはしりつづけるくえりだけです。UPDATE がきげんのちょくぜんにおわっておうとうだけがまにあわなかったばあいは、ざいこはへったままです。そこまでふさぐなら、よやく ID をもたせて Reserve をべきとうにするひつようがあります。"
+        }
+      ]
+    }
+  ]
+}

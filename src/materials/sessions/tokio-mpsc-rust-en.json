@@ -1,0 +1,57 @@
+{
+  "id": "tokio-mpsc-rust-en",
+  "title": "Backpressure with a bounded mpsc channel",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "rust",
+  "summary": "Replace an unbounded channel that eats memory with mpsc::channel, then find the receive loop never ends because the original tx is still alive.",
+  "files": [
+    {
+      "path": "src/import.rs",
+      "content": "use tokio::fs::File;\nuse tokio::io::{AsyncBufReadExt, BufReader};\nuse tokio::sync::mpsc;\n\nuse crate::db::insert_row;\n\npub async fn import(path: &str) -> std::io::Result<()> {\n    let file = File::open(path).await?;\n    let (tx, mut rx) = mpsc::unbounded_channel::<String>();\n    let reader = tokio::spawn(async move {\n        let mut lines = BufReader::new(file).lines();\n        while let Some(line) = lines.next_line().await? {\n            tx.send(line).unwrap();\n        }\n        Ok::<_, std::io::Error>(())\n    });\n    while let Some(line) = rx.recv().await {\n        insert_row(&line).await;\n    }\n    reader.await.expect(\"reader panicked\")?;\n    Ok(())\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "feeding it a big csv grows memory to several GB and it gets OOM killed. yes i know inserts are slow. also the files come split into parts now, read them all at once",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: the unbounded_channel is the leak. Its send succeeds no matter how far behind the receiver is, so every line the reader gets ahead of insert sits in the queue. With mpsc::channel(1024), send().await waits once the queue is full, which slows the reader down to the speed of insert. That is backpressure. If the receiver goes away first, send returns Err and the reader stops. For the split files, each one gets its own clone of tx and its own task. This should work as expected."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::path::PathBuf;\n\npub async fn import(paths: Vec<PathBuf>) -> std::io::Result<()> {\n    let (tx, mut rx) = mpsc::channel::<String>(1024);\n    let mut readers = Vec::new();\n    for path in paths {\n        let tx = tx.clone();\n        readers.push(tokio::spawn(async move {\n            let mut lines = BufReader::new(File::open(path).await?).lines();\n            while let Some(line) = lines.next_line().await? {\n                if tx.send(line).await.is_err() {\n                    break;\n                }\n            }\n            Ok::<_, std::io::Error>(())\n        }));\n    }\n    while let Some(line) = rx.recv().await {\n        insert_row(&line).await;\n    }\n    for reader in readers {\n        reader.await.expect(\"reader panicked\")?;\n    }\n    Ok(())\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "everything looks read but import never returns. logs just stop",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous version kept the original tx alive for the whole function. recv only returns None once every Sender has been dropped. Each task drops its clone when it finishes, but the one it was cloned from is still in scope, so the channel never closes and the loop waits for a line that will never come. Dropping tx right before the loop fixes it."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "pub async fn import(paths: Vec<PathBuf>) -> std::io::Result<()> {\n    let (tx, mut rx) = mpsc::channel::<String>(1024);\n    let mut readers = Vec::new();\n    for path in paths {\n        let tx = tx.clone();\n        readers.push(tokio::spawn(async move {\n            let mut lines = BufReader::new(File::open(path).await?).lines();\n            while let Some(line) = lines.next_line().await? {\n                if tx.send(line).await.is_err() {\n                    break;\n                }\n            }\n            Ok::<_, std::io::Error>(())\n        }));\n    }\n    drop(tx);\n    while let Some(line) = rx.recv().await {\n        insert_row(&line).await;\n    }\n    for reader in readers {\n        reader.await.expect(\"reader panicked\")?;\n    }\n    Ok(())\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "fixed. rows are really wide though, 1024 is still heavy. make it 64",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Makes sense. The capacity is the most lines held in memory at once, so wide rows are a good reason to shrink it. As long as insert is the slow side, 64 costs no throughput."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/mpsc::channel::<String>(1024)/mpsc::channel::<String>(64)/' src/import.rs"
+        }
+      ]
+    }
+  ]
+}

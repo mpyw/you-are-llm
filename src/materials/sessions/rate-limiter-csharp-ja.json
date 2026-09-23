@@ -1,0 +1,74 @@
+{
+  "id": "rate-limiter-csharp-ja",
+  "title": "レポート API にユーザーごとのレート制限を掛ける",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "csharp",
+  "summary": "AddRateLimiter でユーザー単位のパーティションを切り、既定の 503 を 429 に直し、認証より前に置いてしまった UseRateLimiter を後ろへ動かす。",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using Microsoft.AspNetCore.Authentication.JwtBearer;\n\nvar builder = WebApplication.CreateBuilder(args);\n\nbuilder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)\n    .AddJwtBearer();\nbuilder.Services.AddAuthorization();\nbuilder.Services.AddScoped<ReportService>();\n\nvar app = builder.Build();\n\napp.UseHttpsRedirection();\napp.UseAuthentication();\napp.UseAuthorization();\n\nvar reports = app.MapGroup(\"/api/reports\")\n    .RequireAuthorization();\n\nreports.MapGet(\"/\", (ReportService service, CancellationToken ct) =>\n    service.ListAsync(ct));\nreports.MapPost(\"/{id:int}/export\", (int id, ReportService service, CancellationToken ct) =>\n    service.ExportAsync(id, ct));\n\napp.MapGet(\"/health\", () => \"ok\");\n\napp.Run();\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "レポートの API をスクリプトで叩きまくる人がいて DB が死にかけてる。ユーザーごとに1分10回までにしたい。health は除外で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。.NET 7 から入った組み込みの AddRateLimiter を活用します。AddPolicy でユーザー名をパーティションキーにした固定ウィンドウを作り、RequireRateLimiting でレポートのグループにだけ適用します。/health には何も付けないので対象外です。拒否時の既定のステータスは 429 ではなく 503 である点に注意することが重要です。.NET 10 でもこの既定は変わっていないので、RejectionStatusCode を明示します。",
+          "reading": "かしこまりました。.NET 7 からはいったくみこみの AddRateLimiter をかつようします。AddPolicy でゆーざーめいをぱーてぃしょんきーにしたこていうぃんどうをつくり、RequireRateLimiting でれぽーとのぐるーぷにだけてきようします。/health にはなにもつけないのでたいしょうがいです。きょひじのきていのすてーたすは 429 ではなく 503 であるてんにちゅういすることがじゅうようです。.NET 10 でもこのきていはかわっていないので、RejectionStatusCode をめいじします。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using System.Threading.RateLimiting;\n\nbuilder.Services.AddRateLimiter(options =>\n{\n    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;\n    options.AddPolicy(\"per-user\", httpContext =>\n        RateLimitPartition.GetFixedWindowLimiter(\n            partitionKey: httpContext.User.Identity?.Name ?? \"anonymous\",\n            factory: _ => new FixedWindowRateLimiterOptions\n            {\n                PermitLimit = 10,\n                Window = TimeSpan.FromMinutes(1),\n                QueueLimit = 0,\n            }));\n});\n"
+        },
+        {
+          "kind": "text",
+          "body": "Now、ミドルウェアは無駄なリクエストをできるだけ早く弾けるように、認証より前に置きます。グループには RequireAuthorization と並べて RequireRateLimiting を付けます。",
+          "reading": "Now、みどるうぇあはむだなりくえすとをできるだけはやくはじけるように、にんしょうよりまえにおきます。ぐるーぷには RequireAuthorization とならべて RequireRateLimiting をつけます。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "var app = builder.Build();\n\napp.UseHttpsRedirection();\napp.UseRateLimiter();\napp.UseAuthentication();\napp.UseAuthorization();\n\nvar reports = app.MapGroup(\"/api/reports\")\n    .RequireAuthorization()\n    .RequireRateLimiting(\"per-user\");\n"
+        }
+      ]
+    },
+    {
+      "user": "429 は返るようになった。けど A さんが10回叩くと B さんも 429 になる。ユーザーごとになってなくない？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません、私の誤りでした。UseRateLimiter を UseAuthentication より前に置いたため、パーティションキーを決める時点ではまだ HttpContext.User が匿名のままです。Identity?.Name が null になり、全員が同じ「anonymous」のバケツを共有していました。ユーザーで分けるには、認証の後ろに置く必要があります。認可の後ろに置けば、未認証のリクエストは 401 で先に落ち、枠を消費しません。",
+          "reading": "もうしわけありません、わたしのあやまりでした。UseRateLimiter を UseAuthentication よりまえにおいたため、ぱーてぃしょんきーをきめるじてんではまだ HttpContext.User がとくめいのままです。Identity?.Name が null になり、ぜんいんがおなじ「anonymous」のばけつをきょうゆうしていました。ゆーざーでわけるには、にんしょうのうしろにおくひつようがあります。にんかのうしろにおけば、みにんしょうのりくえすとは 401 でさきにおち、わくをしょうひしません。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e '/^app\\.UseRateLimiter();$/d' -e '/^app\\.UseAuthorization();$/a\\\napp.UseRateLimiter();' src/Program.cs"
+        }
+      ]
+    },
+    {
+      "user": "直った。で、10回はさすがにきついって言われたので30に。あと 429 のとき何秒待てばいいか返してほしい、フロントがリトライのタイミングわからんらしい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "上限は sed で変えます。待ち時間は Retry-After ヘッダで返すのが HTTP の作法です。固定ウィンドウのリミッタは拒否したリースに RetryAfter のメタデータを載せるので、OnRejected で取り出してヘッダに書きます。ステータスは OnRejected が呼ばれる前に RejectionStatusCode の 429 が入っているので、ここでは触りません。まとめると、429 と Retry-After の組を返すことで、クライアントは決定論的に次の試行時刻を決められます。",
+          "reading": "じょうげんは sed でかえます。まちじかんは Retry-After へっだでかえすのが HTTP のさほうです。こていうぃんどうのりみったはきょひしたりーすに RetryAfter のめたでーたをのせるので、OnRejected でとりだしてへっだにかきます。すてーたすは OnRejected がよばれるまえに RejectionStatusCode の 429 がはいっているので、ここではさわりません。まとめると、429 と Retry-After のくみをかえすことで、くらいあんとはけっていろんてきにつぎのしこうじこくをきめられます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/PermitLimit = 10,/PermitLimit = 30,/' src/Program.cs"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using System.Globalization;\n\noptions.OnRejected = (context, ct) =>\n{\n    if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))\n    {\n        context.HttpContext.Response.Headers.RetryAfter =\n            ((int)retryAfter.TotalSeconds).ToString(NumberFormatInfo.InvariantInfo);\n    }\n    return ValueTask.CompletedTask;\n};\n"
+        }
+      ]
+    }
+  ]
+}

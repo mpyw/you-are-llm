@@ -1,0 +1,61 @@
+{
+  "id": "catch2-sections-cpp-en",
+  "title": "Fold Catch2 setup into SECTIONs",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "cpp",
+  "summary": "Copied setup moves into one TEST_CASE with SECTIONs. Each section reruns the case from the top, so a follow-up test nests.",
+  "files": [
+    {
+      "path": "tests/lru_cache_test.cpp",
+      "content": "#include <catch2/catch_test_macros.hpp>\n\n#include <string>\n\n#include \"lru_cache.h\"\n\nTEST_CASE(\"get refreshes an entry\") {\n    LruCache<std::string, int> cache(2);\n    cache.put(\"a\", 1);\n    cache.put(\"b\", 2);\n    REQUIRE(cache.get(\"a\") == 1);\n    cache.put(\"c\", 3);\n    CHECK(cache.contains(\"a\"));\n    CHECK_FALSE(cache.contains(\"b\"));\n}\n\nTEST_CASE(\"put evicts the oldest entry\") {\n    LruCache<std::string, int> cache(2);\n    cache.put(\"a\", 1);\n    cache.put(\"b\", 2);\n    cache.put(\"c\", 3);\n    CHECK_FALSE(cache.contains(\"a\"));\n    CHECK(cache.size() == 2);\n}\n\nTEST_CASE(\"put after an eviction evicts the next oldest\") {\n    LruCache<std::string, int> cache(2);\n    cache.put(\"a\", 1);\n    cache.put(\"b\", 2);\n    cache.put(\"c\", 3);\n    cache.put(\"d\", 4);\n    CHECK_FALSE(cache.contains(\"b\"));\n    CHECK(cache.contains(\"c\"));\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "moved to Catch2 v3, want to clean up the lru tests while at it. all 3 start with the same puts, merge them",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great timing. The shared setup goes at the top of one TEST_CASE and each test becomes a SECTION. The third one continues from the state the second leaves behind, with c already in, so I dropped its duplicate put(\"c\", 3)."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include <catch2/catch_test_macros.hpp>\n\n#include <string>\n\n#include \"lru_cache.h\"\n\nTEST_CASE(\"LruCache keeps the most recently used entries\") {\n    LruCache<std::string, int> cache(2);\n    cache.put(\"a\", 1);\n    cache.put(\"b\", 2);\n\n    SECTION(\"get refreshes an entry\") {\n        REQUIRE(cache.get(\"a\") == 1);\n        cache.put(\"c\", 3);\n        CHECK(cache.contains(\"a\"));\n        CHECK_FALSE(cache.contains(\"b\"));\n    }\n\n    SECTION(\"put evicts the oldest entry\") {\n        cache.put(\"c\", 3);\n        CHECK_FALSE(cache.contains(\"a\"));\n        CHECK(cache.size() == 2);\n    }\n\n    SECTION(\"put after an eviction evicts the next oldest\") {\n        cache.put(\"d\", 4);\n        CHECK_FALSE(cache.contains(\"b\"));\n        CHECK(cache.contains(\"c\"));\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "only the 3rd fails. contains(\"b\") is true and contains(\"c\") is false",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous explanation was incorrect. Catch2 reruns the TEST_CASE from the top for every leaf section it runs. By the time the third section starts, the cache holds only a and b, so putting d evicts a and b stays. To carry state forward, nest the section inside the one it continues. The outer body runs again each time the inner one is entered."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "    SECTION(\"put evicts the oldest entry\") {\n        cache.put(\"c\", 3);\n        CHECK_FALSE(cache.contains(\"a\"));\n        CHECK(cache.size() == 2);\n\n        SECTION(\"and the next put evicts the next oldest\") {\n            cache.put(\"d\", 4);\n            CHECK_FALSE(cache.contains(\"b\"));\n            CHECK(cache.contains(\"c\"));\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "passes. can CI run just the lru ones?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! Give the TEST_CASE a tag as its second argument, then pass \"[lru]\" to the test binary. Tags select tests by what they cover rather than by name, with no need to split files."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/entries\") {/entries\", \"[lru]\") {/' tests/lru_cache_test.cpp"
+        },
+        {
+          "kind": "command",
+          "body": "./build/tests \"[lru]\""
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "id": "thiserror-derive-rust-ja",
+  "title": "手書きの Display を thiserror に畳む",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "rust",
+  "summary": "impl Display と impl Error と From を derive(Error) に置き換え、原因の二重表示を消す。",
+  "files": [
+    {
+      "path": "src/store.rs",
+      "content": "use std::fmt;\nuse std::io;\n\n#[derive(Debug)]\npub enum StoreError {\n    Io(io::Error),\n    Corrupt { line: usize },\n}\n\nimpl fmt::Display for StoreError {\n    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {\n        match self {\n            StoreError::Io(err) => write!(f, \"cannot read store: {err}\"),\n            StoreError::Corrupt { line } => write!(f, \"corrupt entry at line {line}\"),\n        }\n    }\n}\n\nimpl std::error::Error for StoreError {\n    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {\n        match self {\n            StoreError::Io(err) => Some(err),\n            StoreError::Corrupt { .. } => None,\n        }\n    }\n}\n\nimpl From<io::Error> for StoreError {\n    fn from(err: io::Error) -> Self {\n        StoreError::Io(err)\n    }\n}\n\npub fn load(path: &str) -> Result<Vec<String>, StoreError> {\n    let text = std::fs::read_to_string(path)?;\n    let mut entries = Vec::new();\n    for (index, line) in text.lines().enumerate() {\n        if !line.contains('=') {\n            return Err(StoreError::Corrupt { line: index + 1 });\n        }\n        entries.push(line.to_string());\n    }\n    Ok(entries)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "store.rs の impl 群長すぎ。thiserror 入ってるんだからそれで書き直して",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。Display は #[error(\"...\")] に、source と From は #[from] ひとつに畳めます。ボイラープレートが消え、エラー型が唯一の情報源として一箇所にまとまります。load はそのままで動きます。",
+          "reading": "しょうちしました。Display は #[error(\"...\")] に、source と From は #[from] ひとつにたためます。ぼいらーぷれーとがきえ、えらーがたがゆいいつのじょうほうげんとしていっかしょにまとまります。load はそのままでうごきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::io;\n\n#[derive(Debug, thiserror::Error)]\npub enum StoreError {\n    #[error(\"cannot read store: {0}\")]\n    Io(#[from] io::Error),\n    #[error(\"corrupt entry at line {line}\")]\n    Corrupt { line: usize },\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "anyhow の {:#} でログ出したら No such file or directory が2回出てくるんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ご指摘のとおりです。#[from] は source も返すので、anyhow は本文の後ろに原因をもう一度つなげます。先ほどの {0} は手書き版の写しで、原因を二重に書いていました。本文から外します。",
+          "reading": "ごしてきのとおりです。#[from] は source もかえすので、anyhow はほんぶんのうしろにげんいんをもういちどつなげます。さきほどの {0} はてがきばんのうつしで、げんいんをにじゅうにかいていました。ほんぶんからはずします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/cannot read store: {0}/cannot read store/' src/store.rs"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "id": "get-object-or-404-python-ja",
+  "title": "Django の詳細ビューを get_object_or_404 で 404 にする",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "python",
+  "summary": "存在しない pk で 500 になる詳細ビューを get_object_or_404 に置き換え、公開済みの記事だけに絞る。",
+  "files": [
+    {
+      "path": "blog/models.py",
+      "content": "from django.db import models\n\n\nclass Article(models.Model):\n    title = models.CharField(max_length=200)\n    body = models.TextField()\n    is_published = models.BooleanField(default=False)\n"
+    },
+    {
+      "path": "blog/views.py",
+      "content": "from django.http import JsonResponse\n\nfrom .models import Article\n\n\ndef article_detail(request, pk):\n    article = Article.objects.get(pk=pk)\n    return JsonResponse({\"title\": article.title, \"body\": article.body})\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "/articles/999/ 叩くと 500 出る。ないなら 404 でしょ普通",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。Article.objects.get は該当する行がないと Article.DoesNotExist を送出します。ビューの中で誰も捕まえていないので、Django はこれを 500 として返します。django.shortcuts の get_object_or_404 は、見つからないときに Http404 を送出するので、404 のレスポンスになります。これで存在しない pk には必ず 404 が返ることを保証します。",
+          "reading": "するどいごしてきです。Article.objects.get はがいとうするぎょうがないと Article.DoesNotExist をそうしゅつします。びゅーのなかでだれもつかまえていないので、Django はこれを 500 としてかえします。django.shortcuts の get_object_or_404 は、みつからないときに Http404 をそうしゅつするので、404 のれすぽんすになります。これでそんざいしない pk にはかならず 404 がかえることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from django.http import JsonResponse\nfrom django.shortcuts import get_object_or_404\n\nfrom .models import Article\n\n\ndef article_detail(request, pk):\n    article = get_object_or_404(Article, pk=pk)\n    return JsonResponse({\"title\": article.title, \"body\": article.body})\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、下書きも URL 直打ちで見えてた。公開済みだけで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。get_object_or_404 は filter と同じキーワード引数を受け取るので、is_published=True を足すだけです。言い換えると、下書きは存在しない記事と同じ 404 になります。403 にしないので、下書きがあること自体も外からは分かりません。",
+          "reading": "かしこまりました。get_object_or_404 は filter とおなじきーわーどひきすうをうけとるので、is_published=True をたすだけです。いいかえると、したがきはそんざいしないきじとおなじ 404 になります。403 にしないので、したがきがあることじたいもそとからはわかりません。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/get_object_or_404(Article, pk=pk)/get_object_or_404(Article, pk=pk, is_published=True)/' blog/views.py"
+        }
+      ]
+    }
+  ]
+}

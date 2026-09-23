@@ -1,0 +1,64 @@
+{
+  "id": "sqlalchemy-select-python-ja",
+  "title": "SQLAlchemy の session.query を 2.0 形式の select に書き換える",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "python",
+  "summary": "旧式の Query API を select と session.scalars に移し、execute のせいで Row が返るのを直し、チーム名の結合では execute を使う。",
+  "files": [
+    {
+      "path": "app/models.py",
+      "content": "from datetime import datetime\n\nfrom sqlalchemy import ForeignKey\nfrom sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship\n\n\nclass Base(DeclarativeBase):\n    pass\n\n\nclass Team(Base):\n    __tablename__ = \"teams\"\n    id: Mapped[int] = mapped_column(primary_key=True)\n    name: Mapped[str]\n\n\nclass User(Base):\n    __tablename__ = \"users\"\n    id: Mapped[int] = mapped_column(primary_key=True)\n    email: Mapped[str]\n    name: Mapped[str]\n    is_active: Mapped[bool]\n    created_at: Mapped[datetime]\n    team_id: Mapped[int] = mapped_column(ForeignKey(\"teams.id\"))\n    team: Mapped[Team] = relationship()\n"
+    },
+    {
+      "path": "app/users.py",
+      "content": "from sqlalchemy.orm import Session\n\nfrom .models import User\n\n\ndef find_by_email(session: Session, email: str) -> User | None:\n    return session.query(User).filter_by(email=email).first()\n\n\ndef active_users(session: Session) -> list[User]:\n    return (\n        session.query(User)\n        .filter(User.is_active)\n        .order_by(User.created_at)\n        .all()\n    )\n\n\ndef count_in_team(session: Session, team_id: int) -> int:\n    return session.query(User).filter(User.team_id == team_id).count()\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "SQLAlchemy 2.0 のドキュメント見たら session.query は legacy って書いてある。users.py 新しい書き方にしといて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。2.0 形式では、クエリを select() で組み立ててから Session に渡して実行します。ORM のエンティティが欲しいときは session.scalars、集計のように値が 1 つだけ返るときは session.scalar を使います。filter は where に、count() は func.count() に置き換えます。",
+          "reading": "しょうちしました。2.0 けいしきでは、くえりを select() でくみたててから Session にわたしてじっこうします。ORM のえんてぃてぃがほしいときは session.scalars、しゅうけいのようにあたいが 1 つだけかえるときは session.scalar をつかいます。filter は where に、count() は func.count() におきかえます。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from sqlalchemy import func, select\nfrom sqlalchemy.orm import Session\n\nfrom .models import User\n\n\ndef find_by_email(session: Session, email: str) -> User | None:\n    stmt = select(User).where(User.email == email)\n    return session.scalars(stmt).first()\n\n\ndef active_users(session: Session) -> list[User]:\n    stmt = select(User).where(User.is_active).order_by(User.created_at)\n    return list(session.execute(stmt))\n\n\ndef count_in_team(session: Session, team_id: int) -> int:\n    stmt = select(func.count()).select_from(User).where(User.team_id == team_id)\n    return session.scalar(stmt)\n"
+        }
+      ]
+    },
+    {
+      "user": "管理画面の一覧で AttributeError: name って出る。active_users のとこ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの active_users だけ session.execute を使っていました。execute は結果を Row で返します。select(User) でも各 Row は User を 1 つ持ったタプルなので、user.name ではなく row.User.name でないと届きません。scalars は各 Row の先頭の列を取り出して、User そのものを返します。",
+          "reading": "もうしわけありません。さきほどの active_users だけ session.execute をつかっていました。execute はけっかを Row でかえします。select(User) でもかく Row は User を 1 つもったたぷるなので、user.name ではなく row.User.name でないととどきません。scalars はかく Row のせんとうのれつをとりだして、User そのものをかえします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/list(session.execute(stmt))/list(session.scalars(stmt))/' app/users.py"
+        }
+      ]
+    },
+    {
+      "user": "直った。ついでに一覧にチーム名も出したい。N+1 はやめてね",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、ここは execute が正しい場面です。select(User, Team.name) で User と文字列の 2 列を選び、join(User.team) で 1 回の SQL にまとめます。2 列あるので scalars では Team.name が捨てられます。execute の Row をタプルとして受ければ、user と team_name に分けて取り出せます。関心の分離の観点から、既存の active_users はそのまま残します。",
+          "reading": "Now、ここは execute がただしいばめんです。select(User, Team.name) で User ともじれつの 2 れつをえらび、join(User.team) で 1 かいの SQL にまとめます。2 れつあるので scalars では Team.name がすてられます。execute の Row をたぷるとしてうければ、user と team_name にわけてとりだせます。かんしんのぶんりのかんてんから、きそんの active_users はそのままのこします。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from .models import Team, User\n\n\ndef active_users_with_team(session: Session) -> list[tuple[User, str]]:\n    stmt = (\n        select(User, Team.name)\n        .join(User.team)\n        .where(User.is_active)\n        .order_by(User.created_at)\n    )\n    return [(user, team_name) for user, team_name in session.execute(stmt)]\n"
+        }
+      ]
+    }
+  ]
+}

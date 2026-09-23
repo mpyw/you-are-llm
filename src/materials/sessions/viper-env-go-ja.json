@@ -1,0 +1,46 @@
+{
+  "id": "viper-env-go-ja",
+  "title": "viper が環境変数を読まない",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "go",
+  "summary": "AutomaticEnv と SetEnvPrefix、SetEnvKeyReplacer でネストしたキーを環境変数から読み、yaml に無いキーは BindEnv で教える。",
+  "files": [
+    {
+      "path": "internal/config/config.go",
+      "content": "package config\n\nimport (\n  \"github.com/spf13/viper\"\n)\n\ntype Config struct {\n  Port     int `mapstructure:\"port\"`\n  Database struct {\n    URL      string `mapstructure:\"url\"`\n    Password string `mapstructure:\"password\"`\n  } `mapstructure:\"database\"`\n}\n\nfunc Load() (*Config, error) {\n  v := viper.New()\n  v.SetConfigName(\"config\")\n  v.SetConfigType(\"yaml\")\n  v.AddConfigPath(\".\")\n  if err := v.ReadInConfig(); err != nil {\n    return nil, err\n  }\n  var cfg Config\n  if err := v.Unmarshal(&cfg); err != nil {\n    return nil, err\n  }\n  return &cfg, nil\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "本番で APP_DATABASE_URL 入れてるのに config.yaml の localhost のほうに繋ぎにいく。なんで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。viper は既定では環境変数を見ません。AutomaticEnv を呼ぶと、キーを読むたびに同じ名前の環境変数を探すようになります。ただ、database.url のようなネストしたキーはそのままだと DATABASE.URL を探しにいくので、SetEnvKeyReplacer でドットをアンダースコアに置き換えます。SetEnvPrefix には APP とだけ書きます。区切りのアンダースコアは viper が足すので、APP_ と書くと APP__DATABASE_URL を探しにいく点に注意することが重要です。",
+          "reading": "しょうちしました。viper はきていではかんきょうへんすうをみません。AutomaticEnv をよぶと、きーをよむたびにおなじなまえのかんきょうへんすうをさがすようになります。ただ、database.url のようなねすとしたきーはそのままだと DATABASE.URL をさがしにいくので、SetEnvKeyReplacer でどっとをあんだーすこあにおきかえます。SetEnvPrefix には APP とだけかきます。くぎりのあんだーすこあは viper がたすので、APP_ とかくと APP__DATABASE_URL をさがしにいくてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "package config\n\nimport (\n  \"strings\"\n\n  \"github.com/spf13/viper\"\n)\n\nfunc Load() (*Config, error) {\n  v := viper.New()\n  v.SetConfigName(\"config\")\n  v.SetConfigType(\"yaml\")\n  v.AddConfigPath(\".\")\n  v.SetEnvPrefix(\"APP\")\n  v.SetEnvKeyReplacer(strings.NewReplacer(\".\", \"_\"))\n  v.AutomaticEnv()\n  if err := v.ReadInConfig(); err != nil {\n    return nil, err\n  }\n  var cfg Config\n  if err := v.Unmarshal(&cfg); err != nil {\n    return nil, err\n  }\n  return &cfg, nil\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "url は効いた。で、パスワードは yaml に書きたくないから APP_DATABASE_PASSWORD だけで渡してるんだけどこっちは空。struct にはもう足してある",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: AutomaticEnv が効くのは、viper がすでに知っているキーだけです。Unmarshal は設定ファイルと既定値に出てくるキーしか集めないので、yaml に無い database.password は環境変数があっても拾われません。言い換えると、キーの存在を先に viper に教える必要があります。BindEnv にキーを 1 つだけ渡すと、プレフィックスと置き換えがそのまま効いて APP_DATABASE_PASSWORD を読みます。",
+          "reading": "Note: AutomaticEnv がきくのは、viper がすでにしっているきーだけです。Unmarshal はせっていふぁいるときていちにでてくるきーしかあつめないので、yaml にない database.password はかんきょうへんすうがあってもひろわれません。いいかえると、きーのそんざいをさきに viper におしえるひつようがあります。BindEnv にきーを 1 つだけわたすと、ぷれふぃっくすとおきかえがそのままきいて APP_DATABASE_PASSWORD をよみます。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "  v.AutomaticEnv()\n  if err := v.BindEnv(\"database.password\"); err != nil {\n    return nil, err\n  }\n"
+        }
+      ]
+    }
+  ]
+}

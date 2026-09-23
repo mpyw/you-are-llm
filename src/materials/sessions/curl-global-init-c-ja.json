@@ -1,0 +1,46 @@
+{
+  "id": "curl-global-init-c-ja",
+  "title": "libcurl の初期化を一度だけにして接続を使い回す",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "c",
+  "summary": "リクエストごとの curl_global_init をやめ、1 本の easy ハンドルで URL を回して接続を再利用する。",
+  "files": [
+    {
+      "path": "src/health/ping.c",
+      "content": "#include <curl/curl.h>\n\nint ping(const char *url) {\n  curl_global_init(CURL_GLOBAL_DEFAULT);\n  CURL *curl = curl_easy_init();\n  if (curl == NULL) return -1;\n  curl_easy_setopt(curl, CURLOPT_URL, url);\n  curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);\n  CURLcode rc = curl_easy_perform(curl);\n  curl_easy_cleanup(curl);\n  curl_global_cleanup();\n  return rc == CURLE_OK ? 0 : -1;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "監視スクリプトで URL 200 個くらい ping してるんだけど遅すぎる。1 本ずつ TLS からやり直してる感じ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。curl_global_init と curl_global_cleanup はプロセスで一度だけ呼ぶ前提の関数で、今は ping のたびに TLS ライブラリの初期化と後片付けをやり直しています。ポイントは、接続キャッシュが easy ハンドルに付いていることです。ハンドルを毎回捨てずに URL だけ差し替えれば、同じホストへの接続と TLS セッションが再利用されます。初期化は main に移します。",
+          "reading": "しょうちしました。curl_global_init と curl_global_cleanup はぷろせすでいちどだけよぶぜんていのかんすうで、いまは ping のたびに TLS らいぶらりのしょきかとあとかたづけをやりなおしています。ぽいんとは、せつぞくきゃっしゅが easy はんどるについていることです。はんどるをまいかいすてずに URL だけさしかえれば、おなじほすとへのせつぞくと TLS せっしょんがさいりようされます。しょきかは main にうつします。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#include <stddef.h>\n#include <curl/curl.h>\n\nint ping_all(const char *const *urls, size_t n) {\n  CURL *curl = curl_easy_init();\n  if (curl == NULL) return -1;\n  curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);\n  int failed = 0;\n  for (size_t i = 0; i < n; i++) {\n    curl_easy_setopt(curl, CURLOPT_URL, urls[i]);\n    if (curl_easy_perform(curl) != CURLE_OK) failed++;\n  }\n  curl_easy_cleanup(curl);\n  return failed;\n}\n\nint main(int argc, char **argv) {\n  if (curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK) return 1;\n  int failed = ping_all((const char *const *)(argv + 1), (size_t)(argc - 1));\n  curl_global_cleanup();\n  return failed == 0 ? 0 : 1;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、404 とかも失敗扱いにしたい。今 0 返ってくる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "HTTP のステータスは転送の成否とは別なので、404 でも CURLE_OK になります。CURLOPT_FAILONERROR を立てると、400 以上で CURLE_HTTP_RETURNED_ERROR を返します。設定はハンドルに残るので、ループの外で一度立てれば以降のリクエストすべてに効くことを保証します。",
+          "reading": "HTTP のすてーたすはてんそうのせいひとはべつなので、404 でも CURLE_OK になります。CURLOPT_FAILONERROR をたてると、400 いじょうで CURLE_HTTP_RETURNED_ERROR をかえします。せっていははんどるにのこるので、るーぷのそとでいちどたてればいこうのりくえすとすべてにきくことをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "  curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);\n  curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);\n"
+        }
+      ]
+    }
+  ]
+}

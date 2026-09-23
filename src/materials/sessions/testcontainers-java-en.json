@@ -1,0 +1,79 @@
+{
+  "id": "testcontainers-java-en",
+  "title": "Move an H2 test onto PostgreSQL with Testcontainers",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "java",
+  "summary": "A native query fails only in production, so the test moves to a PostgreSQL container, loses its tables, and finally shares one container across test classes.",
+  "files": [
+    {
+      "path": "build.gradle",
+      "content": "dependencies {\n    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'\n    implementation 'org.springframework.boot:spring-boot-starter-web'\n    runtimeOnly 'org.postgresql:postgresql'\n    testImplementation 'org.springframework.boot:spring-boot-starter-test'\n    testRuntimeOnly 'com.h2database:h2'\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/order/OrderRepository.java",
+      "content": "package com.example.order;\n\nimport java.util.List;\nimport org.springframework.data.jpa.repository.JpaRepository;\nimport org.springframework.data.jpa.repository.Query;\nimport org.springframework.data.repository.query.Param;\n\npublic interface OrderRepository extends JpaRepository<Order, Long> {\n    @Query(value = \"SELECT * FROM orders WHERE customer_id = :customerId AND status = 'PAID'\", nativeQuery = true)\n    List<Order> findPaid(@Param(\"customerId\") String customerId);\n}\n"
+    },
+    {
+      "path": "src/test/java/com/example/order/OrderRepositoryTest.java",
+      "content": "package com.example.order;\n\nimport static org.assertj.core.api.Assertions.assertThat;\n\nimport org.junit.jupiter.api.Test;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;\n\n@DataJpaTest\nclass OrderRepositoryTest {\n    @Autowired\n    OrderRepository orders;\n\n    @Test\n    void findsPaidOrdersOfCustomer() {\n        orders.save(new Order(42L, OrderStatus.PAID));\n        orders.save(new Order(42L, OrderStatus.CANCELLED));\n        orders.save(new Order(7L, OrderStatus.PAID));\n\n        assertThat(orders.findPaid(\"42\")).hasSize(1);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "OrderRepositoryTest passes fine but findPaid blew up in prod. ERROR: operator does not exist: bigint = character varying. tests run on H2. i want them on real postgres",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Excellent call. The cause is that customer_id is a bigint column while findPaid takes a String. H2 quietly converts the string to a number before comparing, and PostgreSQL rejects a comparison between mismatched types. The tests ran on H2, so they never saw the difference. Since Boot 3.1, @ServiceConnection on a container is enough to hand its connection details to the DataSource. Replace.NONE is spelled out so nothing swaps H2 back in, and the testRuntimeOnly h2 line comes out of build.gradle. Hibernate keeps creating the schema from the entities as before, so the test body barely changes. Once it goes red, the parameter becomes a Long."
+        },
+        {
+          "kind": "code",
+          "lang": "groovy",
+          "body": "testImplementation 'org.springframework.boot:spring-boot-testcontainers'\ntestImplementation 'org.testcontainers:junit-jupiter'\ntestImplementation 'org.testcontainers:postgresql'\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.order;\n\nimport static org.assertj.core.api.Assertions.assertThat;\n\nimport org.junit.jupiter.api.Test;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;\nimport org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace;\nimport org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;\nimport org.springframework.boot.testcontainers.service.connection.ServiceConnection;\nimport org.testcontainers.containers.PostgreSQLContainer;\nimport org.testcontainers.junit.jupiter.Container;\nimport org.testcontainers.junit.jupiter.Testcontainers;\n\n@DataJpaTest\n@AutoConfigureTestDatabase(replace = Replace.NONE)\n@Testcontainers\nclass OrderRepositoryTest {\n    @Container\n    @ServiceConnection\n    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(\"postgres:16-alpine\");\n\n    @Autowired\n    OrderRepository orders;\n\n    @Test\n    void findsPaidOrdersOfCustomer() {\n        orders.save(new Order(42L, OrderStatus.PAID));\n        orders.save(new Order(42L, OrderStatus.CANCELLED));\n        orders.save(new Order(7L, OrderStatus.PAID));\n\n        assertThat(orders.findPaid(42L)).hasSize(1);\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Query(value = \"SELECT * FROM orders WHERE customer_id = :customerId AND status = 'PAID'\", nativeQuery = true)\nList<Order> findPaid(@Param(\"customerId\") Long customerId);\n"
+        }
+      ]
+    },
+    {
+      "user": "container starts now. but everything fails with relation \"orders\" does not exist. the schema lives in a separate repo, infra team runs flyway there",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, what I said about the schema was wrong. spring.jpa.hibernate.ddl-auto defaults to create-drop only for an embedded database, and to none for anything else. On H2 the tables came from the entities. On the PostgreSQL container nothing creates them. Ideally the same migrations as production would be the single source of truth, but they live in another repository, so create-drop is set for this test only."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^@DataJpaTest$/@DataJpaTest(properties = \"spring.jpa.hibernate.ddl-auto=create-drop\")/' src/test/java/com/example/order/OrderRepositoryTest.java"
+        }
+      ]
+    },
+    {
+      "user": "green. went red with the same prod error first, then Long fixed it. want to move CustomerRepositoryTest and friends too, but a container per class is slow, share one",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the plan: the container leaves the test class and becomes a bean in a @TestConfiguration. A @ServiceConnection container defined as a bean is started and stopped by Spring. Spring's test support caches application contexts, so test classes that @Import the same configuration share the context and the container with it. Caveat: if the properties on @DataJpaTest differ by one character, that is a different context and a second container."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.order;\n\nimport org.springframework.boot.test.context.TestConfiguration;\nimport org.springframework.boot.testcontainers.service.connection.ServiceConnection;\nimport org.springframework.context.annotation.Bean;\nimport org.testcontainers.containers.PostgreSQLContainer;\n\n@TestConfiguration(proxyBeanMethods = false)\npublic class TestcontainersConfiguration {\n    @Bean\n    @ServiceConnection\n    PostgreSQLContainer<?> postgres() {\n        return new PostgreSQLContainer<>(\"postgres:16-alpine\");\n    }\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/^import org.testcontainers.junit.jupiter.Testcontainers;$/import org.springframework.context.annotation.Import;/' -e '/^import org.testcontainers/d' -e '/ServiceConnection;$/d' -e 's/^@Testcontainers$/@Import(TestcontainersConfiguration.class)/' -e '/@Container/,/^$/d' src/test/java/com/example/order/OrderRepositoryTest.java"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "id": "web-mvc-test-java-ja",
+  "title": "@SpringBootTest のコントローラテストを @WebMvcTest にする",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "java",
+  "summary": "アプリ全体を起動していた遅いテストを MockMvc に替えたら、@MockBean に取り消し線が出た。",
+  "files": [
+    {
+      "path": "src/test/java/com/example/book/BookControllerTest.java",
+      "content": "package com.example.book;\n\nimport static org.assertj.core.api.Assertions.assertThat;\nimport static org.mockito.Mockito.when;\n\nimport org.junit.jupiter.api.Test;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport org.springframework.boot.test.context.SpringBootTest;\nimport org.springframework.boot.test.mock.mockito.MockBean;\nimport org.springframework.boot.test.web.client.TestRestTemplate;\nimport org.springframework.http.HttpStatus;\nimport org.springframework.http.ResponseEntity;\n\n@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)\nclass BookControllerTest {\n    @Autowired\n    TestRestTemplate restTemplate;\n\n    @MockBean\n    BookService bookService;\n\n    @Test\n    void returnsBook() {\n        when(bookService.find(1L)).thenReturn(new Book(1L, \"Dune\"));\n\n        ResponseEntity<String> response = restTemplate.getForEntity(\"/books/1\", String.class);\n\n        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);\n        assertThat(response.getBody()).contains(\"Dune\");\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "BookControllerTest 1 本で 20 秒くらいかかる。ログ見たら DB も Kafka も繋ぎにいってる。コントローラのテストなのに",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい着眼点です！@SpringBootTest はアプリ全体を起動するので、コントローラ 1 つのテストでも DB や Kafka の設定まで読み込みます。@WebMvcTest(BookController.class) に替えると、読み込まれるのは Spring MVC まわりとこのコントローラだけになります。サーバも立てず、MockMvc がリクエストを直接ディスパッチします。@MockBean はそのまま使えるので、BookService のモックはいまの書き方で大丈夫です。",
+          "reading": "すばらしいちゃくがんてんです！@SpringBootTest はアプリぜんたいをきどうするので、コントローラ 1 つのテストでも DB や Kafka のせっていまでよみこみます。@WebMvcTest(BookController.class) にかえると、よみこまれるのは Spring MVC まわりとこのコントローラだけになります。サーバもたてず、MockMvc がリクエストをちょくせつディスパッチします。@MockBean はそのままつかえるので、BookService のモックはいまのかきかたでだいじょうぶです。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.book;\n\nimport static org.mockito.Mockito.when;\nimport static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;\nimport static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;\nimport static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;\n\nimport org.junit.jupiter.api.Test;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;\nimport org.springframework.boot.test.mock.mockito.MockBean;\nimport org.springframework.test.web.servlet.MockMvc;\n\n@WebMvcTest(BookController.class)\nclass BookControllerTest {\n    @Autowired\n    MockMvc mockMvc;\n\n    @MockBean\n    BookService bookService;\n\n    @Test\n    void returnsBook() throws Exception {\n        when(bookService.find(1L)).thenReturn(new Book(1L, \"Dune\"));\n\n        mockMvc.perform(get(\"/books/1\"))\n            .andExpect(status().isOk())\n            .andExpect(jsonPath(\"$.title\").value(\"Dune\"));\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "2 秒になった。けど MockBean に取り消し線出てる。うち Boot 3.5",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、正確ではありませんでした。@MockBean は Spring Boot 3.4 で非推奨になり、4.0 では削除されています。代わりは Spring Framework 6.2 に入った @MockitoBean で、パッケージも org.springframework.test.context.bean.override.mockito に移っています。使い方は同じなので、import とアノテーションを差し替えるだけです。",
+          "reading": "あらためてかくにんしたところ、せいかくではありませんでした。@MockBean は Spring Boot 3.4 でひすいしょうになり、4.0 ではさくじょされています。かわりは Spring Framework 6.2 にはいった @MockitoBean で、パッケージも org.springframework.test.context.bean.override.mockito にうつっています。つかいかたはおなじなので、import とアノテーションをさしかえるだけです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/import org\\.springframework\\.boot\\.test\\.mock\\.mockito\\.MockBean;/import org.springframework.test.context.bean.override.mockito.MockitoBean;/' -e 's/@MockBean/@MockitoBean/' src/test/java/com/example/book/BookControllerTest.java"
+        }
+      ]
+    },
+    {
+      "user": "ついでに存在しない id で 404 になるのも。BookNotFoundException を ApiExceptionHandler で 404 にしてる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、404 のテストです。@WebMvcTest は @ControllerAdvice も読み込むので、ApiExceptionHandler はそのまま効きます。読み込まないのは @Service や @Repository なので、ハンドラがほかの Bean に依存しているなら、それも @MockitoBean で用意する必要がある点に注意することが重要です。",
+          "reading": "Now、404 のテストです。@WebMvcTest は @ControllerAdvice もよみこむので、ApiExceptionHandler はそのままききます。よみこまないのは @Service や @Repository なので、ハンドラがほかの Bean にいぞんしているなら、それも @MockitoBean でよういするひつようがあるてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Test\nvoid returnsNotFound() throws Exception {\n    when(bookService.find(99L)).thenThrow(new BookNotFoundException(99L));\n\n    mockMvc.perform(get(\"/books/99\"))\n        .andExpect(status().isNotFound());\n}\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "id": "axum-middleware-rust-ja",
+  "title": "Axum の認証をミドルウェアに寄せる",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "rust",
+  "summary": "from_fn_with_state で認証を一箇所にし、.layer が /health まで塞いだのを route_layer と merge で分ける。",
+  "files": [
+    {
+      "path": "src/main.rs",
+      "content": "use std::collections::HashMap;\nuse std::sync::Arc;\n\nuse axum::extract::State;\nuse axum::http::{header, HeaderMap, StatusCode};\nuse axum::routing::get;\nuse axum::{Json, Router};\nuse serde::Serialize;\n\n#[derive(Clone, Serialize)]\nstruct CurrentUser {\n    id: u64,\n    name: String,\n}\n\n#[derive(Clone)]\nstruct AppState {\n    tokens: Arc<HashMap<String, CurrentUser>>,\n}\n\nfn authenticate(state: &AppState, headers: &HeaderMap) -> Result<CurrentUser, StatusCode> {\n    let token = headers\n        .get(header::AUTHORIZATION)\n        .and_then(|value| value.to_str().ok())\n        .and_then(|value| value.strip_prefix(\"Bearer \"))\n        .ok_or(StatusCode::UNAUTHORIZED)?;\n    state.tokens.get(token).cloned().ok_or(StatusCode::UNAUTHORIZED)\n}\n\nasync fn me(\n    State(state): State<AppState>,\n    headers: HeaderMap,\n) -> Result<Json<CurrentUser>, StatusCode> {\n    let user = authenticate(&state, &headers)?;\n    Ok(Json(user))\n}\n\nasync fn orders(State(state): State<AppState>, headers: HeaderMap) -> Result<String, StatusCode> {\n    let user = authenticate(&state, &headers)?;\n    Ok(format!(\"orders of {}\", user.id))\n}\n\nasync fn health() -> &'static str {\n    \"ok\"\n}\n\n#[tokio::main]\nasync fn main() {\n    let state = AppState {\n        tokens: Arc::new(HashMap::new()),\n    };\n    let app = Router::new()\n        .route(\"/health\", get(health))\n        .route(\"/me\", get(me))\n        .route(\"/orders\", get(orders))\n        .with_state(state);\n    let listener = tokio::net::TcpListener::bind(\"0.0.0.0:3000\").await.unwrap();\n    axum::serve(listener, app).await.unwrap();\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "me と orders で毎回 authenticate 呼んでるのやめたい。ミドルウェアにまとめて。ユーザーはハンドラで受け取れるように",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's 認証を一箇所に寄せましょう！ middleware::from_fn_with_state で require_auth を挟み、見つけた CurrentUser を request の extensions に入れます。ハンドラは Extension<CurrentUser> で受け取るだけになり、関心の分離がきれいに保たれます。",
+          "reading": "Let's にんしょうをいっかしょによせましょう！ middleware::from_fn_with_state で require_auth をはさみ、みつけた CurrentUser を request の extensions にいれます。はんどらは Extension<CurrentUser> でうけとるだけになり、かんしんのぶんりがきれいにたもたれます。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use axum::extract::{Request, State};\nuse axum::http::{header, StatusCode};\nuse axum::middleware::{self, Next};\nuse axum::response::Response;\nuse axum::routing::get;\nuse axum::{Extension, Json, Router};\n\nasync fn require_auth(\n    State(state): State<AppState>,\n    mut req: Request,\n    next: Next,\n) -> Result<Response, StatusCode> {\n    let token = req\n        .headers()\n        .get(header::AUTHORIZATION)\n        .and_then(|value| value.to_str().ok())\n        .and_then(|value| value.strip_prefix(\"Bearer \"))\n        .ok_or(StatusCode::UNAUTHORIZED)?;\n    let user = state\n        .tokens\n        .get(token)\n        .cloned()\n        .ok_or(StatusCode::UNAUTHORIZED)?;\n    req.extensions_mut().insert(user);\n    Ok(next.run(req).await)\n}\n\nasync fn me(Extension(user): Extension<CurrentUser>) -> Json<CurrentUser> {\n    Json(user)\n}\n\nasync fn orders(Extension(user): Extension<CurrentUser>) -> String {\n    format!(\"orders of {}\", user.id)\n}\n\nlet app = Router::new()\n    .route(\"/health\", get(health))\n    .route(\"/me\", get(me))\n    .route(\"/orders\", get(orders))\n    .layer(middleware::from_fn_with_state(state.clone(), require_auth))\n    .with_state(state);\n"
+        }
+      ]
+    },
+    {
+      "user": "デプロイしたら /health まで 401 返して k8s の liveness 落ちまくってる。あと存在しない URL も 404 じゃなくて 401 になってる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの .layer は、それより前に登録したすべてのルートとフォールバックを包むので、/health も存在しないパスも require_auth を通っていました。/health を .layer より後ろに移しても直りますが、行の順番に頼る構成は壊れやすいです。認証が要るルートだけを別の Router にまとめて route_layer を掛け、merge で合流させます。route_layer はルートに一致したときにしか動かないので、存在しないパスは 404 のまま返ります。",
+          "reading": "もうしわけありません。さきほどの .layer は、それよりまえにとうろくしたすべてのるーととふぉーるばっくをつつむので、/health もそんざいしないぱすも require_auth をとおっていました。/health を .layer よりうしろにうつしてもなおりますが、ぎょうのじゅんばんにたよるこうせいはこわれやすいです。にんしょうがいるるーとだけをべつの Router にまとめて route_layer をかけ、merge でごうりゅうさせます。route_layer はるーとにいっちしたときにしかうごかないので、そんざいしないぱすは 404 のままかえります。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "let protected = Router::new()\n    .route(\"/me\", get(me))\n    .route(\"/orders\", get(orders))\n    .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));\n\nlet app = Router::new()\n    .route(\"/health\", get(health))\n    .merge(protected)\n    .with_state(state);\n"
+        }
+      ]
+    },
+    {
+      "user": "あごめん、トークン Authorization じゃなくて x-api-key ヘッダで来るんだった。Bearer も付かない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。ヘッダ名を差し替えて、Bearer を剥がす行を消します。使われなくなる header の import も同じ sed で外すので、以上で警告も出ません。",
+          "reading": "かしこまりました。へっだめいをさしかえて、Bearer をはがすぎょうをけします。つかわれなくなる header の import もおなじ sed ではずすので、いじょうでけいこくもでません。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/get(header::AUTHORIZATION)/get(\"x-api-key\")/' -e '/strip_prefix(\"Bearer \")/d' -e 's/use axum::http::{header, StatusCode};/use axum::http::StatusCode;/' src/main.rs"
+        }
+      ]
+    }
+  ]
+}

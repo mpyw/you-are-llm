@@ -1,0 +1,44 @@
+{
+  "id": "viper-env-go-en",
+  "title": "Viper ignores the environment variable",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "go",
+  "summary": "Read nested keys from the environment with AutomaticEnv, SetEnvPrefix and SetEnvKeyReplacer, then tell Viper about a key the yaml lacks with BindEnv.",
+  "files": [
+    {
+      "path": "internal/config/config.go",
+      "content": "package config\n\nimport (\n  \"github.com/spf13/viper\"\n)\n\ntype Config struct {\n  Port     int `mapstructure:\"port\"`\n  Database struct {\n    URL      string `mapstructure:\"url\"`\n    Password string `mapstructure:\"password\"`\n  } `mapstructure:\"database\"`\n}\n\nfunc Load() (*Config, error) {\n  v := viper.New()\n  v.SetConfigName(\"config\")\n  v.SetConfigType(\"yaml\")\n  v.AddConfigPath(\".\")\n  if err := v.ReadInConfig(); err != nil {\n    return nil, err\n  }\n  var cfg Config\n  if err := v.Unmarshal(&cfg); err != nil {\n    return nil, err\n  }\n  return &cfg, nil\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "prod has APP_DATABASE_URL set but it still connects to the localhost one from config.yaml. why",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question. Viper does not read environment variables by default. AutomaticEnv makes it look for a matching variable every time a key is read. A nested key like database.url would look for DATABASE.URL as is, so SetEnvKeyReplacer turns the dots into underscores. Pass just APP to SetEnvPrefix. Viper adds the separating underscore itself, so writing APP_ would make it look for APP__DATABASE_URL."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "package config\n\nimport (\n  \"strings\"\n\n  \"github.com/spf13/viper\"\n)\n\nfunc Load() (*Config, error) {\n  v := viper.New()\n  v.SetConfigName(\"config\")\n  v.SetConfigType(\"yaml\")\n  v.AddConfigPath(\".\")\n  v.SetEnvPrefix(\"APP\")\n  v.SetEnvKeyReplacer(strings.NewReplacer(\".\", \"_\"))\n  v.AutomaticEnv()\n  if err := v.ReadInConfig(); err != nil {\n    return nil, err\n  }\n  var cfg Config\n  if err := v.Unmarshal(&cfg); err != nil {\n    return nil, err\n  }\n  return &cfg, nil\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "url works now. the password i dont want in the yaml so its only in APP_DATABASE_PASSWORD, and that one comes out empty. already added it to the struct",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: AutomaticEnv only covers keys Viper already knows about. Unmarshal collects keys from the config file and the defaults, so database.password, which is not in the yaml, is never looked up even though the variable is set. In other words, Viper has to be told the key exists first. BindEnv with a single key applies the prefix and the replacer as before, so it reads APP_DATABASE_PASSWORD."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "  v.AutomaticEnv()\n  if err := v.BindEnv(\"database.password\"); err != nil {\n    return nil, err\n  }\n"
+        }
+      ]
+    }
+  ]
+}

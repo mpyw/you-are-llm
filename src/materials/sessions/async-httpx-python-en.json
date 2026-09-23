@@ -1,0 +1,71 @@
+{
+  "id": "async-httpx-python-en",
+  "title": "Swap requests in async def for httpx.AsyncClient",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "python",
+  "summary": "requests blocks the event loop. Move to one AsyncClient made in lifespan, fetch two APIs with gather, trip over httpx not following redirects, and turn upstream failures into 502.",
+  "files": [
+    {
+      "path": "app/main.py",
+      "content": "import requests\nfrom fastapi import FastAPI, HTTPException\n\nWEATHER_URL = \"https://api.example.com/weather\"\n\napp = FastAPI()\n\n\n@app.get(\"/weather/{city}\")\nasync def weather(city: str):\n    response = requests.get(WEATHER_URL, params={\"city\": city}, timeout=5)\n    if response.status_code == 404:\n        raise HTTPException(status_code=404, detail=\"unknown city\")\n    response.raise_for_status()\n    return response.json()\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "endpoint that just proxies a weather api falls over under load. upstream is ~200ms but 10 concurrent requests take 2 seconds",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: requests.get is blocking the event loop. An async def endpoint runs directly on the loop, so for the 200ms the synchronous requests call waits on upstream, no other request moves at all. Ten of them go through one at a time, which is your 2 seconds. With httpx.AsyncClient the loop keeps serving other requests while you await. Creating a client per request throws away the connection pool and repeats the TLS handshake every time, so make exactly one in lifespan, share it through app.state, and close it on shutdown. The rewrite is just requests.get to await http.get, and it behaves the same as requests."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from contextlib import asynccontextmanager\n\nimport httpx\nfrom fastapi import FastAPI, HTTPException, Request\n\nWEATHER_URL = \"https://api.example.com/weather\"\n\n\n@asynccontextmanager\nasync def lifespan(app: FastAPI):\n    async with httpx.AsyncClient(timeout=5.0) as client:\n        app.state.http = client\n        yield\n\n\napp = FastAPI(lifespan=lifespan)\n\n\n@app.get(\"/weather/{city}\")\nasync def weather(city: str, request: Request):\n    http: httpx.AsyncClient = request.app.state.http\n    response = await http.get(WEATHER_URL, params={\"city\": city})\n    if response.status_code == 404:\n        raise HTTPException(status_code=404, detail=\"unknown city\")\n    response.raise_for_status()\n    return response.json()\n"
+        }
+      ]
+    },
+    {
+      "user": "way faster! now also hit the air quality api and return both. at the same time, not one after another",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Perfect use case for asyncio.gather. Give it both coroutines and the same client waits on the two requests at once. Results come back in the order you passed them, so weather and air cannot get swapped."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "import asyncio\nfrom contextlib import asynccontextmanager\n\nimport httpx\nfrom fastapi import FastAPI, HTTPException, Request\n\nWEATHER_URL = \"https://api.example.com/weather\"\nAIR_URL = \"http://api.example.org/air-quality\"\n\n\n@asynccontextmanager\nasync def lifespan(app: FastAPI):\n    async with httpx.AsyncClient(timeout=5.0) as client:\n        app.state.http = client\n        yield\n\n\napp = FastAPI(lifespan=lifespan)\n\n\n@app.get(\"/weather/{city}\")\nasync def weather(city: str, request: Request):\n    http: httpx.AsyncClient = request.app.state.http\n    weather_res, air_res = await asyncio.gather(\n        http.get(WEATHER_URL, params={\"city\": city}),\n        http.get(AIR_URL, params={\"city\": city}),\n    )\n    if weather_res.status_code == 404:\n        raise HTTPException(status_code=404, detail=\"unknown city\")\n    weather_res.raise_for_status()\n    air_res.raise_for_status()\n    return {**weather_res.json(), \"air\": air_res.json()}\n"
+        }
+      ]
+    },
+    {
+      "user": "only the air part returns 500. log says httpx.HTTPStatusError: Redirect response '301 Moved Permanently'. opens fine in a browser",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my earlier claim that it behaves the same as requests was incorrect. requests follows redirects by default and httpx does not. The 301 comes back as is, and raise_for_status() treats anything outside 2xx as an error. Pass follow_redirects=True where the client is created and it behaves like requests again."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/httpx.AsyncClient(timeout=5.0)/httpx.AsyncClient(timeout=5.0, follow_redirects=True)/' app/main.py"
+        }
+      ]
+    },
+    {
+      "user": "fixed. also no 500 when upstream is down please. make it 502. timeouts too",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the neat part: status errors, connection errors and timeouts in httpx all inherit from httpx.HTTPError. Register one exception_handler for it and every one of them turns into a 502 wherever it is raised, with no try blocks scattered through the endpoints. The weather 404 is already turned into an HTTPException first, so it still comes back as 404."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from fastapi.responses import JSONResponse\n\n\n@app.exception_handler(httpx.HTTPError)\nasync def upstream_failed(request: Request, exc: httpx.HTTPError):\n    return JSONResponse(status_code=502, content={\"detail\": \"upstream unavailable\"})\n"
+        }
+      ]
+    }
+  ]
+}

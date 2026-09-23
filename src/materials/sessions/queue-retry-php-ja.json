@@ -1,0 +1,65 @@
+{
+  "id": "queue-retry-php-ja",
+  "title": "会計連携ジョブに再試行と失敗時の通知を入れる",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "一度の 502 で failed_jobs に落ちるジョブに $tries と backoff() と failed() を足し、4xx は再試行せずに諦める。",
+  "files": [
+    {
+      "path": "app/Jobs/SyncInvoiceToAccounting.php",
+      "content": "<?php\n\nnamespace App\\Jobs;\n\nuse App\\Models\\Invoice;\nuse Illuminate\\Contracts\\Queue\\ShouldQueue;\nuse Illuminate\\Foundation\\Queue\\Queueable;\nuse Illuminate\\Support\\Facades\\Http;\n\nclass SyncInvoiceToAccounting implements ShouldQueue\n{\n    use Queueable;\n\n    public function __construct(public Invoice $invoice)\n    {\n    }\n\n    public function handle(): void\n    {\n        Http::withToken(config('services.accounting.token'))\n            ->post('https://accounting.example.com/api/invoices', [\n                'number' => $this->invoice->number,\n                'amount' => $this->invoice->amount,\n            ])\n            ->throw();\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "請求書を会計システムに送るジョブ、向こうが一瞬 502 返しただけで failed_jobs 行きになる。何回かリトライして。前に誰かが worker を --tries=0 で動かして無限に回り続けたらしいのでそれは無しで。最後までダメなら Slack に飛ばしてほしい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。queue:work の --tries の既定は 1 なので、1 回の失敗でそのまま failed_jobs に入ります。worker 全体の設定には触らず、ジョブ側に回数を持たせるのがベストプラクティスです。ジョブの $tries は worker の --tries より優先されます。",
+          "reading": "するどいごしてきです。queue:work の --tries のきていは 1 なので、1 かいのしっぱいでそのまま failed_jobs にはいります。worker ぜんたいのせっていにはさわらず、ジョブがわにかいすうをもたせるのがベストプラクティスです。ジョブの $tries は worker の --tries よりゆうせんされます。"
+        },
+        {
+          "kind": "text",
+          "body": "ポイントは 3 つです。$tries = 5 で最大 5 回まで実行し、backoff() で待ち時間を 10 秒、1 分、5 分と延ばします。配列より試行が多いときは最後の値を使い回します。5 回とも失敗したら failed() が呼ばれ、Slack に流します。なお、throw() は 5xx のときだけ例外にするので、4xx で無駄に再試行することはありません。",
+          "reading": "ポイントは 3 つです。$tries = 5 でさいだい 5 かいまでじっこうし、backoff() でまちじかんを 10 びょう、1 ぷん、5 ふんとのばします。はいれつよりしこうがおおいときはさいごのあたいをつかいまわします。5 かいともしっぱいしたら failed() がよばれ、Slack にながします。なお、throw() は 5xx のときだけれいがいにするので、4xx でむだにさいしこうすることはありません。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Illuminate\\Support\\Facades\\Log;\nuse Throwable;\n\npublic $tries = 5;\n\npublic function backoff(): array\n{\n    return [10, 60, 300];\n}\n\npublic function failed(?Throwable $exception): void\n{\n    Log::channel('slack')->error('Invoice sync gave up', [\n        'invoice' => $this->invoice->number,\n        'error' => $exception?->getMessage(),\n    ]);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "金額マイナスで 422 返ってくるやつ、5 回叩いてて会計側から苦情きた。4xx はリトライしないって言ってなかった？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。改めて確認したところ、先ほどの説明は正確ではありませんでした。throw() は 4xx でも 5xx でも RequestException を投げるので、422 も 5 回送っていました。4xx は何度送っても同じ結果なので、fail() でその場で失敗にします。fail() でも failed() は呼ばれるので、Slack には届きます。",
+          "reading": "もうしわけありません。あらためてかくにんしたところ、さきほどのせつめいはせいかくではありませんでした。throw() は 4xx でも 5xx でも RequestException をなげるので、422 も 5 かいおくっていました。4xx はなんどおくってもおなじけっかなので、fail() でそのばでしっぱいにします。fail() でも failed() はよばれるので、Slack にはとどきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function handle(): void\n{\n    $response = Http::withToken(config('services.accounting.token'))\n        ->post('https://accounting.example.com/api/invoices', [\n            'number' => $this->invoice->number,\n            'amount' => $this->invoice->amount,\n        ]);\n\n    if ($response->clientError()) {\n        $this->fail($response->toException());\n\n        return;\n    }\n\n    $response->throw();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、向こうレート制限で 429 返すことあるんだった。それは待てば通るのでリトライ側で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。429 だけ fail() の条件から外し、throw() に回して backoff() の間隔で再試行します。言い換えると、待てば通る失敗だけを待つ形です。",
+          "reading": "しょうちしました。429 だけ fail() のじょうけんからはずし、throw() にまわして backoff() のかんかくでさいしこうします。いいかえると、まてばとおるしっぱいだけをまつかたちです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/if (\\$response->clientError())/if ($response->clientError() \\&\\& ! $response->tooManyRequests())/' app/Jobs/SyncInvoiceToAccounting.php"
+        }
+      ]
+    }
+  ]
+}

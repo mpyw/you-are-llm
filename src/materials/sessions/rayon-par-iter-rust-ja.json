@@ -1,0 +1,50 @@
+{
+  "id": "rayon-par-iter-rust-ja",
+  "title": "ハッシュ計算を rayon の par_iter で全コアに散らす",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "rust",
+  "summary": "1 コアしか使っていない SHA-256 の一括計算を par_iter にして、専用プールで 4 スレッドに絞る。",
+  "files": [
+    {
+      "path": "src/hash.rs",
+      "content": "use std::path::PathBuf;\n\nuse sha2::{Digest, Sha256};\n\npub fn hash_all(paths: &[PathBuf]) -> Vec<(PathBuf, String)> {\n    paths\n        .iter()\n        .map(|path| {\n            let bytes = std::fs::read(path).unwrap();\n            let digest = Sha256::digest(&bytes);\n            (path.clone(), format!(\"{digest:x}\"))\n        })\n        .collect()\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "数千ファイルのハッシュ取るバッチ、top 見たら 100% 張り付いてるの 1 コアだけ。8 コアあるのに",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。map の中身はファイルごとに独立しているので、rayon の par_iter に替えるだけで済みます。rayon を足して prelude を use し、iter を par_iter にします。collect は元の順序を保つので、結果の並びが今までと同じであることを保証します。",
+          "reading": "しょうちしました。map のなかみはふぁいるごとにどくりつしているので、rayon の par_iter にかえるだけですみます。rayon をたして prelude を use し、iter を par_iter にします。collect はもとのじゅんじょをたもつので、けっかのならびがいままでとおなじであることをほしょうします。"
+        },
+        {
+          "kind": "command",
+          "body": "cargo add rayon"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::path::PathBuf;\n\nuse rayon::prelude::*;\nuse sha2::{Digest, Sha256};\n\npub fn hash_all(paths: &[PathBuf]) -> Vec<(PathBuf, String)> {\n    paths\n        .par_iter()\n        .map(|path| {\n            let bytes = std::fs::read(path).unwrap();\n            let digest = Sha256::digest(&bytes);\n            (path.clone(), format!(\"{digest:x}\"))\n        })\n        .collect()\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "はやい。けど同じマシンで API も動いてて全コア持ってかれると困る。4 本まで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。build_global でグローバルのプールを縛る手もありますが、ここでは専用のプールを作り、install の中で hash_all を呼びます。install の内側の par_iter は、このプールの 4 スレッドだけで走ります。言い換えると、hash_all 自体には手を入れずに済みます。",
+          "reading": "かしこまりました。build_global でぐろーばるのぷーるをしばるてもありますが、ここではせんようのぷーるをつくり、install のなかで hash_all をよびます。install のうちがわの par_iter は、このぷーるの 4 すれっどだけではしります。いいかえると、hash_all じたいにはてをいれずにすみます。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "let pool = rayon::ThreadPoolBuilder::new()\n    .num_threads(4)\n    .build()\n    .expect(\"failed to build thread pool\");\nlet hashes = pool.install(|| hash_all(&paths));\n"
+        }
+      ]
+    }
+  ]
+}

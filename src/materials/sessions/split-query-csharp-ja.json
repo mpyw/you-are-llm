@@ -1,0 +1,60 @@
+{
+  "id": "split-query-csharp-ja",
+  "title": "Include を 2 本並べた商品一覧を AsSplitQuery で分ける",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "csharp",
+  "summary": "画像とレビューを同時に Include して行数が掛け算になったクエリを分割し、EF Core 9 以前の並び順の罠を ThenBy で塞ぐ。",
+  "files": [
+    {
+      "path": "src/Catalog/ProductQueries.cs",
+      "content": "using Acme.Data;\nusing Microsoft.EntityFrameworkCore;\n\nnamespace Acme.Catalog;\n\npublic sealed class ProductQueries(ShopDbContext db)\n{\n    public Task<List<Product>> ListLatestAsync(int page, CancellationToken ct)\n    {\n        return db.Products\n            .AsNoTracking()\n            .Include(p => p.Images)\n            .Include(p => p.Reviews)\n            .OrderByDescending(p => p.UpdatedAt)\n            .Skip(page * 20)\n            .Take(20)\n            .ToListAsync(ct);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "商品一覧が遅すぎる。20件しか返してないのに SQL のログ見たら 3 万行とか返ってきてる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、ポイントは Include が 2 本、同じ階層に並んでいることです。Images と Reviews はどちらも Product のコレクションなので、1 つの SQL で JOIN すると両者の直積になり、画像 15 枚とレビュー 100 件の商品は 1 件で 1500 行になります。AsSplitQuery を付けると、EF Core は Product、Images、Reviews を別々の SQL で読み、メモリ上で組み立てます。返る結果は単一クエリのときとまったく同じです。",
+          "reading": "けつろんからいうと、ぽいんとは Include が 2 ほん、おなじかいそうにならんでいることです。Images と Reviews はどちらも Product のこれくしょんなので、1 つの SQL で JOIN するとりょうしゃのちょくせきになり、がぞう 15 まいとれびゅー 100 けんのしょうひんは 1 けんで 1500 ぎょうになります。AsSplitQuery をつけると、EF Core は Product、Images、Reviews をべつべつの SQL でよみ、めもりじょうでくみたてます。かえるけっかはたんいつくえりのときとまったくおなじです。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "return db.Products\n    .AsNoTracking()\n    .Include(p => p.Images)\n    .Include(p => p.Reviews)\n    .AsSplitQuery()\n    .OrderByDescending(p => p.UpdatedAt)\n    .Skip(page * 20)\n    .Take(20)\n    .ToListAsync(ct);\n"
+        }
+      ]
+    },
+    {
+      "user": "速くなった！けど2ページ目でたまに画像ゼロの商品が混じる。リロードすると直ったりする。あ、うちまだ EF Core 8 です",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、先ほどの「結果はまったく同じ」は正確ではありませんでした。分割されたクエリはそれぞれが Skip と Take を実行します。UpdatedAt が同じ商品が複数あると並び順が一意に決まらず、Images を読むクエリが別の 20 件を拾うことがあります。EF Core 9 以前ではこれが起こるので、主キーの ThenBy を足して順序を一意にします。EF Core 10 からはこの対策は不要になりましたが、残しても害はありません。",
+          "reading": "あらためてかくにんしたところ、さきほどの「けっかはまったくおなじ」はせいかくではありませんでした。ぶんかつされたくえりはそれぞれが Skip と Take をじっこうします。UpdatedAt がおなじしょうひんがふくすうあるとならびじゅんがいちいにきまらず、Images をよむくえりがべつの 20 けんをひろうことがあります。EF Core 9 いぜんではこれがおこるので、しゅきーの ThenBy をたしてじゅんじょをいちいにします。EF Core 10 からはこのたいさくはふようになりましたが、のこしてもがいはありません。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/\\.OrderByDescending(p => p\\.UpdatedAt)/&.ThenBy(p => p.Id)/' src/Catalog/ProductQueries.cs"
+        }
+      ]
+    },
+    {
+      "user": "ほかにも Include 2本のクエリありそう。全部 split をデフォルトにできない？ ログに出てる警告もこれ関係？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。UseSqlServer の第 2 引数で UseQuerySplittingBehavior を指定すると、コンテキスト全体の既定が分割クエリになります。言い換えると、1 本ずつ AsSplitQuery を書く必要がなくなります。ログの警告は、複数のコレクションを読むクエリに分割方法が指定されていないときに EF Core が出すもので、全体に設定すれば消えます。1 つの SQL で読みたい箇所は AsSingleQuery で戻せます。EF Core 8 のあいだは、Skip と Take を使うクエリに一意な並び順が要る点も変わりません。",
+          "reading": "かしこまりました。UseSqlServer のだい 2 ひきすうで UseQuerySplittingBehavior をしていすると、こんてきすとぜんたいのきていがぶんかつくえりになります。いいかえると、1 ほんずつ AsSplitQuery をかくひつようがなくなります。ろぐのけいこくは、ふくすうのこれくしょんをよむくえりにぶんかつほうほうがしていされていないときに EF Core がだすもので、ぜんたいにせっていすればきえます。1 つの SQL でよみたいかしょは AsSingleQuery でもどせます。EF Core 8 のあいだは、Skip と Take をつかうくえりにいちいなならびじゅんがいるてんもかわりません。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "builder.Services.AddDbContext<ShopDbContext>(options =>\n    options.UseSqlServer(\n        builder.Configuration.GetConnectionString(\"Shop\"),\n        sql => sql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery)));\n"
+        }
+      ]
+    }
+  ]
+}

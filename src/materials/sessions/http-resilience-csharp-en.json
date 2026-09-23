@@ -1,0 +1,69 @@
+{
+  "id": "http-resilience-csharp-en",
+  "title": "Replace a hand written retry loop with the standard handler",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "csharp",
+  "summary": "Move the hand written retry around an inventory API call to AddStandardResilienceHandler. A slow response gets cut by the attempt timeout, and widening it fails validation on SamplingDuration.",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using Acme.Inventory;\n\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddHttpClient<InventoryClient>(c => c.BaseAddress = new Uri(\"https://inventory.example.com/\"));\n\nvar app = builder.Build();\n\napp.MapGet(\"/stock/{sku}\", async (string sku, InventoryClient inventory, CancellationToken ct) =>\n    await inventory.GetStockAsync(sku, ct) is { } stock\n        ? Results.Ok(stock)\n        : Results.NotFound());\n\napp.Run();\n"
+    },
+    {
+      "path": "src/Inventory/InventoryClient.cs",
+      "content": "using System.Net.Http.Json;\n\nnamespace Acme.Inventory;\n\npublic sealed class InventoryClient(HttpClient http)\n{\n    public async Task<StockLevel?> GetStockAsync(string sku, CancellationToken ct)\n    {\n        for (var attempt = 1; ; attempt++)\n        {\n            try\n            {\n                return await http.GetFromJsonAsync<StockLevel>($\"v2/stock/{Uri.EscapeDataString(sku)}\", ct);\n            }\n            catch (HttpRequestException) when (attempt < 3)\n            {\n                await Task.Delay(500, ct);\n            }\n        }\n    }\n}\n\npublic sealed record StockLevel(string Sku, int Available);\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "the retry loop in InventoryClient is kinda meh. want something proper. do I write Polly by hand?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: rather than wiring Polly yourself, add AddStandardResilienceHandler from Microsoft.Extensions.Http.Resilience to the HttpClient registration. Under the hood it is a Polly 8 pipeline with retry, a circuit breaker, and per attempt and total timeouts, all with defaults. The retry makes 3 attempts with exponential backoff and jitter, on 5xx, 408, 429 and HttpRequestException. Your loop also retries 404 every 500 ms, and that goes away too."
+        },
+        {
+          "kind": "command",
+          "body": "dotnet add package Microsoft.Extensions.Http.Resilience"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public sealed class InventoryClient(HttpClient http)\n{\n    public Task<StockLevel?> GetStockAsync(string sku, CancellationToken ct) =>\n        http.GetFromJsonAsync<StockLevel>($\"v2/stock/{Uri.EscapeDataString(sku)}\", ct);\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's|/\"));$|/\")).AddStandardResilienceHandler();|' src/Program.cs"
+        }
+      ]
+    },
+    {
+      "user": "the inventory API takes like 15s during month end reports and now every one of those fails. it used to work",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch. The standard handler cuts each attempt at 10 seconds and the whole request at 30. A 15 second response is cut at 10 every time, retried, and finally hits the total timeout. It used to pass because only the default HttpClient.Timeout of 100 seconds applied. Widening the attempt to 20 seconds and the total to 60 will work as expected."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "builder.Services.AddHttpClient<InventoryClient>(c => c.BaseAddress = new Uri(\"https://inventory.example.com/\"))\n    .AddStandardResilienceHandler(options =>\n    {\n        options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(20);\n        options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(60);\n    });\n"
+        }
+      ]
+    },
+    {
+      "user": "starts up but the first request throws OptionsValidationException. something about SamplingDuration",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous change does not pass options validation. The circuit breaker's SamplingDuration has to be at least twice the attempt timeout. The default 30 seconds was sized for a 10 second attempt, so a 20 second attempt needs 40 or more. This one line gets it through validation."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/AttemptTimeout\\.Timeout/a\\\n        options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(40);\n' src/Program.cs"
+        }
+      ]
+    }
+  ]
+}

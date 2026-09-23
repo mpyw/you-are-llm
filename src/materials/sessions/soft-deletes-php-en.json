@@ -1,0 +1,66 @@
+{
+  "id": "soft-deletes-php-en",
+  "title": "Soft delete posts and restore them from the trash",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "Add deleted_at to posts that were hard deleted, list the trash with onlyTrashed, and bind the restore route with withTrashed.",
+  "files": [
+    {
+      "path": "app/Models/Post.php",
+      "content": "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\nclass Post extends Model\n{\n    protected $fillable = ['title', 'slug', 'body'];\n}\n"
+    },
+    {
+      "path": "app/Http/Controllers/Admin/PostController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers\\Admin;\n\nuse App\\Http\\Controllers\\Controller;\nuse App\\Models\\Post;\n\nclass PostController extends Controller\n{\n    public function index()\n    {\n        return view('admin.posts.index', [\n            'posts' => Post::latest()->paginate(20),\n        ]);\n    }\n\n    public function destroy(Post $post)\n    {\n        $post->delete();\n\n        return redirect()->route('admin.posts.index');\n    }\n}\n"
+    },
+    {
+      "path": "routes/web.php",
+      "content": "<?php\n\nuse App\\Http\\Controllers\\Admin\\PostController;\nuse Illuminate\\Support\\Facades\\Route;\n\nRoute::prefix('admin')->name('admin.')->middleware('auth')->group(function () {\n    Route::resource('posts', PostController::class)->only(['index', 'destroy']);\n});\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "deleting a post in admin wipes it from the db. someone deleted one by mistake and we had no way back. make it a soft delete",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! Add the SoftDeletes trait to Post and a deleted_at column to posts. destroy can keep calling $post->delete(), which now stamps deleted_at instead of removing the row. Deleted rows drop out of normal queries on their own, so the index and route model binding need no changes. Call forceDelete() only when a row really has to go."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Illuminate\\Database\\Eloquent\\SoftDeletes;\n\nclass Post extends Model\n{\n    use SoftDeletes;\n"
+        },
+        {
+          "kind": "command",
+          "body": "php artisan make:migration add_deleted_at_to_posts_table --table=posts"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function up(): void\n{\n    Schema::table('posts', function (Blueprint $table) {\n        $table->softDeletes();\n    });\n}\n\npublic function down(): void\n{\n    Schema::table('posts', function (Blueprint $table) {\n        $table->dropSoftDeletes();\n    });\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "want a trash page too. only the deleted ones, plus a restore button. withTrashed for the list right?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! The list wants onlyTrashed(). withTrashed() returns everything, deleted or not, so live posts would show up in the trash. The restore route is where withTrashed() belongs. Route model binding skips deleted rows, so without it the request is a 404 before restore() ever runs. TL;DR: the list looks at deleted rows only, restore looks at deleted rows too."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function trashed()\n{\n    return view('admin.posts.trashed', [\n        'posts' => Post::onlyTrashed()->latest('deleted_at')->paginate(20),\n    ]);\n}\n\npublic function restore(Post $post)\n{\n    $post->restore();\n\n    return redirect()->route('admin.posts.trashed');\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "Route::get('posts/trashed', [PostController::class, 'trashed'])->name('posts.trashed');\nRoute::patch('posts/{post}/restore', [PostController::class, 'restore'])\n    ->name('posts.restore')\n    ->withTrashed();\n"
+        }
+      ]
+    }
+  ]
+}

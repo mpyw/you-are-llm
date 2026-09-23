@@ -1,0 +1,57 @@
+{
+  "id": "spdlog-logger-cpp-en",
+  "title": "Swap debug std::cout for spdlog",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "cpp",
+  "summary": "Raw std::cout lines become leveled spdlog calls. The default level and the pattern are set once in main.",
+  "files": [
+    {
+      "path": "src/sync/uploader.cpp",
+      "content": "#include \"uploader.h\"\n\n#include <iostream>\n\nvoid Uploader::upload(const Chunk &chunk)\n{\n    std::cout << \"[DEBUG] sending chunk \" << chunk.index << \" (\" << chunk.data.size() << \" bytes)\" << std::endl;\n    auto res = client_.put(chunk);\n    if (!res.ok()) {\n        std::cout << \"!!! chunk \" << chunk.index << \" failed status=\" << res.status << std::endl;\n        return;\n    }\n    std::cout << \"chunk \" << chunk.index << \" ok\" << std::endl;\n}\n"
+    },
+    {
+      "path": "src/main.cpp",
+      "content": "#include \"uploader.h\"\n\nint main(int argc, char *argv[])\n{\n    Uploader uploader(Config::load(argc, argv));\n    return uploader.run();\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "uploader spams cout and prod logs are unreadable. spdlog is already a dep, swap it in. failures should stand out",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Got it! Each cout maps to a level by what it says: debug, warn and info. spdlog takes the same {} syntax as {fmt}, so the string that was chopped up with << becomes one line. The level and the pattern are set once in main. The part between %^ and %$ gets a color per level on a terminal, so a warning stands out. In other words, main decides what gets through and each caller only picks how serious its message is. A clean separation of concerns."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include \"uploader.h\"\n\n#include <spdlog/spdlog.h>\n\nvoid Uploader::upload(const Chunk &chunk)\n{\n    spdlog::debug(\"sending chunk {} ({} bytes)\", chunk.index, chunk.data.size());\n    auto res = client_.put(chunk);\n    if (!res.ok()) {\n        spdlog::warn(\"chunk {} failed: status={}\", chunk.index, res.status);\n        return;\n    }\n    spdlog::info(\"chunk {} ok\", chunk.index);\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include \"uploader.h\"\n\n#include <spdlog/spdlog.h>\n\nint main(int argc, char *argv[])\n{\n    spdlog::set_level(spdlog::level::info);\n    spdlog::set_pattern(\"%H:%M:%S.%e [%^%l%$] %v\");\n\n    Uploader uploader(Config::load(argc, argv));\n    return uploader.run();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "nice. locally i want debug too though. without rebuilding every time",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "spdlog::cfg::load_env_levels reads the level from the SPDLOG_LEVEL environment variable. Note: call it after set_level. Called before, the set_level right after it overwrites whatever the variable said. With no variable set it stays at info, so production behaves exactly as before."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include <spdlog/cfg/env.h>\n#include <spdlog/spdlog.h>\n\nint main(int argc, char *argv[])\n{\n    spdlog::set_level(spdlog::level::info);\n    spdlog::set_pattern(\"%H:%M:%S.%e [%^%l%$] %v\");\n    spdlog::cfg::load_env_levels();\n\n    Uploader uploader(Config::load(argc, argv));\n    return uploader.run();\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "SPDLOG_LEVEL=debug ./build/uploader"
+        }
+      ]
+    }
+  ]
+}

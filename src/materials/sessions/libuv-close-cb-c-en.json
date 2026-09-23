@@ -1,0 +1,67 @@
+{
+  "id": "libuv-close-cb-c-en",
+  "title": "Free libuv handles in the close callback",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "c",
+  "summary": "Free clients in the close callback instead of right after uv_close, then shut down on Ctrl-C all the way to uv_loop_close.",
+  "files": [
+    {
+      "path": "src/net/server.c",
+      "content": "#include <stdio.h>\n#include <stdlib.h>\n#include <uv.h>\n\nstatic void alloc_cb(uv_handle_t *handle, size_t suggested, uv_buf_t *buf) {\n  buf->base = malloc(suggested);\n  buf->len = suggested;\n}\n\nstatic void on_read(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf) {\n  if (nread < 0) {\n    uv_close((uv_handle_t *)client, NULL);\n    free(client);\n  }\n  free(buf->base);\n}\n\nstatic void on_connection(uv_stream_t *server, int status) {\n  if (status < 0) return;\n  uv_tcp_t *client = malloc(sizeof *client);\n  uv_tcp_init(server->loop, client);\n  if (uv_accept(server, (uv_stream_t *)client) == 0) {\n    uv_read_start((uv_stream_t *)client, alloc_cb, on_read);\n  } else {\n    uv_close((uv_handle_t *)client, NULL);\n    free(client);\n  }\n}\n\nint main(void) {\n  uv_loop_t *loop = uv_default_loop();\n  uv_tcp_t server;\n  struct sockaddr_in addr;\n  uv_ip4_addr(\"0.0.0.0\", 7000, &addr);\n  uv_tcp_init(loop, &server);\n  uv_tcp_bind(&server, (const struct sockaddr *)&addr, 0);\n  int rc = uv_listen((uv_stream_t *)&server, 128, on_connection);\n  if (rc != 0) {\n    fprintf(stderr, \"listen: %s\\n\", uv_strerror(rc));\n    return 1;\n  }\n  return uv_run(loop, UV_RUN_DEFAULT);\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "server sometimes dies when a client disconnects. asan says heap-use-after-free inside uv_run",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Good instinct to look at where it dies. uv_close does not close the handle on the spot. It queues the close on the loop, finishes it on a later iteration, and only then calls the close callback. Freeing before that leaves libuv touching freed memory. The idiomatic pattern is to free in the close callback, placed above on_read."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "static void on_close(uv_handle_t *handle) {\n  free(handle);\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/uv_close((uv_handle_t \\*)client, NULL);/uv_close((uv_handle_t *)client, on_close);/; /free(client);/d' src/net/server.c"
+        }
+      ]
+    },
+    {
+      "user": "fixed. now i want ctrl-c to exit cleanly, call uv_loop_close too",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Catching SIGINT with a uv_signal_t, stopping the loop with uv_stop, then calling uv_loop_close. This guarantees a clean, deterministic shutdown."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "static void on_signal(uv_signal_t *sig, int signum) {\n  uv_stop(sig->loop);\n}\n\nint main(void) {\n  uv_loop_t *loop = uv_default_loop();\n  uv_tcp_t server;\n  uv_signal_t sig;\n  struct sockaddr_in addr;\n  uv_ip4_addr(\"0.0.0.0\", 7000, &addr);\n  uv_tcp_init(loop, &server);\n  uv_tcp_bind(&server, (const struct sockaddr *)&addr, 0);\n  int rc = uv_listen((uv_stream_t *)&server, 128, on_connection);\n  if (rc != 0) {\n    fprintf(stderr, \"listen: %s\\n\", uv_strerror(rc));\n    return 1;\n  }\n  uv_signal_init(loop, &sig);\n  uv_signal_start(&sig, on_signal, SIGINT);\n  uv_run(loop, UV_RUN_DEFAULT);\n  rc = uv_loop_close(loop);\n  if (rc != 0) fprintf(stderr, \"loop close: %s\\n\", uv_strerror(rc));\n  return rc == 0 ? 0 : 1;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "it prints loop close: resource busy or locked",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, that shutdown was wrong. uv_stop only leaves the loop and every handle stays open, so uv_loop_close returns UV_EBUSY. Instead of stopping, close every handle and let uv_run return on its own. The server and the signal live on the stack, so they close with NULL. The remaining clients are found with uv_walk and freed by on_close. The server is reached through sig.data."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "static void close_rest(uv_handle_t *handle, void *arg) {\n  if (!uv_is_closing(handle)) uv_close(handle, on_close);\n}\n\nstatic void on_signal(uv_signal_t *sig, int signum) {\n  uv_close((uv_handle_t *)sig->data, NULL);\n  uv_close((uv_handle_t *)sig, NULL);\n  uv_walk(sig->loop, close_rest, NULL);\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "  uv_signal_init(loop, &sig);\n  sig.data = &server;\n  uv_signal_start(&sig, on_signal, SIGINT);\n  uv_run(loop, UV_RUN_DEFAULT);\n"
+        }
+      ]
+    }
+  ]
+}

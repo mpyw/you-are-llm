@@ -1,0 +1,78 @@
+{
+  "id": "scheduled-task-java-ja",
+  "title": "@Scheduled が動かない、動いたら重なった",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "java",
+  "summary": "@EnableScheduling を足したら動いたが、1 本しかないスケジューラのスレッドを空けようと @Async を付けたら在庫同期が同時に走った。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/inventory/Application.java",
+      "content": "package com.example.inventory;\n\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\n\n@SpringBootApplication\npublic class Application {\n    public static void main(String[] args) {\n        SpringApplication.run(Application.class, args);\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/inventory/InventorySyncJob.java",
+      "content": "package com.example.inventory;\n\nimport java.util.List;\nimport org.springframework.scheduling.annotation.Scheduled;\nimport org.springframework.stereotype.Component;\n\n@Component\npublic class InventorySyncJob {\n    private final WarehouseClient warehouse;\n    private final StockRepository stock;\n    private final SyncCursorRepository cursor;\n\n    public InventorySyncJob(WarehouseClient warehouse, StockRepository stock, SyncCursorRepository cursor) {\n        this.warehouse = warehouse;\n        this.stock = stock;\n        this.cursor = cursor;\n    }\n\n    @Scheduled(fixedRate = 60000)\n    public void sync() {\n        List<Movement> movements = warehouse.movementsAfter(cursor.load());\n        movements.forEach(stock::apply);\n        if (!movements.isEmpty()) {\n            cursor.save(movements.get(movements.size() - 1).id());\n        }\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/inventory/SessionCleanupJob.java",
+      "content": "package com.example.inventory;\n\nimport org.springframework.scheduling.annotation.Scheduled;\nimport org.springframework.stereotype.Component;\n\n@Component\npublic class SessionCleanupJob {\n    private final SessionRepository sessions;\n\n    public SessionCleanupJob(SessionRepository sessions) {\n        this.sessions = sessions;\n    }\n\n    @Scheduled(fixedRate = 60000)\n    public void purgeExpired() {\n        sessions.deleteExpired();\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "在庫同期のジョブ書いたのに一回も動いてない。ログも何も出ない。@Scheduled(fixedRate = 60000) は付けてる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、@EnableScheduling がどこにもないのが原因です。@Scheduled は目印にすぎず、それを探して登録する仕組みを有効にするのが @EnableScheduling です。付いていなければ例外もログも出ず、黙って何も起きません。アプリケーションクラスに付けます。",
+          "reading": "けつろんからいうと、@EnableScheduling がどこにもないのがげんいんです。@Scheduled はめじるしにすぎず、それをさがしてとうろくするしくみをゆうこうにするのが @EnableScheduling です。ついていなければれいがいもログもでず、だまってなにもおきません。アプリケーションクラスにつけます。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import org.springframework.scheduling.annotation.EnableScheduling;\n\n@EnableScheduling\n@SpringBootApplication\npublic class Application {\n"
+        }
+      ]
+    },
+    {
+      "user": "動いた。けど同期が重い日は 5 分とかかかってて、その間セッション掃除のジョブが全然走ってない。あと fixedRate って前のが終わる前に次が走って二重になったりしない？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。まず二重実行ですが、fixedRate だけなら重なりません。スケジューラは同じタスクを同時に 2 本走らせないので、前回が長引けば次回は遅れ、終わった直後に始まります。セッション掃除が止まる原因は別で、Boot の既定のスケジューラはスレッドが 1 本しかありません。言い換えると、在庫同期がその 1 本を 5 分握っている間、ほかの @Scheduled はすべて待たされます。そこで sync に @Async を付け、重い処理は非同期のスレッドプールに渡してスケジューラのスレッドをすぐ返します。",
+          "reading": "するどいごしてきです。まずにじゅうじっこうですが、fixedRate だけならかさなりません。スケジューラはおなじタスクをどうじに 2 ほんはしらせないので、ぜんかいがながびけばじかいはおくれ、おわったちょくごにはじまります。セッションそうじがとまるげんいんはべつで、Boot のきていのスケジューラはスレッドが 1 ぽんしかありません。いいかえると、ざいこどうきがその 1 ぽんを 5 ふんにぎっているあいだ、ほかの @Scheduled はすべてまたされます。そこで sync に @Async をつけ、おもいしょりはひどうきのスレッドプールにわたしてスケジューラのスレッドをすぐかえします。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import org.springframework.scheduling.annotation.EnableAsync;\n\n@EnableAsync\n@EnableScheduling\n@SpringBootApplication\npublic class Application {\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import org.springframework.scheduling.annotation.Async;\n\n@Async\n@Scheduled(fixedRate = 60000)\npublic void sync() {\n"
+        }
+      ]
+    },
+    {
+      "user": "在庫が二重に引かれてるって言われた。ログ見たら sync が 3 本同時に走ってる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "重要な訂正があります。原因は先ほどの @Async です。@Async を付けると、スケジューラは 1 分ごとに仕事を別スレッドへ渡してすぐ戻るので、前回が終わったかどうかをもう見ていません。fixedRate が重ならないのは、スケジューラ自身のスレッドで動いている場合に限った話でした。@Async と @EnableAsync を外し、fixedRate を fixedDelay に変えて、前回が終わってから 1 分空けます。セッション掃除が待たされる件は、スケジューラのスレッドを 2 本に増やして解決します。これで同期が重ならず、掃除も止まらないことを保証します。",
+          "reading": "じゅうようなていせいがあります。げんいんはさきほどの @Async です。@Async をつけると、スケジューラは 1 ぷんごとにしごとをべつスレッドへわたしてすぐもどるので、ぜんかいがおわったかどうかをもうみていません。fixedRate がかさならないのは、スケジューラじしんのスレッドでうごいているばあいにかぎったはなしでした。@Async と @EnableAsync をはずし、fixedRate を fixedDelay にかえて、ぜんかいがおわってから 1 ぷんあけます。セッションそうじがまたされるけんは、スケジューラのスレッドを 2 ほんにふやしてかいけつします。これでどうきがかさならず、そうじもとまらないことをほしょうします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e '/Async/d' -e 's/fixedRate = 60000/fixedDelay = 60000/' src/main/java/com/example/inventory/Application.java src/main/java/com/example/inventory/InventorySyncJob.java"
+        },
+        {
+          "kind": "code",
+          "lang": "yaml",
+          "body": "spring:\n  task:\n    scheduling:\n      pool:\n        size: 2\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "id": "qt-list-model-cpp-en",
+  "title": "Added tasks never show up in the ListView",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "cpp",
+  "summary": "A QAbstractListModel append gets wrapped in beginInsertRows and endInsertRows, and done goes into roleNames. last is inclusive, so subtract one.",
+  "files": [
+    {
+      "path": "src/models/tasklistmodel.h",
+      "content": "#pragma once\n\n#include <QAbstractListModel>\n#include <QList>\n#include <QString>\n\nstruct Task {\n    QString title;\n    bool done = false;\n};\n\nclass TaskListModel : public QAbstractListModel\n{\n    Q_OBJECT\npublic:\n    enum Role { TitleRole = Qt::UserRole + 1, DoneRole };\n\n    using QAbstractListModel::QAbstractListModel;\n\n    int rowCount(const QModelIndex &parent = QModelIndex()) const override;\n    QVariant data(const QModelIndex &index, int role) const override;\n    QHash<int, QByteArray> roleNames() const override;\n\n    Q_INVOKABLE void addTask(const QString &title);\n\nprivate:\n    QList<Task> tasks_;\n};\n"
+    },
+    {
+      "path": "src/models/tasklistmodel.cpp",
+      "content": "#include \"tasklistmodel.h\"\n\nint TaskListModel::rowCount(const QModelIndex &) const\n{\n    return tasks_.size();\n}\n\nQVariant TaskListModel::data(const QModelIndex &index, int role) const\n{\n    const Task &task = tasks_[index.row()];\n    if (role == TitleRole)\n        return task.title;\n    if (role == DoneRole)\n        return task.done;\n    return {};\n}\n\nQHash<int, QByteArray> TaskListModel::roleNames() const\n{\n    return {{TitleRole, \"title\"}};\n}\n\nvoid TaskListModel::addTask(const QString &title)\n{\n    tasks_.append({title, false});\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "showing tasks in a QML ListView. addTask doesnt add anything on screen, but if i go to another page and back its there. also done is undefined",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's go through it step by step. addTask appends to tasks_ directly, so nothing tells the view a row arrived. Call beginInsertRows before the change and endInsertRows after it, and rowsInserted reaches the ListView, which then builds a delegate for just that row. done is undefined because DoneRole is missing from roleNames, and QML can only reach the roles named there. While at it, a list model returns 0 rows for a valid parent, and data runs checkIndex first. More robust that way."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include \"tasklistmodel.h\"\n\nint TaskListModel::rowCount(const QModelIndex &parent) const\n{\n    if (parent.isValid())\n        return 0;\n    return static_cast<int>(tasks_.size());\n}\n\nQVariant TaskListModel::data(const QModelIndex &index, int role) const\n{\n    if (!checkIndex(index, CheckIndexOption::IndexIsValid | CheckIndexOption::ParentIsInvalid))\n        return {};\n    const Task &task = tasks_[index.row()];\n    if (role == TitleRole)\n        return task.title;\n    if (role == DoneRole)\n        return task.done;\n    return {};\n}\n\nQHash<int, QByteArray> TaskListModel::roleNames() const\n{\n    return {{TitleRole, \"title\"}, {DoneRole, \"done\"}};\n}\n\nvoid TaskListModel::addTask(const QString &title)\n{\n    const int row = static_cast<int>(tasks_.size());\n    beginInsertRows(QModelIndex(), row, row);\n    tasks_.append({title, false});\n    endInsertRows();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "also want to bulk import like 100 rows from CSV. addTask in a loop fires 100 notifications right?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Right. addTasks inserts them all under one beginInsertRows. An empty list cannot form a range, so it returns early. Add the declaration to the header too."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "void TaskListModel::addTasks(const QList<Task> &tasks)\n{\n    if (tasks.isEmpty())\n        return;\n    const int first = static_cast<int>(tasks_.size());\n    const int last = first + static_cast<int>(tasks.size());\n    beginInsertRows(QModelIndex(), first, last);\n    tasks_.append(tasks);\n    endInsertRows();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "added QAbstractItemModelTester and the import crashes. Actual (model->rowCount(parent)) 3, Expected 4 or something",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, that was my mistake. The last argument of beginInsertRows is inclusive, so n rows end at first + n - 1. My code announced one row too many, and the tester caught the mismatch at endInsertRows. Key point: first and last both name row numbers as they will be after the insert."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/first + static_cast<int>(tasks.size());/first + static_cast<int>(tasks.size()) - 1;/' src/models/tasklistmodel.cpp"
+        }
+      ]
+    },
+    {
+      "user": "works. want a checkbox to toggle done, something QML can call",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's toggleDone. Declare it with Q_INVOKABLE in the header. After the value changes it emits dataChanged with only DoneRole as the third argument, so the view does not read title again. With that, both new rows and changed values reach the view."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "void TaskListModel::toggleDone(int row)\n{\n    if (row < 0 || row >= rowCount())\n        return;\n    tasks_[row].done = !tasks_[row].done;\n    const QModelIndex changed = index(row);\n    emit dataChanged(changed, changed, {DoneRole});\n}\n"
+        }
+      ]
+    }
+  ]
+}

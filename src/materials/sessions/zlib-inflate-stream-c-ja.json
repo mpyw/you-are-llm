@@ -1,0 +1,65 @@
+{
+  "id": "zlib-inflate-stream-c-ja",
+  "title": "巨大なバックアップを inflate で少しずつ展開する",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "c",
+  "summary": "全体を読み込んで uncompress していた復元を z_stream のストリームに替え、avail_out が 0 の間 inflate を呼び続けるループに直す。",
+  "files": [
+    {
+      "path": "src/backup/restore.c",
+      "content": "#include <stdio.h>\n#include <stdlib.h>\n#include <zlib.h>\n\nint restore(const char *src_path, const char *dst_path, size_t orig_len) {\n  FILE *src = fopen(src_path, \"rb\");\n  if (src == NULL) return -1;\n  fseek(src, 0, SEEK_END);\n  long src_len = ftell(src);\n  rewind(src);\n  unsigned char *in = malloc((size_t)src_len);\n  unsigned char *out = malloc(orig_len);\n  size_t got = in == NULL ? 0 : fread(in, 1, (size_t)src_len, src);\n  fclose(src);\n  uLongf out_len = (uLongf)orig_len;\n  int rc = out == NULL || got != (size_t)src_len ? Z_MEM_ERROR : uncompress(out, &out_len, in, (uLong)src_len);\n  free(in);\n  if (rc != Z_OK) {\n    free(out);\n    return -1;\n  }\n  FILE *dst = fopen(dst_path, \"wb\");\n  size_t put = dst == NULL ? 0 : fwrite(out, 1, out_len, dst);\n  free(out);\n  if (dst == NULL || fclose(dst) != 0 || put != out_len) return -1;\n  return 0;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "restore が 6GB のバックアップで OOM で落ちる。コンテナのメモリ 512MB しかない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。今の restore は圧縮ファイル全体と展開後の全体を両方 malloc しているので、6 GB の復元には 6 GB 以上のメモリが要ります。z_stream を使えば、16 KiB の入力と出力のバッファだけで、読んでは展開して書き出す処理を繰り返せます。呼び出し側で開いた FILE を受け取る形に変えるので、orig_len も要らなくなります。これで 6 GB でも期待どおりに動作します。",
+          "reading": "しょうちしました。いまの restore はあっしゅくふぁいるぜんたいとてんかいごのぜんたいをりょうほう malloc しているので、6 GB のふくげんには 6 GB いじょうのめもりがいります。z_stream をつかえば、16 KiB のにゅうりょくとしゅつりょくのばっふぁだけで、よんではてんかいしてかきだすしょりをくりかえせます。よびだしがわでひらいた FILE をうけとるかたちにかえるので、orig_len もいらなくなります。これで 6 GB でもきたいどおりにどうさします。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#include <stdio.h>\n#include <zlib.h>\n\n#define CHUNK 16384\n\nint restore(FILE *src, FILE *dst) {\n  unsigned char in[CHUNK];\n  unsigned char out[CHUNK];\n  z_stream strm = {0};\n  if (inflateInit(&strm) != Z_OK) return -1;\n  int ret = Z_OK;\n  while (ret != Z_STREAM_END) {\n    strm.avail_in = (uInt)fread(in, 1, CHUNK, src);\n    if (ferror(src) || strm.avail_in == 0) break;\n    strm.next_in = in;\n    strm.avail_out = CHUNK;\n    strm.next_out = out;\n    ret = inflate(&strm, Z_NO_FLUSH);\n    if (ret == Z_NEED_DICT || ret == Z_DATA_ERROR || ret == Z_MEM_ERROR) break;\n    size_t have = CHUNK - strm.avail_out;\n    if (fwrite(out, 1, have, dst) != have) break;\n  }\n  inflateEnd(&strm);\n  return ret == Z_STREAM_END ? 0 : -1;\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "Note: z_stream は {0} で初期化しています。inflateInit の前に zalloc、zfree、opaque、next_in、avail_in を設定しておく必要があり、ゼロにしておくと既定のアロケータが使われます。",
+          "reading": "Note: z_stream は {0} でしょきかしています。inflateInit のまえに zalloc、zfree、opaque、next_in、avail_in をせっていしておくひつようがあり、ぜろにしておくときていのあろけーたがつかわれます。"
+        }
+      ]
+    },
+    {
+      "user": "テスト用の小さいのは戻る。本番のでかいのは -1。途中まで書かれたファイルが残ってる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、先ほどのループは正確ではありませんでした。inflate は出力バッファが一杯になった時点で戻り、読み終えていない入力を next_in と avail_in に残します。圧縮データは展開すると何倍にも膨らむので、16 KiB の入力が 16 KiB の出力に収まることはまずありません。それなのに inflate を 1 回呼んだだけで次の fread に進み、残った入力を上書きしていました。言い換えると、ストリームの途中が欠けるので Z_DATA_ERROR で止まります。avail_out が 0 で戻ってくる間は、同じ入力のまま inflate を呼び続けます。",
+          "reading": "あらためてかくにんしたところ、さきほどのるーぷはせいかくではありませんでした。inflate はしゅつりょくばっふぁがいっぱいになったじてんでもどり、よみおえていないにゅうりょくを next_in と avail_in にのこします。あっしゅくでーたはてんかいするとなんばいにもふくらむので、16 KiB のにゅうりょくが 16 KiB のしゅつりょくにおさまることはまずありません。それなのに inflate を 1 かいよんだだけでつぎの fread にすすみ、のこったにゅうりょくをうわがきしていました。いいかえると、すとりーむのとちゅうがかけるので Z_DATA_ERROR でとまります。avail_out が 0 でもどってくるあいだは、おなじにゅうりょくのまま inflate をよびつづけます。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#include <stdio.h>\n#include <zlib.h>\n\n#define CHUNK 16384\n\nint restore(FILE *src, FILE *dst) {\n  unsigned char in[CHUNK];\n  unsigned char out[CHUNK];\n  z_stream strm = {0};\n  if (inflateInit(&strm) != Z_OK) return -1;\n  int ret = Z_OK;\n  while (ret != Z_STREAM_END) {\n    strm.avail_in = (uInt)fread(in, 1, CHUNK, src);\n    if (ferror(src) || strm.avail_in == 0) break;\n    strm.next_in = in;\n    do {\n      strm.avail_out = CHUNK;\n      strm.next_out = out;\n      ret = inflate(&strm, Z_NO_FLUSH);\n      if (ret == Z_NEED_DICT || ret == Z_DATA_ERROR || ret == Z_MEM_ERROR) goto done;\n      size_t have = CHUNK - strm.avail_out;\n      if (fwrite(out, 1, have, dst) != have) goto done;\n    } while (strm.avail_out == 0);\n  }\ndone:\n  inflateEnd(&strm);\n  return ret == Z_STREAM_END ? 0 : -1;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、古いバックアップは gzip -c で作ったやつも混ざってる。両方いける？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "いけます。inflateInit2 の windowBits に 15 + 32 を渡すと、zlib と gzip のヘッダを自動で見分けます。15 は最大の窓の大きさで、どちらの形式もこの値で展開できます。ループはヘッダの形式と直交しているので、変えるのは初期化の 1 行だけです。",
+          "reading": "いけます。inflateInit2 の windowBits に 15 + 32 をわたすと、zlib と gzip のへっだをじどうでみわけます。15 はさいだいのまどのおおきさで、どちらのけいしきもこのあたいでてんかいできます。るーぷはへっだのけいしきとちょっこうしているので、かえるのはしょきかの 1 ぎょうだけです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/inflateInit(&strm)/inflateInit2(\\&strm, 15 + 32)/' src/backup/restore.c"
+        }
+      ]
+    }
+  ]
+}

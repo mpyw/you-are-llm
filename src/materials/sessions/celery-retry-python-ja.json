@@ -1,0 +1,75 @@
+{
+  "id": "celery-retry-python-ja",
+  "title": "Celery タスクを autoretry_for で再試行し、二重請求しないよう冪等にする",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "python",
+  "summary": "決済 API の一時障害で止まる請求タスクに自動再試行を付け、ReadTimeout の再送で起きた二重請求を Idempotency-Key で止め、4xx と使い切った後の扱いを決める。",
+  "files": [
+    {
+      "path": "billing/tasks.py",
+      "content": "import requests\nfrom celery import shared_task\nfrom django.conf import settings\n\nfrom .models import Invoice\n\n\n@shared_task\ndef charge_invoice(invoice_id):\n    invoice = Invoice.objects.get(pk=invoice_id)\n    response = requests.post(\n        f\"{settings.PAYMENT_API_URL}/charges\",\n        json={\"customer\": invoice.customer_id, \"amount\": invoice.amount},\n        timeout=10,\n    )\n    response.raise_for_status()\n    invoice.status = \"paid\"\n    invoice.save(update_fields=[\"status\"])\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "charge_invoice が決済 API のタイムアウトとか 503 でたまに FAILURE で止まってる。毎朝 flower 見て手で再実行するのもうやめたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。shared_task に autoretry_for を渡すと、そこに挙げた例外で自動的に self.retry が呼ばれます。接続失敗とタイムアウトに加えて、raise_for_status が 503 で送出する HTTPError も入れます。retry_backoff=True で待ち時間の上限が 1、2、4 秒と倍になり、既定のジッタでその範囲の乱数になるので、一斉に再送が押し寄せることもありません。max_retries=5 なので、最初の 1 回と合わせて最大 6 回実行されます。タイムアウトは決済側に届く前に切れたものなので、再試行しても請求が重なることはありません。",
+          "reading": "しょうちしました。shared_task に autoretry_for をわたすと、そこにあげたれいがいでじどうてきに self.retry がよばれます。せつぞくしっぱいとたいむあうとにくわえて、raise_for_status が 503 でそうしゅつする HTTPError もいれます。retry_backoff=True でまちじかんのじょうげんが 1、2、4 びょうとばいになり、きていのじったでそのはんいのらんすうになるので、いっせいにさいそうがおしよせることもありません。max_retries=5 なので、さいしょの 1 かいとあわせてさいだい 6 かいじっこうされます。たいむあうとはけっさいがわにとどくまえにきれたものなので、さいしこうしてもせいきゅうがかさなることはありません。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "@shared_task(\n    autoretry_for=(requests.ConnectionError, requests.Timeout, requests.HTTPError),\n    retry_backoff=True,\n    max_retries=5,\n)\ndef charge_invoice(invoice_id):\n    invoice = Invoice.objects.get(pk=invoice_id)\n    response = requests.post(\n        f\"{settings.PAYMENT_API_URL}/charges\",\n        json={\"customer\": invoice.customer_id, \"amount\": invoice.amount},\n        timeout=10,\n    )\n    response.raise_for_status()\n    invoice.status = \"paid\"\n    invoice.save(update_fields=[\"status\"])\n"
+        }
+      ]
+    },
+    {
+      "user": "二重請求が 2 件きた。ログだと ReadTimeout → retry → 成功 で、決済側に charge が 2 本できてる。決済 API のドキュメントに Idempotency-Key ってのはあるけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "重要な訂正があります。先ほどの説明は正確ではありませんでした。ReadTimeout はリクエストを送り終えて応答を待つ間に切れたもので、決済側では請求が通っていることがあります。届いていないと言えるのは ConnectTimeout のほうだけです。再試行は必ず起きる前提で、タスクをべき等にします。Idempotency-Key ヘッダに試行ごとに変わらない請求書の ID を入れれば、2 回目の送信は 1 回目の結果を返すだけになります。タスク ID は手で再実行すると変わるので、キーには使いません。あわせて、支払い済みの請求書は API を呼ぶ前に return します。",
+          "reading": "じゅうようなていせいがあります。さきほどのせつめいはせいかくではありませんでした。ReadTimeout はりくえすとをおくりおえておうとうをまつあいだにきれたもので、けっさいがわではせいきゅうがとおっていることがあります。とどいていないといえるのは ConnectTimeout のほうだけです。さいしこうはかならずおきるぜんていで、たすくをべきとうにします。Idempotency-Key へっだにしこうごとにかわらないせいきゅうしょの ID をいれれば、2 かいめのそうしんは 1 かいめのけっかをかえすだけになります。たすく ID はてでさいじっこうするとかわるので、きーにはつかいません。あわせて、しはらいずみのせいきゅうしょは API をよぶまえに return します。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/^\\( *\\)invoice = Invoice.objects.get(pk=invoice_id)$/&\\n\\1if invoice.status == \"paid\":\\n\\1    return/' -e 's/^\\( *\\)timeout=10,$/\\1headers={\"Idempotency-Key\": f\"invoice-{invoice.id}\"},\\n&/' billing/tasks.py"
+        }
+      ]
+    },
+    {
+      "user": "二重請求は止まった。けどカード拒否の 402 も律儀に 6 回叩いてるわ。拒否されたら failed にして終わりでいい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "おっしゃるとおりです。HTTPError を autoretry_for に入れたので、再試行しても結果が変わらない 4xx まで対象になっていました。raise_for_status の手前で 4xx を見分け、請求書を failed にして return します。ただし 429 は混雑による一時的な拒否なので、再試行の側に残すことをお勧めします。",
+          "reading": "おっしゃるとおりです。HTTPError を autoretry_for にいれたので、さいしこうしてもけっかがかわらない 4xx までたいしょうになっていました。raise_for_status のてまえで 4xx をみわけ、せいきゅうしょを failed にして return します。ただし 429 はこんざつによるいちじてきなきょひなので、さいしこうのがわにのこすことをおすすめします。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "def charge_invoice(invoice_id):\n    invoice = Invoice.objects.get(pk=invoice_id)\n    if invoice.status == \"paid\":\n        return\n    response = requests.post(\n        f\"{settings.PAYMENT_API_URL}/charges\",\n        json={\"customer\": invoice.customer_id, \"amount\": invoice.amount},\n        headers={\"Idempotency-Key\": f\"invoice-{invoice.id}\"},\n        timeout=10,\n    )\n    if 400 <= response.status_code < 500 and response.status_code != 429:\n        invoice.status = \"failed\"\n        invoice.save(update_fields=[\"status\"])\n        return\n    response.raise_for_status()\n    invoice.status = \"paid\"\n    invoice.save(update_fields=[\"status\"])\n"
+        }
+      ]
+    },
+    {
+      "user": "503 が 1 分くらい続いたやつ、6 回使い切って FAILURE なのに請求書は pending のまま。一覧で気づけない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "使い切った後は最後の例外がそのまま送出され、タスクは FAILURE になります。Task を継承したクラスの on_failure はこのときに 1 回だけ呼ばれ、再試行の途中では呼ばれません。これを base に渡して、pending のままの請求書に印を付けます。ここで failed にしない点に注意することが重要です。最後の失敗がタイムアウトなら、決済側では通っているかもしれません。needs_review にしておけば、同じ Idempotency-Key のまま再実行して安全に確定できます。以上で、再試行されても請求が重なることはなくなります。",
+          "reading": "つかいきったあとはさいごのれいがいがそのままそうしゅつされ、たすくは FAILURE になります。Task をけいしょうしたくらすの on_failure はこのときに 1 かいだけよばれ、さいしこうのとちゅうではよばれません。これを base にわたして、pending のままのせいきゅうしょにしるしをつけます。ここで failed にしないてんにちゅういすることがじゅうようです。さいごのしっぱいがたいむあうとなら、けっさいがわではとおっているかもしれません。needs_review にしておけば、おなじ Idempotency-Key のままさいじっこうしてあんぜんにかくていできます。いじょうで、さいしこうされてもせいきゅうがかさなることはなくなります。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from celery import Task, shared_task\n\n\nclass ChargeTask(Task):\n    def on_failure(self, exc, task_id, args, kwargs, einfo):\n        Invoice.objects.filter(pk=args[0], status=\"pending\").update(\n            status=\"needs_review\"\n        )\n\n\n@shared_task(\n    base=ChargeTask,\n    autoretry_for=(requests.ConnectionError, requests.Timeout, requests.HTTPError),\n    retry_backoff=True,\n    max_retries=5,\n)\ndef charge_invoice(invoice_id):\n"
+        }
+      ]
+    }
+  ]
+}
