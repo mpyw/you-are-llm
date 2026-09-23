@@ -1,0 +1,44 @@
+{
+  "id": "field-validator-python-en",
+  "title": "Tidy a username with field_validator",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "python",
+  "summary": "Strip and lower-case a field with a Pydantic v2 validator, then reject it when nothing is left.",
+  "files": [
+    {
+      "path": "app/schemas.py",
+      "content": "from pydantic import BaseModel\n\n\nclass SignupForm(BaseModel):\n    email: str\n    username: str\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "signup lets usernames like \" Mpyw \" straight into the db. trim it and lowercase it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. In v2 the best practice is field_validator rather than the old validator, with classmethod stacked underneath it. By default it runs after the type check, so value arrives as a str."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from pydantic import BaseModel, field_validator\n\n\nclass SignupForm(BaseModel):\n    email: str\n    username: str\n\n    @field_validator(\"username\")\n    @classmethod\n    def normalize_username(cls, value: str) -> str:\n        return value.strip().lower()\n"
+        }
+      ]
+    },
+    {
+      "user": "a username of only spaces gets through as an empty string. reject that",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Raise a ValueError and Pydantic wraps it in a ValidationError for you, so FastAPI answers 422 on its own. Note: the empty check has to come after strip."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "@field_validator(\"username\")\n@classmethod\ndef normalize_username(cls, value: str) -> str:\n    value = value.strip().lower()\n    if not value:\n        raise ValueError(\"username must not be blank\")\n    return value\n"
+        }
+      ]
+    }
+  ]
+}

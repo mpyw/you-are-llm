@@ -1,0 +1,78 @@
+{
+  "id": "captive-dbcontext-csharp-en",
+  "title": "Free a DbContext held by a singleton",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "csharp",
+  "summary": "A singleton price cache shares one scoped DbContext. Open a scope per lookup, then expire entries with IMemoryCache.",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using Acme.Data;\nusing Acme.Pricing;\nusing Microsoft.EntityFrameworkCore;\n\nvar builder = WebApplication.CreateBuilder(args);\n\nbuilder.Services.AddDbContext<ShopDbContext>(options =>\n    options.UseNpgsql(builder.Configuration.GetConnectionString(\"Shop\")));\nbuilder.Services.AddSingleton<PriceCache>();\n\nvar app = builder.Build();\n\napp.MapGet(\"/products/{id:int}/price\", async (int id, PriceCache prices, CancellationToken ct) =>\n    TypedResults.Ok(await prices.GetAsync(id, ct)));\n\napp.Run();\n"
+    },
+    {
+      "path": "src/Pricing/PriceCache.cs",
+      "content": "using System.Collections.Concurrent;\nusing Acme.Data;\nusing Microsoft.EntityFrameworkCore;\n\nnamespace Acme.Pricing;\n\npublic sealed class PriceCache(ShopDbContext db)\n{\n    private readonly ConcurrentDictionary<int, decimal> _prices = new();\n\n    public async Task<decimal> GetAsync(int productId, CancellationToken ct)\n    {\n        if (_prices.TryGetValue(productId, out var cached)) return cached;\n\n        var price = await db.Products\n            .Where(p => p.Id == productId)\n            .Select(p => p.Price)\n            .SingleAsync(ct);\n        _prices[productId] = price;\n        return price;\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "prod sometimes throws 'A second operation was started on this context instance'. only at peak hours",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: the singleton PriceCache is holding on to the scoped ShopDbContext. A DbContext resolved from the root exists only once, so concurrent requests run queries in parallel on the same instance, and DbContext is not thread safe. Scope validation would stop this at startup in Development, but it is off in production. Making PriceCache scoped as well fixes it."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/AddSingleton<PriceCache>/AddScoped<PriceCache>/' src/Program.cs"
+        }
+      ]
+    },
+    {
+      "user": "wait doesn't that throw the cache away every request? then what's the point of a cache",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "You are right, and I retract that. A scoped PriceCache is rebuilt per request. Keep it a singleton and create a scope with IServiceScopeFactory only when it has to ask the database, borrowing a DbContext inside it. The long lived object never holds the short lived one directly."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/AddScoped<PriceCache>/AddSingleton<PriceCache>/' src/Program.cs"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public sealed class PriceCache(IServiceScopeFactory scopeFactory)\n{\n    private readonly ConcurrentDictionary<int, decimal> _prices = new();\n\n    public async Task<decimal> GetAsync(int productId, CancellationToken ct)\n    {\n        if (_prices.TryGetValue(productId, out var cached)) return cached;\n\n        await using var scope = scopeFactory.CreateAsyncScope();\n        var db = scope.ServiceProvider.GetRequiredService<ShopDbContext>();\n        var price = await db.Products\n            .Where(p => p.Id == productId)\n            .Select(p => p.Price)\n            .SingleAsync(ct);\n        _prices[productId] = price;\n        return price;\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "prices change, so caching forever is bad. expire after 5 min. oh and admins need to clear one product by hand, forgot to say",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the plan: swap the ConcurrentDictionary for IMemoryCache, give each entry an expiry through GetOrCreateAsync, and add Invalidate to drop a single product. Program.cs needs one AddMemoryCache line."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using Microsoft.Extensions.Caching.Memory;\n\npublic sealed class PriceCache(IServiceScopeFactory scopeFactory, IMemoryCache cache)\n{\n    public Task<decimal> GetAsync(int productId, CancellationToken ct) =>\n        cache.GetOrCreateAsync((\"price\", productId), async entry =>\n        {\n            entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);\n            await using var scope = scopeFactory.CreateAsyncScope();\n            var db = scope.ServiceProvider.GetRequiredService<ShopDbContext>();\n            return await db.Products\n                .Where(p => p.Id == productId)\n                .Select(p => p.Price)\n                .SingleAsync(ct);\n        });\n\n    public void Invalidate(int productId) => cache.Remove((\"price\", productId));\n}\n\n// src/Program.cs\nbuilder.Services.AddMemoryCache();\n"
+        }
+      ]
+    },
+    {
+      "user": "sales says 5 min is still too long. 1 min",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Only the expiry changes."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/TimeSpan\\.FromMinutes(5)/TimeSpan.FromMinutes(1)/' src/Pricing/PriceCache.cs"
+        }
+      ]
+    }
+  ]
+}

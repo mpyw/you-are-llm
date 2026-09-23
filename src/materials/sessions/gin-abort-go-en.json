@@ -1,0 +1,43 @@
+{
+  "id": "gin-abort-go-en",
+  "title": "Code keeps running after c.Abort()",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "go",
+  "summary": "A Gin middleware aborts without returning, so the rest of the function still runs.",
+  "files": [
+    {
+      "path": "internal/middleware/auth.go",
+      "content": "package middleware\n\nimport (\n  \"net/http\"\n\n  \"github.com/gin-gonic/gin\"\n)\n\nfunc RequireToken(verify func(string) (string, error)) gin.HandlerFunc {\n  return func(c *gin.Context) {\n    token := c.GetHeader(\"Authorization\")\n    if token == \"\" {\n      c.AbortWithStatus(http.StatusUnauthorized)\n    }\n    userID, err := verify(token)\n    if err != nil {\n      c.AbortWithStatus(http.StatusUnauthorized)\n    }\n    c.Set(\"userID\", userID)\n    c.Next()\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "no token still gets a 401, but the log says headers were already written and verify gets called with an empty string",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: c.Abort() only stops the handlers queued after this one. It does not return from the function you are in. So the empty token goes on to verify, and the second AbortWithStatus tries to rewrite headers that are already out. The rule is simple: put a return right after every Abort."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "return func(c *gin.Context) {\n  token := c.GetHeader(\"Authorization\")\n  if token == \"\" {\n    c.AbortWithStatus(http.StatusUnauthorized)\n    return\n  }\n  userID, err := verify(token)\n  if err != nil {\n    c.AbortWithStatus(http.StatusUnauthorized)\n    return\n  }\n  c.Set(\"userID\", userID)\n  c.Next()\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "i thought abort stopped it. probably the same thing in the other middlewares",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's a quick way to find them. -A1 prints the line after each Abort, so any hit where that line is not a return needs a look."
+        },
+        {
+          "kind": "command",
+          "body": "grep -rn -A1 'Abort' internal/middleware"
+        }
+      ]
+    }
+  ]
+}

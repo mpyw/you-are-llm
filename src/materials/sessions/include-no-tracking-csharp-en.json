@@ -1,0 +1,61 @@
+{
+  "id": "include-no-tracking-csharp-en",
+  "title": "Fix an order list that counts zero lines",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "csharp",
+  "summary": "Load the missing lines with Include, add AsNoTracking, then let a Select projection count them in SQL.",
+  "files": [
+    {
+      "path": "src/Orders/OrderQueries.cs",
+      "content": "using Acme.Data;\nusing Microsoft.EntityFrameworkCore;\n\nnamespace Acme.Orders;\n\npublic sealed record OrderSummary(int Id, DateTime PlacedAt, int LineCount);\n\npublic sealed class OrderQueries(ShopDbContext db)\n{\n    public async Task<List<OrderSummary>> ListRecentAsync(int customerId, CancellationToken ct)\n    {\n        var orders = await db.Orders\n            .Where(o => o.CustomerId == customerId)\n            .OrderByDescending(o => o.PlacedAt)\n            .Take(20)\n            .ToListAsync(ct);\n\n        return orders\n            .Select(o => new OrderSummary(o.Id, o.PlacedAt, o.Lines.Count))\n            .ToList();\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "line count is 0 for every order in the list. the rows are definitely in the db",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "EF Core does not load related entities by default, so Lines stays empty unless you Include it. The list is read only, so AsNoTracking skips the change tracking cost as well."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "var orders = await db.Orders\n    .AsNoTracking()\n    .Include(o => o.Lines)\n    .Where(o => o.CustomerId == customerId)\n    .OrderByDescending(o => o.PlacedAt)\n    .Take(20)\n    .ToListAsync(ct);\n"
+        }
+      ]
+    },
+    {
+      "user": "ok works. but pulling every line just to count them feels heavy? some orders have like 300",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great point! Move the Select into the query and o.Lines.Count becomes a COUNT in SQL, so no line rows are sent at all. The Include is still needed in a projection to tell EF Core what to load, so it stays."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public async Task<List<OrderSummary>> ListRecentAsync(int customerId, CancellationToken ct)\n{\n    return await db.Orders\n        .AsNoTracking()\n        .Include(o => o.Lines)\n        .Where(o => o.CustomerId == customerId)\n        .OrderByDescending(o => o.PlacedAt)\n        .Take(20)\n        .Select(o => new OrderSummary(o.Id, o.PlacedAt, o.Lines.Count))\n        .ToListAsync(ct);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "do we need the include? i thought the docs said it's ignored when you project. also 20 isn't enough, make it 50",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. When a query projects to something other than an entity, Include is ignored, so the line goes. The Select is now the single source of truth for what gets read. The page size changes with it."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/\\.Include(o => o\\.Lines)/d' src/Orders/OrderQueries.cs"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/\\.Take(20)/.Take(50)/' src/Orders/OrderQueries.cs"
+        }
+      ]
+    }
+  ]
+}

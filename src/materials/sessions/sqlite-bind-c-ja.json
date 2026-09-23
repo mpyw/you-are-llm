@@ -1,0 +1,45 @@
+{
+  "id": "sqlite-bind-c-ja",
+  "title": "SQL の文字列連結をバインドに替える",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "c",
+  "summary": "snprintf で組み立てた SQL を sqlite3_prepare_v2 と sqlite3_bind_text に置き換える。",
+  "files": [
+    {
+      "path": "src/db/users.c",
+      "content": "#include <stdio.h>\n#include <stdlib.h>\n#include <sqlite3.h>\n\nstatic int on_row(void *arg, int argc, char **argv, char **cols) {\n  int *id = arg;\n  *id = atoi(argv[0]);\n  return 0;\n}\n\nint find_user_id(sqlite3 *db, const char *name, int *out_id) {\n  char sql[256];\n  snprintf(sql, sizeof sql, \"SELECT id FROM users WHERE name = '%s'\", name);\n  return sqlite3_exec(db, sql, on_row, out_id, NULL);\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "find_user_id、名前に ' が入ってるユーザーで落ちる。てかこれインジェクションできるよね？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。name を SQL の文字列に直接埋め込んでいるので、' を含む名前はそこで文字列を閉じてしまいます。sqlite3_prepare_v2 で ? をプレースホルダにした文を用意し、sqlite3_bind_text で値を渡します。値は SQL として解釈されないので、インジェクションを構造的に防げることを保証します。name は文が生きている間は有効なので SQLITE_STATIC で足ります。",
+          "reading": "しょうちしました。name を SQL のもじれつにちょくせつうめこんでいるので、' をふくむなまえはそこでもじれつをとじてしまいます。sqlite3_prepare_v2 で ? をぷれーすほるだにしたぶんをよういし、sqlite3_bind_text であたいをわたします。あたいは SQL としてかいしゃくされないので、いんじぇくしょんをこうぞうてきにふせげることをほしょうします。name はぶんがいきているあいだはゆうこうなので SQLITE_STATIC でたります。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "int find_user_id(sqlite3 *db, const char *name, int *out_id) {\n  sqlite3_stmt *stmt = NULL;\n  int rc = sqlite3_prepare_v2(db, \"SELECT id FROM users WHERE name = ?\", -1, &stmt, NULL);\n  if (rc != SQLITE_OK) return rc;\n  sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);\n  rc = sqlite3_step(stmt);\n  if (rc == SQLITE_ROW) {\n    *out_id = sqlite3_column_int(stmt, 0);\n    rc = SQLITE_OK;\n  }\n  sqlite3_finalize(stmt);\n  return rc;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、大文字小文字は区別しないで。Alice も alice も同じ人",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ポイントは、比較の側で吸収することです。ただし SQLite の COLLATE NOCASE は ASCII の範囲だけを畳むという点に注意することが重要です。",
+          "reading": "ぽいんとは、ひかくのがわできゅうしゅうすることです。ただし SQLite の COLLATE NOCASE は ASCII のはんいだけをたたむというてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/WHERE name = ?/WHERE name = ? COLLATE NOCASE/' src/db/users.c"
+        }
+      ]
+    }
+  ]
+}

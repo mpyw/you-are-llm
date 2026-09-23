@@ -1,0 +1,64 @@
+{
+  "id": "depends-yield-python-ja",
+  "title": "Depends で Session を yield して閉じる",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "python",
+  "summary": "FastAPI の QueuePool 枯渇を yield 依存で直し、commit と rollback を寄せ、握り潰した例外を投げ直す。",
+  "files": [
+    {
+      "path": "app/main.py",
+      "content": "from fastapi import FastAPI\nfrom sqlalchemy import create_engine\nfrom sqlalchemy.orm import Session\n\nfrom app.models import Item\n\nengine = create_engine(\"postgresql+psycopg://app@localhost/app\")\napp = FastAPI()\n\n\n@app.get(\"/items/{item_id}\")\ndef read_item(item_id: int):\n    session = Session(engine)\n    item = session.get(Item, item_id)\n    return {\"id\": item.id, \"name\": item.name}\n"
+    },
+    {
+      "path": "app/models.py",
+      "content": "from sqlalchemy import String\nfrom sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column\n\n\nclass Base(DeclarativeBase):\n    pass\n\n\nclass Item(Base):\n    __tablename__ = \"items\"\n\n    id: Mapped[int] = mapped_column(primary_key=True)\n    name: Mapped[str] = mapped_column(String(100), unique=True)\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "しばらく動かしてると QueuePool limit of size 5 overflow 10 reached, connection timed out で全部止まる。再起動すると直る",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Session を作ったまま閉じていないので、接続がプールに返らず 15 本で枯渇しています。FastAPI では yield を使った依存関係で Session を渡すのがベストプラクティスです。with を抜けたところで close され、接続がプールに戻ることを保証します。型を Annotated にまとめておくと、エンドポイントごとに Depends を書かずに済みます。",
+          "reading": "Session をつくったままとじていないので、せつぞくがぷーるにかえらず 15 ほんでこかつしています。FastAPI では yield をつかったいぞんかんけいで Session をわたすのがべすとぷらくてぃすです。with をぬけたところで close され、せつぞくがぷーるにもどることをほしょうします。かたを Annotated にまとめておくと、えんどぽいんとごとに Depends をかかずにすみます。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from typing import Annotated\n\nfrom fastapi import Depends, FastAPI\n\n\ndef get_session():\n    with Session(engine) as session:\n        yield session\n\n\nSessionDep = Annotated[Session, Depends(get_session)]\n\n\n@app.get(\"/items/{item_id}\")\ndef read_item(item_id: int, session: SessionDep):\n    item = session.get(Item, item_id)\n    return {\"id\": item.id, \"name\": item.name}\n"
+        }
+      ]
+    },
+    {
+      "user": "直った。POST /items も足したい。あと commit とか rollback を毎回書きたくないから dependency 側でやって",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great、get_session に寄せます。yield の後ろに commit を置き、例外が来たら rollback します。言い換えると、エンドポイントは add して flush するだけになります。flush で id が振られるので、そのまま返せます。",
+          "reading": "Great、get_session によせます。yield のうしろに commit をおき、れいがいがきたら rollback します。いいかえると、えんどぽいんとは add して flush するだけになります。flush で id がふられるので、そのままかえせます。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from pydantic import BaseModel\n\n\ndef get_session():\n    with Session(engine) as session:\n        try:\n            yield session\n            session.commit()\n        except Exception:\n            session.rollback()\n\n\nclass ItemIn(BaseModel):\n    name: str\n\n\n@app.post(\"/items\")\ndef create_item(body: ItemIn, session: SessionDep):\n    item = Item(name=body.name)\n    session.add(item)\n    session.flush()\n    return {\"id\": item.id, \"name\": item.name}\n"
+        }
+      ]
+    },
+    {
+      "user": "同じ name で 2 回 POST すると 500 なのはいいんだけど、ログに IntegrityError が出ない。Response not awaited がどうとか bare except がどうとかいう謎のエラーだけ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの get_session は except で例外を握り潰していました。yield のある依存関係で例外を捕まえたら、raise し直す必要があります。Response not awaited はまさにそれを指摘しています。rollback の直後に raise を足します。Note: Python ではインデントが意味を持つので、行頭の空白をグループで捕まえて、\\1 で同じ深さに揃えます。",
+          "reading": "もうしわけありません。さきほどの get_session は except でれいがいをにぎりつぶしていました。yield のあるいぞんかんけいでれいがいをつかまえたら、raise しなおすひつようがあります。Response not awaited はまさにそれをしてきしています。rollback のちょくごに raise をたします。Note: Python ではいんでんとがいみをもつので、ぎょうとうのくうはくをぐるーぷでつかまえて、\\1 でおなじふかさにそろえます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^\\( *\\)session.rollback()$/&\\n\\1raise/' app/main.py"
+        }
+      ]
+    }
+  ]
+}

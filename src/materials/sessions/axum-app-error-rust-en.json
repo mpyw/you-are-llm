@@ -1,0 +1,57 @@
+{
+  "id": "axum-app-error-rust-en",
+  "title": "Return Axum errors through IntoResponse",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "rust",
+  "summary": "Drop the unwrap, implement IntoResponse for AppError, and route RowNotFound to a 404.",
+  "files": [
+    {
+      "path": "src/handlers.rs",
+      "content": "use axum::extract::{Path, State};\nuse axum::Json;\nuse sqlx::PgPool;\n\n#[derive(serde::Serialize, sqlx::FromRow)]\npub struct User {\n    pub id: i64,\n    pub name: String,\n}\n\npub async fn get_user(\n    State(pool): State<PgPool>,\n    Path(id): Path<i64>,\n) -> Json<User> {\n    let user = sqlx::query_as::<_, User>(\"SELECT id, name FROM users WHERE id = $1\")\n        .bind(id)\n        .fetch_one(&pool)\n        .await\n        .unwrap();\n    Json(user)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "get rid of the unwrap in get_user. make an error type and return proper json",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's define an error type. Once AppError implements IntoResponse, the handler just returns Result<Json<User>, AppError>. A From<sqlx::Error> impl lets ? do the conversion."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use axum::http::StatusCode;\nuse axum::response::{IntoResponse, Response};\n\npub enum AppError {\n    Database(sqlx::Error),\n}\n\nimpl From<sqlx::Error> for AppError {\n    fn from(err: sqlx::Error) -> Self {\n        AppError::Database(err)\n    }\n}\n\nimpl IntoResponse for AppError {\n    fn into_response(self) -> Response {\n        let AppError::Database(err) = self;\n        tracing::error!(error = %err, \"database error\");\n        let body = Json(serde_json::json!({ \"error\": \"internal error\" }));\n        (StatusCode::INTERNAL_SERVER_ERROR, body).into_response()\n    }\n}\n\npub async fn get_user(\n    State(pool): State<PgPool>,\n    Path(id): Path<i64>,\n) -> Result<Json<User>, AppError> {\n    let user = sqlx::query_as::<_, User>(\"SELECT id, name FROM users WHERE id = $1\")\n        .bind(id)\n        .fetch_one(&pool)\n        .await?;\n    Ok(Json(user))\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "hitting an id that doesnt exist gives me a 500. thats a 404",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "You are absolutely right. fetch_one returns sqlx::Error::RowNotFound when there is no row, and my From impl sent that to the same 500 as a real database failure. Adding NotFound and sorting it out inside From."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "pub enum AppError {\n    NotFound,\n    Database(sqlx::Error),\n}\n\nimpl From<sqlx::Error> for AppError {\n    fn from(err: sqlx::Error) -> Self {\n        match err {\n            sqlx::Error::RowNotFound => AppError::NotFound,\n            other => AppError::Database(other),\n        }\n    }\n}\n\nimpl IntoResponse for AppError {\n    fn into_response(self) -> Response {\n        let (status, message) = match self {\n            AppError::NotFound => (StatusCode::NOT_FOUND, \"not found\"),\n            AppError::Database(err) => {\n                tracing::error!(error = %err, \"database error\");\n                (StatusCode::INTERNAL_SERVER_ERROR, \"internal error\")\n            }\n        };\n        (status, Json(serde_json::json!({ \"error\": message }))).into_response()\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ok. oh the frontend folks want the key to be message not error",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Understood. One key to rename. NotFound and Database both go through the same json! call, so both responses change together."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/\"error\": message/\"message\": message/' src/handlers.rs"
+        }
+      ]
+    }
+  ]
+}

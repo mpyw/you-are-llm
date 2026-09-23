@@ -1,0 +1,59 @@
+{
+  "id": "axum-state-rust-ja",
+  "title": "Axum の State でユーザーを持たせる",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "rust",
+  "summary": "with_state で共有状態を渡し、0.7 のパス記法で panic してから {id} に直す。",
+  "files": [
+    {
+      "path": "src/main.rs",
+      "content": "use axum::{routing::get, Json, Router};\nuse serde::Serialize;\n\n#[derive(Clone, Serialize)]\nstruct User {\n    id: u64,\n    name: String,\n}\n\nasync fn list_users() -> Json<Vec<User>> {\n    Json(vec![])\n}\n\n#[tokio::main]\nasync fn main() {\n    let app = Router::new().route(\"/users\", get(list_users));\n    let listener = tokio::net::TcpListener::bind(\"0.0.0.0:3000\").await.unwrap();\n    axum::serve(listener, app).await.unwrap();\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "list_users が空配列しか返さない。とりあえずメモリでいいからユーザー持たせて。あと /users/:id で 1 件取れるやつも",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the plan です。AppState を with_state で Router に渡し、各ハンドラは State で受け取ります。Arc<RwLock<HashMap>> をユーザーの唯一の情報源にします。",
+          "reading": "Here's the plan です。AppState を with_state で Router にわたし、かくはんどらは State でうけとります。Arc<RwLock<HashMap>> をゆーざーのゆいいつのじょうほうげんにします。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::collections::HashMap;\nuse std::sync::{Arc, RwLock};\n\nuse axum::extract::{Path, State};\nuse axum::http::StatusCode;\n\n#[derive(Clone, Default)]\nstruct AppState {\n    users: Arc<RwLock<HashMap<u64, User>>>,\n}\n\nasync fn list_users(State(state): State<AppState>) -> Json<Vec<User>> {\n    let users = state.users.read().unwrap();\n    Json(users.values().cloned().collect())\n}\n\nasync fn get_user(\n    State(state): State<AppState>,\n    Path(id): Path<u64>,\n) -> Result<Json<User>, StatusCode> {\n    let users = state.users.read().unwrap();\n    users.get(&id).cloned().map(Json).ok_or(StatusCode::NOT_FOUND)\n}\n\n#[tokio::main]\nasync fn main() {\n    let app = Router::new()\n        .route(\"/users\", get(list_users))\n        .route(\"/users/:id\", get(get_user))\n        .with_state(AppState::default());\n    let listener = tokio::net::TcpListener::bind(\"0.0.0.0:3000\").await.unwrap();\n    axum::serve(listener, app).await.unwrap();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "起動した瞬間 panic した。Path segments must not start with `:` とか言ってる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどのルートは axum 0.7 の書き方でした。0.8 からはパスの変数を {id} のように波括弧で囲み、:id は Router を組んだ時点で panic します。該当の一行だけ直せば期待どおりに動作します。",
+          "reading": "もうしわけありません。さきほどのるーとは axum 0.7 のかきかたでした。0.8 からはぱすのへんすうを {id} のようになみかっこでかこみ、:id は Router をくんだじてんで panic します。がいとうのいちぎょうだけなおせばきたいどおりにどうさします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's#\"/users/:id\"#\"/users/{id}\"#' src/main.rs"
+        }
+      ]
+    },
+    {
+      "user": "動いた。あ、一覧 id 順にしてほしい。毎回バラバラで気持ち悪い",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。HashMap を BTreeMap に置き換えます。BTreeMap はキーの順に並ぶので、values() がそのまま id 順になることを保証します。use の行も同じ置換で変わります。",
+          "reading": "しょうちしました。HashMap を BTreeMap におきかえます。BTreeMap はきーのじゅんにならぶので、values() がそのまま id じゅんになることをほしょうします。use のぎょうもおなじちかんでかわります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/HashMap/BTreeMap/g' src/main.rs"
+        }
+      ]
+    }
+  ]
+}

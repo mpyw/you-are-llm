@@ -1,0 +1,68 @@
+{
+  "id": "form-request-php-ja",
+  "title": "store のバリデーションを FormRequest に移す",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "コントローラ直書きの validate を StorePostRequest に出し、雛形の authorize で 403 を踏む。",
+  "files": [
+    {
+      "path": "app/Http/Controllers/PostController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse Illuminate\\Http\\Request;\n\nclass PostController extends Controller\n{\n    public function store(Request $request)\n    {\n        $validated = $request->validate([\n            'title' => ['required', 'string', 'max:255'],\n            'body' => ['required', 'string'],\n            'published_at' => ['nullable', 'date'],\n        ]);\n\n        $post = $request->user()->posts()->create($validated);\n\n        return redirect()->route('posts.show', $post);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "PostController の store、validate 直書きなの気持ち悪いから FormRequest に出して",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。ルールを StorePostRequest に移し、コントローラは validated() を受け取るだけにします。関心の分離の観点から、これが Laravel のベストプラクティスです。",
+          "reading": "しょうちしました。ルールを StorePostRequest にうつし、コントローラは validated() をうけとるだけにします。かんしんのぶんりのかんてんから、これが Laravel のベストプラクティスです。"
+        },
+        {
+          "kind": "command",
+          "body": "php artisan make:request StorePostRequest"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "class StorePostRequest extends FormRequest\n{\n    public function authorize(): bool\n    {\n        return false;\n    }\n\n    public function rules(): array\n    {\n        return [\n            'title' => ['required', 'string', 'max:255'],\n            'body' => ['required', 'string'],\n            'published_at' => ['nullable', 'date'],\n        ];\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function store(StorePostRequest $request)\n{\n    $post = $request->user()->posts()->create($request->validated());\n\n    return redirect()->route('posts.show', $post);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "なんか全部 403 になるんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。make:request の雛形は authorize() が false を返すようになっていて、そこを書き換えるのを見落としていました。ログイン済みかどうかはルートの auth ミドルウェアが見ているので、ここは true を返します。",
+          "reading": "もうしわけありません。make:request のひながたは authorize() が false をかえすようになっていて、そこをかきかえるのをみおとしていました。ログインずみかどうかはルートの auth ミドルウェアがみているので、ここは true をかえします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/return false;/return true;/' app/Http/Requests/StorePostRequest.php"
+        }
+      ]
+    },
+    {
+      "user": "あとタイトル長いの来て崩れるから 100 文字まで。あ、published_at は未来の日付だけにしといて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ポイントは 2 つです。max:255 を max:100 に絞り、published_at に after:today を足します。nullable は残すので、空なら下書きとしてそのまま通ります。",
+          "reading": "ポイントは 2 つです。max:255 を max:100 にしぼり、published_at に after:today をたします。nullable はのこすので、からならしたがきとしてそのままとおります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e \"s/'max:255'/'max:100'/\" -e \"s/'nullable', 'date'/'nullable', 'date', 'after:today'/\" app/Http/Requests/StorePostRequest.php"
+        }
+      ]
+    }
+  ]
+}

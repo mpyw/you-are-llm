@@ -2,7 +2,7 @@
   "id": "stream-collector-java-ja",
   "title": "forEach で Map を組み立てるのをやめて groupingBy にする",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "java",
   "summary": "外の Map に書き込む forEach を Collectors に寄せ、並び順と並列化で一悶着する。",
   "files": [

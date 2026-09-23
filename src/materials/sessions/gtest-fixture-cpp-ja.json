@@ -1,0 +1,59 @@
+{
+  "id": "gtest-fixture-cpp-ja",
+  "title": "毎回同じ準備を TEST_F にまとめる",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "cpp",
+  "summary": "GoogleTest のコピペされた前準備をフィクスチャに寄せる。TEST と TEST_F は同じスイートに混ぜられない。",
+  "files": [
+    {
+      "path": "tests/cart_test.cpp",
+      "content": "#include <gtest/gtest.h>\n\n#include \"cart.h\"\n\nTEST(CartTest, StartsEmpty) {\n  Inventory inventory;\n  inventory.add(\"apple\", 3);\n  Cart cart(inventory);\n  EXPECT_TRUE(cart.empty());\n}\n\nTEST(CartTest, AddsItem) {\n  Inventory inventory;\n  inventory.add(\"apple\", 3);\n  Cart cart(inventory);\n  cart.add(\"apple\", 1);\n  EXPECT_EQ(cart.count(\"apple\"), 1);\n}\n\nTEST(CartTest, RejectsOverStock) {\n  Inventory inventory;\n  inventory.add(\"apple\", 3);\n  Cart cart(inventory);\n  EXPECT_FALSE(cart.add(\"apple\", 4));\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "cart_test の頭 3 行、全テストでコピペしてる。なんとかして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい着眼点です。TEST_F 用のフィクスチャにまとめます。::testing::Test を継承したクラスにメンバを置くと、テストごとに新しいインスタンスが作られるので、テスト同士が状態を共有しないことを保証します。include の直後に追加して、StartsEmpty を書き換えました。残りの TEST はそのままで動きます。",
+          "reading": "すばらしいちゃくがんてんです。TEST_F ようのふぃくすちゃにまとめます。::testing::Test をけいしょうしたくらすにめんばをおくと、てすとごとにあたらしいいんすたんすがつくられるので、てすとどうしがじょうたいをきょうゆうしないことをほしょうします。include のちょくごについかして、StartsEmpty をかきかえました。のこりの TEST はそのままでうごきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "class CartTest : public ::testing::Test {\n protected:\n  void SetUp() override { inventory_.add(\"apple\", 3); }\n\n  Inventory inventory_;\n  Cart cart_{inventory_};\n};\n\nTEST_F(CartTest, StartsEmpty) {\n  EXPECT_TRUE(cart_.empty());\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "全部落ちた。All tests in the same test suite must use the same test fixture class だって。そのままで動くとは",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ご指摘のとおりです。申し訳ありません、先ほどの説明は正確ではありませんでした。同じ CartTest というスイートの中で、TEST は ::testing::Test を、TEST_F は CartTest をフィクスチャに使うので、混在は実行時に弾かれます。残りも TEST_F に置き換え、ローカルの 3 行を消してメンバを使わせます。",
+          "reading": "ごしてきのとおりです。もうしわけありません、さきほどのせつめいはせいかくではありませんでした。おなじ CartTest というすいーとのなかで、TEST は ::testing::Test を、TEST_F は CartTest をふぃくすちゃにつかうので、こんざいはじっこうじにはじかれます。のこりも TEST_F におきかえ、ろーかるの 3 ぎょうをけしてめんばをつかわせます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^TEST(CartTest,/TEST_F(CartTest,/; /^  Inventory inventory;$/d; /^  inventory\\.add(\"apple\", 3);$/d; /^  Cart cart(inventory);$/d; s/\\([ (]\\)cart\\./\\1cart_./g' tests/cart_test.cpp"
+        }
+      ]
+    },
+    {
+      "user": "通った。てかこれ SetUp いる？コンストラクタでよくない？知らんけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、どちらでも動きますが、GoogleTest の FAQ はコンストラクタを先に勧めています。初期化の中で ASSERT_ 系を使いたいときや、仮想関数を呼びたいときだけ SetUp を選ぶのがベストプラクティスです。今回は add を呼ぶだけなので、コンストラクタに移します。",
+          "reading": "けつろんからいうと、どちらでもうごきますが、GoogleTest の FAQ はこんすとらくたをさきにすすめています。しょきかのなかで ASSERT_ けいをつかいたいときや、かそうかんすうをよびたいときだけ SetUp をえらぶのがべすとぷらくてぃすです。こんかいは add をよぶだけなので、こんすとらくたにうつします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/void SetUp() override {/CartTest() {/' tests/cart_test.cpp"
+        }
+      ]
+    }
+  ]
+}

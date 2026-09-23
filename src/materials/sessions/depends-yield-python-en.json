@@ -1,0 +1,61 @@
+{
+  "id": "depends-yield-python-en",
+  "title": "Yield a Session from Depends and close it",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "python",
+  "summary": "Fix an exhausted QueuePool with a yield dependency, move commit and rollback into it, then stop swallowing the exception.",
+  "files": [
+    {
+      "path": "app/main.py",
+      "content": "from fastapi import FastAPI\nfrom sqlalchemy import create_engine\nfrom sqlalchemy.orm import Session\n\nfrom app.models import Item\n\nengine = create_engine(\"postgresql+psycopg://app@localhost/app\")\napp = FastAPI()\n\n\n@app.get(\"/items/{item_id}\")\ndef read_item(item_id: int):\n    session = Session(engine)\n    item = session.get(Item, item_id)\n    return {\"id\": item.id, \"name\": item.name}\n"
+    },
+    {
+      "path": "app/models.py",
+      "content": "from sqlalchemy import String\nfrom sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column\n\n\nclass Base(DeclarativeBase):\n    pass\n\n\nclass Item(Base):\n    __tablename__ = \"items\"\n\n    id: Mapped[int] = mapped_column(primary_key=True)\n    name: Mapped[str] = mapped_column(String(100), unique=True)\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "after a while everything dies with QueuePool limit of size 5 overflow 10 reached, connection timed out. restart fixes it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Each request opens a Session and never closes it, so the connections never go back to the pool and it runs dry at 15. The FastAPI way is a dependency that yields the Session. Leaving the with block closes it, which guarantees the connection is returned. Wrapping the type in Annotated saves writing Depends on every endpoint."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from typing import Annotated\n\nfrom fastapi import Depends, FastAPI\n\n\ndef get_session():\n    with Session(engine) as session:\n        yield session\n\n\nSessionDep = Annotated[Session, Depends(get_session)]\n\n\n@app.get(\"/items/{item_id}\")\ndef read_item(item_id: int, session: SessionDep):\n    item = session.get(Item, item_id)\n    return {\"id\": item.id, \"name\": item.name}\n"
+        }
+      ]
+    },
+    {
+      "user": "fixed. want a POST /items too. and do commit/rollback in the dependency, not writing that in every endpoint",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great, let's move it all into get_session. Commit goes after the yield, and an exception triggers a rollback. In other words, the endpoint only has to add and flush. The flush assigns the id, so it can be returned straight away."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from pydantic import BaseModel\n\n\ndef get_session():\n    with Session(engine) as session:\n        try:\n            yield session\n            session.commit()\n        except Exception:\n            session.rollback()\n\n\nclass ItemIn(BaseModel):\n    name: str\n\n\n@app.post(\"/items\")\ndef create_item(body: ItemIn, session: SessionDep):\n    item = Item(name=body.name)\n    session.add(item)\n    session.flush()\n    return {\"id\": item.id, \"name\": item.name}\n"
+        }
+      ]
+    },
+    {
+      "user": "posting the same name twice gives a 500, fine, but the log never shows the IntegrityError. just some weird thing about Response not awaited and bare except",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous get_session swallowed the exception in its except block. A dependency with yield that catches an exception has to raise it again, and Response not awaited is FastAPI pointing at exactly that. This adds a raise right after the rollback. Note: indentation matters in Python, so the sed captures the leading spaces and reuses them with \\1."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^\\( *\\)session.rollback()$/&\\n\\1raise/' app/main.py"
+        }
+      ]
+    }
+  ]
+}

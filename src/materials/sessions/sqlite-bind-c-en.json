@@ -1,0 +1,43 @@
+{
+  "id": "sqlite-bind-c-en",
+  "title": "Bind the name instead of pasting it into SQL",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "c",
+  "summary": "Replace SQL built with snprintf by sqlite3_prepare_v2 and sqlite3_bind_text.",
+  "files": [
+    {
+      "path": "src/db/users.c",
+      "content": "#include <stdio.h>\n#include <stdlib.h>\n#include <sqlite3.h>\n\nstatic int on_row(void *arg, int argc, char **argv, char **cols) {\n  int *id = arg;\n  *id = atoi(argv[0]);\n  return 0;\n}\n\nint find_user_id(sqlite3 *db, const char *name, int *out_id) {\n  char sql[256];\n  snprintf(sql, sizeof sql, \"SELECT id FROM users WHERE name = '%s'\", name);\n  return sqlite3_exec(db, sql, on_row, out_id, NULL);\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "find_user_id crashes for users with a ' in their name. also this is injectable isn't it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "It is. The name goes straight into the SQL string, so a quote in it closes the literal early. Here's the fix: prepare the statement with sqlite3_prepare_v2 and a ? placeholder, then hand the value over with sqlite3_bind_text. A bound value is never parsed as SQL. name outlives the statement, so SQLITE_STATIC is enough."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "int find_user_id(sqlite3 *db, const char *name, int *out_id) {\n  sqlite3_stmt *stmt = NULL;\n  int rc = sqlite3_prepare_v2(db, \"SELECT id FROM users WHERE name = ?\", -1, &stmt, NULL);\n  if (rc != SQLITE_OK) return rc;\n  sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);\n  rc = sqlite3_step(stmt);\n  if (rc == SQLITE_ROW) {\n    *out_id = sqlite3_column_int(stmt, 0);\n    rc = SQLITE_OK;\n  }\n  sqlite3_finalize(stmt);\n  return rc;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "oh and make it case insensitive. Alice and alice are the same person",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Adding COLLATE NOCASE to the comparison. Note: NOCASE only folds ASCII letters, so an accented name still compares case sensitively."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/WHERE name = ?/WHERE name = ? COLLATE NOCASE/' src/db/users.c"
+        }
+      ]
+    }
+  ]
+}

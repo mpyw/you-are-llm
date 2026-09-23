@@ -1,0 +1,46 @@
+{
+  "id": "minimal-api-results-csharp-ja",
+  "title": "見つからない注文に 404 を返す",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "csharp",
+  "summary": "Minimal API が null を 200 で返していたのを Results.NotFound に直し、TypedResults で 404 を型に載せる。",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using Acme.Orders;\n\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddSingleton<IOrderRepository, InMemoryOrderRepository>();\n\nvar app = builder.Build();\n\napp.MapGet(\"/orders/{id:int}\", async (int id, IOrderRepository orders) =>\n{\n    var order = await orders.FindAsync(id);\n    return order;\n});\n\napp.Run();\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "存在しない ID で叩いても 200 返ってくるんだけど。body が null で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。ハンドラが Order? をそのまま返しているので、null でも 200 OK として JSON にシリアライズされます。見つからないときは Results.NotFound を返すのがベストプラクティスです。",
+          "reading": "しょうちしました。はんどらが Order? をそのままかえしているので、null でも 200 OK として JSON にしりあらいずされます。みつからないときは Results.NotFound をかえすのがべすとぷらくてぃすです。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "app.MapGet(\"/orders/{id:int}\", async (int id, IOrderRepository orders) =>\n    await orders.FindAsync(id) is { } order\n        ? Results.Ok(order)\n        : Results.NotFound());\n"
+        }
+      ]
+    },
+    {
+      "user": "OpenAPI 見たら 200 しか載ってない。404 も出して",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、戻り値の型に両方の結果を載せます。TypedResults と Results<Ok<Order>, NotFound> を組み合わせると、ドキュメントにも 404 が自動で反映されることを保証します。",
+          "reading": "Now、もどりちのかたにりょうほうのけっかをのせます。TypedResults と Results<Ok<Order>, NotFound> をくみあわせると、どきゅめんとにも 404 がじどうではんえいされることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using Microsoft.AspNetCore.Http.HttpResults;\n\napp.MapGet(\"/orders/{id:int}\", async Task<Results<Ok<Order>, NotFound>> (int id, IOrderRepository orders) =>\n    await orders.FindAsync(id) is { } order\n        ? TypedResults.Ok(order)\n        : TypedResults.NotFound());\n"
+        }
+      ]
+    }
+  ]
+}

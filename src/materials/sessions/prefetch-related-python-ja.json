@@ -1,0 +1,78 @@
+{
+  "id": "prefetch-related-python-ja",
+  "title": "Django の N+1 を select_related と Prefetch で潰す",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "python",
+  "summary": "201 本のクエリを 2 本にし、filter で N+1 を戻してしまい、Prefetch で直してからレビュー数を足す。",
+  "files": [
+    {
+      "path": "books/models.py",
+      "content": "from django.db import models\n\n\nclass Author(models.Model):\n    name = models.CharField(max_length=100)\n\n\nclass Tag(models.Model):\n    name = models.CharField(max_length=50)\n    is_public = models.BooleanField(default=True)\n\n\nclass Book(models.Model):\n    title = models.CharField(max_length=200)\n    author = models.ForeignKey(Author, on_delete=models.CASCADE, related_name=\"books\")\n    tags = models.ManyToManyField(Tag, related_name=\"books\")\n\n\nclass Review(models.Model):\n    book = models.ForeignKey(Book, on_delete=models.CASCADE, related_name=\"reviews\")\n    body = models.TextField()\n"
+    },
+    {
+      "path": "books/views.py",
+      "content": "from django.http import JsonResponse\n\nfrom .models import Book\n\n\ndef book_list(request):\n    books = Book.objects.all()\n    data = [\n        {\n            \"title\": book.title,\n            \"author\": book.author.name,\n            \"tags\": [tag.name for tag in book.tags.all()],\n        }\n        for book in books\n    ]\n    return JsonResponse({\"books\": data})\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "本の一覧 API が遅い。debug toolbar 見たら 100 冊で 201 クエリ出てた",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、典型的な N+1 です。book.author で 1 冊ごとに 1 本、book.tags.all() でもう 1 本出ています。ForeignKey は select_related で JOIN し、ManyToMany は prefetch_related で IN 句 1 本にまとめるのがベストプラクティスです。これで 2 本になります。",
+          "reading": "けつろんからいうと、てんけいてきな N+1 です。book.author で 1 さつごとに 1 ぽん、book.tags.all() でもう 1 ぽんでています。ForeignKey は select_related で JOIN し、ManyToMany は prefetch_related で IN く 1 ぽんにまとめるのがべすとぷらくてぃすです。これで 2 ほんになります。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "def book_list(request):\n    books = Book.objects.select_related(\"author\").prefetch_related(\"tags\")\n    data = [\n        {\n            \"title\": book.title,\n            \"author\": book.author.name,\n            \"tags\": [tag.name for tag in book.tags.all()],\n        }\n        for book in books\n    ]\n    return JsonResponse({\"books\": data})\n"
+        }
+      ]
+    },
+    {
+      "user": "速くなった。けど非公開タグ（is_public=False）まで出てるのはまずい。公開のだけで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。tags の取り出し方だけ変えれば済むので、sed で 1 箇所置き換えます。",
+          "reading": "しょうちしました。tags のとりだしかただけかえればすむので、sed で 1 かしょおきかえます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/book.tags.all()/book.tags.filter(is_public=True)/' books/views.py"
+        }
+      ]
+    },
+    {
+      "user": "タグは消えた。でもクエリ 102 本に戻ってるんだが",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、先ほどの変更は prefetch を台無しにしていました。prefetch_related が埋めるのは all() のキャッシュだけで、filter() を呼ぶと毎回新しいクエリになります。絞り込みは Prefetch オブジェクトの queryset に渡し、to_attr で別の属性に載せます。言い換えると、ループの中では DB に触らせません。",
+          "reading": "あらためてかくにんしたところ、さきほどのへんこうは prefetch をだいなしにしていました。prefetch_related がうめるのは all() のきゃっしゅだけで、filter() をよぶとまいかいあたらしいくえりになります。しぼりこみは Prefetch おぶじぇくとの queryset にわたし、to_attr でべつのぞくせいにのせます。いいかえると、るーぷのなかでは DB にさわらせません。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from django.db.models import Prefetch\nfrom django.http import JsonResponse\n\nfrom .models import Book, Tag\n\n\ndef book_list(request):\n    public_tags = Prefetch(\n        \"tags\",\n        queryset=Tag.objects.filter(is_public=True),\n        to_attr=\"public_tags\",\n    )\n    books = (\n        Book.objects.select_related(\"author\")\n        .prefetch_related(public_tags)\n    )\n    data = [\n        {\n            \"title\": book.title,\n            \"author\": book.author.name,\n            \"tags\": [tag.name for tag in book.public_tags],\n        }\n        for book in books\n    ]\n    return JsonResponse({\"books\": data})\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、レビュー数も一覧に出してって言われた。1 冊ずつ count() とかはナシで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Count で annotate すれば、本体のクエリに GROUP BY が付くだけで済みます。tags は別クエリで取っているので、JOIN で件数が膨らむ心配もありません。足す行は、行頭の空白をグループで捕まえて同じ深さで挿入します。括弧の中なのでずれても構文としては通りますが、差分が汚れる点に注意することが重要です。",
+          "reading": "Count で annotate すれば、ほんたいのくえりに GROUP BY がつくだけですみます。tags はべつくえりでとっているので、JOIN でけんすうがふくらむしんぱいもありません。たすぎょうは、ぎょうとうのくうはくをぐるーぷでつかまえておなじふかさでそうにゅうします。かっこのなかなのでずれてもこうぶんとしてはとおりますが、さぶんがよごれるてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/import Prefetch$/import Count, Prefetch/' -e 's/^\\( *\\)\\.prefetch_related(public_tags)$/\\1.annotate(review_count=Count(\"reviews\"))\\n&/' -e 's/^\\( *\\)\"author\": book.author.name,$/&\\n\\1\"reviews\": book.review_count,/' books/views.py"
+        }
+      ]
+    }
+  ]
+}

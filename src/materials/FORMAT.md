@@ -28,7 +28,7 @@ Use `<topic>-<codeLanguage>-<language>` for the id, all lower case. An example i
 | `files` | array | Source the assistant is working on. `path` and `content` |
 | `turns` | array | The conversation, in order |
 
-`codeLanguage` is one of `c`, `cpp`, `csharp`, `go`, `java`, `php`, `rust`, `typescript`.
+`codeLanguage` is one of `c`, `cpp`, `csharp`, `go`, `java`, `php`, `python`, `rust`, `typescript`.
 `difficulty` is one of `easy`, `normal`, `hard`, `expert`, `expertplus`, and `scripts/typing-load.mjs` decides
 it. Write whatever session you meant to write and let the script grade it.
 
@@ -84,7 +84,7 @@ words stay as ASCII. Keep the reading faithful to the body, including particles.
 ## How long a session runs
 
 Difficulty no longer says anything about length. It measures how hard the session is to type,
-across every language rather than within one, which is why Rust has no easy session at all.
+across every language rather than within one, which is why Rust has only one easy session, and it is serde attributes.
 
 | Difficulty | Score | Sessions today |
 | --- | --- | --- |

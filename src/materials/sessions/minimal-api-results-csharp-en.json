@@ -1,0 +1,44 @@
+{
+  "id": "minimal-api-results-csharp-en",
+  "title": "Return 404 for a missing order",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "csharp",
+  "summary": "A Minimal API handler answers 200 with null. Return Results.NotFound, then put the 404 in the type with TypedResults.",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using Acme.Orders;\n\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddSingleton<IOrderRepository, InMemoryOrderRepository>();\n\nvar app = builder.Build();\n\napp.MapGet(\"/orders/{id:int}\", async (int id, IOrderRepository orders) =>\n{\n    var order = await orders.FindAsync(id);\n    return order;\n});\n\napp.Run();\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "hitting a missing id still gives me 200. body is just null",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Got it. The handler returns the Order? as is, so a null is serialized to JSON with 200 OK. Returning Results.NotFound when nothing is found is the best practice here."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "app.MapGet(\"/orders/{id:int}\", async (int id, IOrderRepository orders) =>\n    await orders.FindAsync(id) is { } order\n        ? Results.Ok(order)\n        : Results.NotFound());\n"
+        }
+      ]
+    },
+    {
+      "user": "openapi only lists 200. want the 404 in there too",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's put both outcomes in the return type. With TypedResults and Results<Ok<Order>, NotFound>, the 404 shows up in the document automatically."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using Microsoft.AspNetCore.Http.HttpResults;\n\napp.MapGet(\"/orders/{id:int}\", async Task<Results<Ok<Order>, NotFound>> (int id, IOrderRepository orders) =>\n    await orders.FindAsync(id) is { } order\n        ? TypedResults.Ok(order)\n        : TypedResults.NotFound());\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "id": "stale-closure-typescript-en",
+  "title": "Fix a stale state in setInterval with an updater",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "typescript",
+  "summary": "A counter that stops at 1, a dependency that should not be there, and a step prop that should.",
+  "files": [
+    {
+      "path": "src/components/Ticker.tsx",
+      "content": "import { useEffect, useState } from 'react'\n\nexport function Ticker() {\n  const [count, setCount] = useState(0)\n\n  useEffect(() => {\n    const id = setInterval(() => {\n      setCount(count + 1)\n    }, 1000)\n    return () => clearInterval(id)\n  }, [])\n\n  return <p>{count}</p>\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "Ticker gets to 1 and stops. the interval is still firing afaict",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "The effect runs once, on the first render, so the callback it created still sees count as 0. It writes 0 + 1 every second, which is why the screen sits at 1. Adding count to the dependency array rebuilds the callback with the latest value."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "useEffect(() => {\n  const id = setInterval(() => {\n    setCount(count + 1)\n  }, 1000)\n  return () => clearInterval(id)\n}, [count])\n"
+        }
+      ]
+    },
+    {
+      "user": "ok it counts now. but isnt that tearing down the interval every single tick",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was not the right fix. With count in the array, every tick runs clearInterval and setInterval again. Pass setCount a function instead and React hands it the latest value. The effect stops reading count, so the array can go back to empty."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "useEffect(() => {\n  const id = setInterval(() => {\n    setCount((c) => c + 1)\n  }, 1000)\n  return () => clearInterval(id)\n}, [])\n"
+        }
+      ]
+    },
+    {
+      "user": "oh and the increment should come from props. step or something",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the step version. This time the effect does read step, so step belongs in the array, and the interval is rebuilt only when step changes."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/export function Ticker() {/export function Ticker({ step }: { step: number }) {/' -e 's/c + 1/c + step/' -e 's/}, \\[\\])/}, [step])/' src/components/Ticker.tsx"
+        }
+      ]
+    }
+  ]
+}

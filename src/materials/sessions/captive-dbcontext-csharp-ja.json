@@ -1,0 +1,82 @@
+{
+  "id": "captive-dbcontext-csharp-ja",
+  "title": "Singleton に掴まれた DbContext を外す",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "csharp",
+  "summary": "Singleton の価格キャッシュが Scoped の DbContext を共有していたのを、スコープを都度作る形に直し、IMemoryCache で期限を付ける。",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using Acme.Data;\nusing Acme.Pricing;\nusing Microsoft.EntityFrameworkCore;\n\nvar builder = WebApplication.CreateBuilder(args);\n\nbuilder.Services.AddDbContext<ShopDbContext>(options =>\n    options.UseNpgsql(builder.Configuration.GetConnectionString(\"Shop\")));\nbuilder.Services.AddSingleton<PriceCache>();\n\nvar app = builder.Build();\n\napp.MapGet(\"/products/{id:int}/price\", async (int id, PriceCache prices, CancellationToken ct) =>\n    TypedResults.Ok(await prices.GetAsync(id, ct)));\n\napp.Run();\n"
+    },
+    {
+      "path": "src/Pricing/PriceCache.cs",
+      "content": "using System.Collections.Concurrent;\nusing Acme.Data;\nusing Microsoft.EntityFrameworkCore;\n\nnamespace Acme.Pricing;\n\npublic sealed class PriceCache(ShopDbContext db)\n{\n    private readonly ConcurrentDictionary<int, decimal> _prices = new();\n\n    public async Task<decimal> GetAsync(int productId, CancellationToken ct)\n    {\n        if (_prices.TryGetValue(productId, out var cached)) return cached;\n\n        var price = await db.Products\n            .Where(p => p.Id == productId)\n            .Select(p => p.Price)\n            .SingleAsync(ct);\n        _prices[productId] = price;\n        return price;\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "本番でたまに A second operation was started on this context instance ってエラー出る。混んでる時間帯だけ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、Singleton の PriceCache が Scoped の ShopDbContext を掴んだままになっています。ルートから解決された DbContext は 1 つだけなので、同時に来たリクエストが同じインスタンスで並行にクエリを投げています。DbContext はスレッドセーフではありません。Development 環境ならスコープ検証で起動時に弾かれますが、本番では検証が無効です。PriceCache を Scoped に揃えれば解決します。",
+          "reading": "けつろんからいうと、Singleton の PriceCache が Scoped の ShopDbContext をつかんだままになっています。るーとからかいけつされた DbContext は 1 つだけなので、どうじにきたりくえすとがおなじいんすたんすでへいこうにくえりをなげています。DbContext はすれっどせーふではありません。Development かんきょうならすこーぷけんしょうできどうじにはじかれますが、ほんばんではけんしょうがむこうです。PriceCache を Scoped にそろえればかいけつします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/AddSingleton<PriceCache>/AddScoped<PriceCache>/' src/Program.cs"
+        }
+      ]
+    },
+    {
+      "user": "いやそれキャッシュ毎回捨ててない？ リクエストごとに作り直しならキャッシュの意味ないじゃん",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "前言を撤回します。おっしゃるとおり、Scoped にするとキャッシュがリクエストごとに消えます。PriceCache は Singleton に戻し、DB に問い合わせるときだけ IServiceScopeFactory でスコープを作って、その中で DbContext を借ります。関心の分離の観点から、寿命の長いものが寿命の短いものを直接持たない形です。",
+          "reading": "ぜんげんをてっかいします。おっしゃるとおり、Scoped にするときゃっしゅがりくえすとごとにきえます。PriceCache は Singleton にもどし、DB にといあわせるときだけ IServiceScopeFactory ですこーぷをつくって、そのなかで DbContext をかります。かんしんのぶんりのかんてんから、じゅみょうのながいものがじゅみょうのみじかいものをちょくせつもたないかたちです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/AddScoped<PriceCache>/AddSingleton<PriceCache>/' src/Program.cs"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public sealed class PriceCache(IServiceScopeFactory scopeFactory)\n{\n    private readonly ConcurrentDictionary<int, decimal> _prices = new();\n\n    public async Task<decimal> GetAsync(int productId, CancellationToken ct)\n    {\n        if (_prices.TryGetValue(productId, out var cached)) return cached;\n\n        await using var scope = scopeFactory.CreateAsyncScope();\n        var db = scope.ServiceProvider.GetRequiredService<ShopDbContext>();\n        var price = await db.Products\n            .Where(p => p.Id == productId)\n            .Select(p => p.Price)\n            .SingleAsync(ct);\n        _prices[productId] = price;\n        return price;\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "価格改定あるから永久キャッシュはまずい。5 分で切れるようにして。あと管理画面から商品単位で消したい、言い忘れてた",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、ConcurrentDictionary を IMemoryCache に置き換えます。GetOrCreateAsync でエントリごとに期限を付け、Invalidate で商品単位に消せるようにします。Program.cs には AddMemoryCache の 1 行が必要です。",
+          "reading": "Now、ConcurrentDictionary を IMemoryCache におきかえます。GetOrCreateAsync でえんとりごとにきげんをつけ、Invalidate でしょうひんたんいにけせるようにします。Program.cs には AddMemoryCache の 1 ぎょうがひつようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using Microsoft.Extensions.Caching.Memory;\n\npublic sealed class PriceCache(IServiceScopeFactory scopeFactory, IMemoryCache cache)\n{\n    public Task<decimal> GetAsync(int productId, CancellationToken ct) =>\n        cache.GetOrCreateAsync((\"price\", productId), async entry =>\n        {\n            entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);\n            await using var scope = scopeFactory.CreateAsyncScope();\n            var db = scope.ServiceProvider.GetRequiredService<ShopDbContext>();\n            return await db.Products\n                .Where(p => p.Id == productId)\n                .Select(p => p.Price)\n                .SingleAsync(ct);\n        });\n\n    public void Invalidate(int productId) => cache.Remove((\"price\", productId));\n}\n\n// src/Program.cs\nbuilder.Services.AddMemoryCache();\n"
+        }
+      ]
+    },
+    {
+      "user": "営業から 5 分でも長いって。1 分で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "期限の値だけ置き換えます。",
+          "reading": "きげんのあたいだけおきかえます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/TimeSpan\\.FromMinutes(5)/TimeSpan.FromMinutes(1)/' src/Pricing/PriceCache.cs"
+        }
+      ]
+    }
+  ]
+}

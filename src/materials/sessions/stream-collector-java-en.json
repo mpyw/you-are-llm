@@ -2,7 +2,7 @@
   "id": "stream-collector-java-en",
   "title": "Stop building the map in a forEach and let groupingBy do it",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "java",
   "summary": "A forEach writing into an outer map becomes a Collector, and then ordering and parallelism bite.",
   "files": [

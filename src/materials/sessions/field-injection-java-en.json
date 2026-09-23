@@ -1,0 +1,43 @@
+{
+  "id": "field-injection-java-en",
+  "title": "Move field @Autowired to constructor injection",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "java",
+  "summary": "An OrderService that no test can hand a mock to, until it takes its dependencies in the constructor.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/order/OrderService.java",
+      "content": "package com.example.order;\n\nimport org.springframework.beans.factory.annotation.Autowired;\nimport org.springframework.stereotype.Service;\n\n@Service\npublic class OrderService {\n    @Autowired\n    private OrderRepository orderRepository;\n\n    @Autowired\n    private PaymentClient paymentClient;\n\n    public Order place(OrderRequest request) {\n        Order order = orderRepository.save(Order.from(request));\n        paymentClient.charge(order.getId(), order.getTotal());\n        return order;\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "trying to unit test OrderService and I cant get a mock in there. do I really have to boot spring for this",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "You do not. The field @Autowired is the problem: Spring writes into the private fields by reflection, so a test that calls new has no way in. Let us switch to constructor injection. The fields become final, which guarantees nobody can build an instance with a dependency missing."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Service\npublic class OrderService {\n    private final OrderRepository orderRepository;\n    private final PaymentClient paymentClient;\n\n    public OrderService(OrderRepository orderRepository, PaymentClient paymentClient) {\n        this.orderRepository = orderRepository;\n        this.paymentClient = paymentClient;\n    }\n"
+        }
+      ]
+    },
+    {
+      "user": "works. wait no @Autowired on the constructor? also lint says the import is unused",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Correct, none needed. Since Spring 4.3 a class with a single constructor gets it used for injection automatically, and Boot 3 sits on Spring 6. Removing the import that nothing uses now."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/^import org\\.springframework\\.beans\\.factory\\.annotation\\.Autowired;$/d' src/main/java/com/example/order/OrderService.java"
+        }
+      ]
+    }
+  ]
+}

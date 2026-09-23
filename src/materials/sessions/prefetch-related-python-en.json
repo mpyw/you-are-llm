@@ -1,0 +1,74 @@
+{
+  "id": "prefetch-related-python-en",
+  "title": "Crush a Django N+1 with select_related and Prefetch",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "python",
+  "summary": "Take 201 queries down to 2, bring the N+1 back with filter, fix it with Prefetch, then add a review count.",
+  "files": [
+    {
+      "path": "books/models.py",
+      "content": "from django.db import models\n\n\nclass Author(models.Model):\n    name = models.CharField(max_length=100)\n\n\nclass Tag(models.Model):\n    name = models.CharField(max_length=50)\n    is_public = models.BooleanField(default=True)\n\n\nclass Book(models.Model):\n    title = models.CharField(max_length=200)\n    author = models.ForeignKey(Author, on_delete=models.CASCADE, related_name=\"books\")\n    tags = models.ManyToManyField(Tag, related_name=\"books\")\n\n\nclass Review(models.Model):\n    book = models.ForeignKey(Book, on_delete=models.CASCADE, related_name=\"reviews\")\n    body = models.TextField()\n"
+    },
+    {
+      "path": "books/views.py",
+      "content": "from django.http import JsonResponse\n\nfrom .models import Book\n\n\ndef book_list(request):\n    books = Book.objects.all()\n    data = [\n        {\n            \"title\": book.title,\n            \"author\": book.author.name,\n            \"tags\": [tag.name for tag in book.tags.all()],\n        }\n        for book in books\n    ]\n    return JsonResponse({\"books\": data})\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "book list api is slow. debug toolbar says 201 queries for 100 books",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: a textbook N+1. book.author costs one query per book and book.tags.all() costs another. The best practice is select_related for the ForeignKey, which becomes a JOIN, and prefetch_related for the ManyToMany, which becomes a single IN query. That makes two in total."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "def book_list(request):\n    books = Book.objects.select_related(\"author\").prefetch_related(\"tags\")\n    data = [\n        {\n            \"title\": book.title,\n            \"author\": book.author.name,\n            \"tags\": [tag.name for tag in book.tags.all()],\n        }\n        for book in books\n    ]\n    return JsonResponse({\"books\": data})\n"
+        }
+      ]
+    },
+    {
+      "user": "faster. but private tags (is_public=False) show up too, not ok. public only",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Only the way tags are read has to change, so one sed does it."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/book.tags.all()/book.tags.filter(is_public=True)/' books/views.py"
+        }
+      ]
+    },
+    {
+      "user": "tags are gone. queries are back to 102 though",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous change undid the prefetch. prefetch_related only fills the cache that all() reads, and calling filter() runs a fresh query every time. The filter belongs in the queryset of a Prefetch object, with to_attr putting the result on its own attribute. In other words, nothing inside the loop touches the database."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from django.db.models import Prefetch\nfrom django.http import JsonResponse\n\nfrom .models import Book, Tag\n\n\ndef book_list(request):\n    public_tags = Prefetch(\n        \"tags\",\n        queryset=Tag.objects.filter(is_public=True),\n        to_attr=\"public_tags\",\n    )\n    books = (\n        Book.objects.select_related(\"author\")\n        .prefetch_related(public_tags)\n    )\n    data = [\n        {\n            \"title\": book.title,\n            \"author\": book.author.name,\n            \"tags\": [tag.name for tag in book.public_tags],\n        }\n        for book in books\n    ]\n    return JsonResponse({\"books\": data})\n"
+        }
+      ]
+    },
+    {
+      "user": "oh and they want the review count in the list too. no count() per book pls",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Annotating with Count only adds a GROUP BY to the main query. The tags come from a separate query, so no JOIN inflates the count. The new lines capture the leading spaces and reuse them, so they land at the same depth. Inside brackets a wrong indent would still parse, but it would make the diff noisy."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/import Prefetch$/import Count, Prefetch/' -e 's/^\\( *\\)\\.prefetch_related(public_tags)$/\\1.annotate(review_count=Count(\"reviews\"))\\n&/' -e 's/^\\( *\\)\"author\": book.author.name,$/&\\n\\1\"reviews\": book.review_count,/' books/views.py"
+        }
+      ]
+    }
+  ]
+}

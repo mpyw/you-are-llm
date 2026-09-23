@@ -1,0 +1,65 @@
+{
+  "id": "asio-shared-from-this-cpp-ja",
+  "title": "echo サーバが繋いだ瞬間に切れる",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "cpp",
+  "summary": "Boost.Asio のハンドラより先に Session が消える。shared_from_this で寿命を延ばし、make_shared で作る。",
+  "files": [
+    {
+      "path": "src/net/session.cpp",
+      "content": "#include <array>\n#include <memory>\n#include <utility>\n\n#include <boost/asio.hpp>\n\nusing boost::asio::ip::tcp;\n\nclass Session {\n public:\n  explicit Session(tcp::socket socket) : socket_(std::move(socket)) {}\n\n  void start() { do_read(); }\n\n private:\n  void do_read() {\n    socket_.async_read_some(boost::asio::buffer(data_),\n        [this](boost::system::error_code ec, std::size_t length) {\n          if (!ec) do_write(length);\n        });\n  }\n\n  void do_write(std::size_t length) {\n    boost::asio::async_write(socket_, boost::asio::buffer(data_, length),\n        [this](boost::system::error_code ec, std::size_t) {\n          if (!ec) do_read();\n        });\n  }\n\n  tcp::socket socket_;\n  std::array<char, 1024> data_;\n};\n\nvoid accept_loop(tcp::acceptor& acceptor) {\n  acceptor.async_accept([&acceptor](boost::system::error_code ec, tcp::socket socket) {\n    if (!ec) {\n      Session session(std::move(socket));\n      session.start();\n    }\n    accept_loop(acceptor);\n  });\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "echo サーバ、nc で繋いだ瞬間に切れる。何も返ってこない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、順を追って見ていきます。Session は accept のハンドラの中のローカル変数なので、start() が戻った時点で破棄され、ソケットも一緒に閉じます。非同期処理が終わるまで Session を生かしておくには、enable_shared_from_this を継承して、各ハンドラに shared_from_this() のコピーを持たせます。これでハンドラが生きている限り、Session も生きていることを保証します。",
+          "reading": "Now、じゅんをおってみていきます。Session は accept のはんどらのなかのろーかるへんすうなので、start() がもどったじてんではきされ、そけっともいっしょにとじます。ひどうきしょりがおわるまで Session をいかしておくには、enable_shared_from_this をけいしょうして、かくはんどらに shared_from_this() のこぴーをもたせます。これではんどらがいきているかぎり、Session もいきていることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "class Session : public std::enable_shared_from_this<Session> {\n public:\n  explicit Session(tcp::socket socket) : socket_(std::move(socket)) {}\n\n  void start() { do_read(); }\n\n private:\n  void do_read() {\n    auto self = shared_from_this();\n    socket_.async_read_some(boost::asio::buffer(data_),\n        [this, self](boost::system::error_code ec, std::size_t length) {\n          if (!ec) do_write(length);\n        });\n  }\n\n  void do_write(std::size_t length) {\n    auto self = shared_from_this();\n    boost::asio::async_write(socket_, boost::asio::buffer(data_, length),\n        [this, self](boost::system::error_code ec, std::size_t) {\n          if (!ec) do_read();\n        });\n  }\n"
+        }
+      ]
+    },
+    {
+      "user": "今度は繋いだ瞬間 terminate called after throwing an instance of 'std::bad_weak_ptr' で即死",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの修正は accept_loop 側に反映されていませんでした。shared_from_this() は、そのオブジェクトがすでに shared_ptr に所有されているときにしか使えません。スタック上の Session から呼ぶと、C++17 以降では std::bad_weak_ptr が投げられます。生成を make_shared に変えます。",
+          "reading": "もうしわけありません。さきほどのしゅうせいは accept_loop がわにはんえいされていませんでした。shared_from_this() は、そのおぶじぇくとがすでに shared_ptr にしょゆうされているときにしかつかえません。すたっくじょうの Session からよぶと、C++17 いこうでは std::bad_weak_ptr がなげられます。せいせいを make_shared にかえます。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "    if (!ec) {\n      std::make_shared<Session>(std::move(socket))->start();\n    }\n"
+        }
+      ]
+    },
+    {
+      "user": "動いた。けど [this, self] って二重に持ってて気持ち悪い。self だけでよくない？ あとついでにバッファ 4096 に",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。ラムダの中で this を使っているのは do_write と do_read の呼び出しだけなので、self-> 経由にすれば this のキャプチャは要りません。ラムダはメンバ関数の中で定義されているので、private なメンバ関数にもそのまま届きます。バッファの大きさと一緒に、まとめて置き換えます。",
+          "reading": "するどいごしてきです。らむだのなかで this をつかっているのは do_write と do_read のよびだしだけなので、self-> けいゆにすれば this のきゃぷちゃはいりません。らむだはめんばかんすうのなかでていぎされているので、private なめんばかんすうにもそのままとどきます。ばっふぁのおおきさといっしょに、まとめておきかえます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/\\[this, self\\]/[self]/; s/if (!ec) do_/if (!ec) self->do_/; s/std::array<char, 1024>/std::array<char, 4096>/' src/net/session.cpp"
+        },
+        {
+          "kind": "text",
+          "body": "以上で、Session の寿命は保留中のハンドラが握る shared_ptr だけで決まります。言い換えると、最後のハンドラが次の非同期処理を登録せずに戻った時点で、Session は堅牢に自分で片付きます。",
+          "reading": "いじょうで、Session のじゅみょうはほりゅうちゅうのはんどらがにぎる shared_ptr だけできまります。いいかえると、さいごのはんどらがつぎのひどうきしょりをとうろくせずにもどったじてんで、Session はけんろうにじぶんでかたづきます。"
+        }
+      ]
+    }
+  ]
+}

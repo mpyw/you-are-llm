@@ -1,0 +1,70 @@
+{
+  "id": "cond-wait-loop-c-en",
+  "title": "Wait on pthread_cond_wait in a while loop",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "c",
+  "summary": "Move the consumer wait from if to while, then make push wait when the queue is full.",
+  "files": [
+    {
+      "path": "src/worker/queue.c",
+      "content": "#include <pthread.h>\n\nstruct queue {\n  pthread_mutex_t lock;\n  pthread_cond_t ready;\n  int items[16];\n  int head;\n  int count;\n};\n\nint queue_pop(struct queue *q) {\n  pthread_mutex_lock(&q->lock);\n  if (q->count == 0) {\n    pthread_cond_wait(&q->ready, &q->lock);\n  }\n  int v = q->items[q->head];\n  q->head = (q->head + 1) % 16;\n  q->count -= 1;\n  pthread_mutex_unlock(&q->lock);\n  return v;\n}\n\nvoid queue_push(struct queue *q, int v) {\n  pthread_mutex_lock(&q->lock);\n  q->items[(q->head + q->count) % 16] = v;\n  q->count += 1;\n  pthread_mutex_unlock(&q->lock);\n  pthread_cond_broadcast(&q->ready);\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "went to 4 consumer threads and sometimes one reads from an empty queue. fine with 1 thread",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: pthread_cond_broadcast wakes every waiting consumer for a single item, so the second one onward reads an empty queue. Switching to pthread_cond_signal wakes exactly one."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/pthread_cond_broadcast/pthread_cond_signal/' src/worker/queue.c"
+        }
+      ]
+    },
+    {
+      "user": "switched to signal, still happens. less often",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. POSIX allows pthread_cond_wait to return with no signal at all, the so called spurious wakeup. On top of that, another consumer can take the item before the woken thread gets the mutex back. The condition has to be rechecked in a while loop every time the thread wakes. Keeping signal is fine."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "int queue_pop(struct queue *q) {\n  pthread_mutex_lock(&q->lock);\n  while (q->count == 0) {\n    pthread_cond_wait(&q->ready, &q->lock);\n  }\n  int v = q->items[q->head];\n  q->head = (q->head + 1) % 16;\n  q->count -= 1;\n  pthread_mutex_unlock(&q->lock);\n  return v;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "also push overwrites when it's full right? make that wait too",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Good catch. When count is 16 it still writes, stomping on the oldest item. Adding a second condition variable, not_full, which pop signals after taking an item. push waits on it in a while loop for the same reason. Note: sharing one condition variable between producers and consumers lets a signal land on the wrong side, and everyone can end up waiting. Remember to pthread_cond_init the new one wherever the queue is set up."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "struct queue {\n  pthread_mutex_t lock;\n  pthread_cond_t ready;\n  pthread_cond_t not_full;\n  int items[16];\n  int head;\n  int count;\n};\n\nint queue_pop(struct queue *q) {\n  pthread_mutex_lock(&q->lock);\n  while (q->count == 0) {\n    pthread_cond_wait(&q->ready, &q->lock);\n  }\n  int v = q->items[q->head];\n  q->head = (q->head + 1) % 16;\n  q->count -= 1;\n  pthread_mutex_unlock(&q->lock);\n  pthread_cond_signal(&q->not_full);\n  return v;\n}\n\nvoid queue_push(struct queue *q, int v) {\n  pthread_mutex_lock(&q->lock);\n  while (q->count == 16) {\n    pthread_cond_wait(&q->not_full, &q->lock);\n  }\n  q->items[(q->head + q->count) % 16] = v;\n  q->count += 1;\n  pthread_mutex_unlock(&q->lock);\n  pthread_cond_signal(&q->ready);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "16 is too small, things back up. 64",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Every 16 in this file means capacity, so a global replace is safe. Pulling it into a constant would be more robust, but this keeps the diff minimal."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/16/64/g' src/worker/queue.c"
+        }
+      ]
+    }
+  ]
+}

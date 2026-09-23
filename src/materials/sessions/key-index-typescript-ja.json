@@ -1,0 +1,46 @@
+{
+  "id": "key-index-typescript-ja",
+  "title": "リストの key に index を使うのをやめる",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "typescript",
+  "summary": "先頭に足すとチェックがずれる TodoList を、変わらない id の key で直す。",
+  "files": [
+    {
+      "path": "src/components/TodoList.tsx",
+      "content": "type Todo = { id: string; title: string; done: boolean }\n\nexport function TodoList({ todos }: { todos: Todo[] }) {\n  return (\n    <ul>\n      {todos.map((todo, i) => (\n        <li key={i}>\n          <input type=\"checkbox\" defaultChecked={todo.done} />\n          {todo.title}\n        </li>\n      ))}\n    </ul>\n  )\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "TodoList、上に1件追加するとチェックが1個下にずれる。なんで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: key={i} だと、先頭に 1 件足した瞬間に全部の行の key が 1 つずつずれます。React は key で行を見分けるので、チェックボックスの状態は同じ番号の行に残ったままになります。todo.id を key に使うことをお勧めします。",
+          "reading": "Note: key={i} だと、せんとうに 1 けんたしたしゅんかんにぜんぶのぎょうの key が 1 つずつずれます。React は key でぎょうをみわけるので、ちぇっくぼっくすのじょうたいはおなじばんごうのぎょうにのこったままになります。todo.id を key につかうことをおすすめします。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "{todos.map((todo) => (\n  <li key={todo.id}>\n    <input type=\"checkbox\" defaultChecked={todo.done} />\n    {todo.title}\n  </li>\n))}\n"
+        }
+      ]
+    },
+    {
+      "user": "id ないやつある。フォームから足したやつ。randomUUID を key に直接入れればいい？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。ただ、描画のたびに crypto.randomUUID() を呼ぶと毎回別の key になり、全部の行が作り直されてチェックも消えます。言い換えると、key は描画をまたいで変わらないことが大事です。id は作ったときに一度だけ振り、それを正本として持ち回ります。",
+          "reading": "しょうちしました。ただ、びょうがのたびに crypto.randomUUID() をよぶとまいかいべつの key になり、ぜんぶのぎょうがつくりなおされてちぇっくもきえます。いいかえると、key はびょうがをまたいでかわらないことがだいじです。id はつくったときにいちどだけふり、それをせいほんとしてもちまわります。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "export function newTodo(title: string): Todo {\n  return { id: crypto.randomUUID(), title, done: false }\n}\n"
+        }
+      ]
+    }
+  ]
+}

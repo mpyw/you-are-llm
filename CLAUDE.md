@@ -40,6 +40,10 @@ The romaji table is generated, not hand written. Two rules keep it honest:
 Do not collapse the cursor set into a single reading. Holding every branch at once is what lets
 `si`, `shi` and `ci` all work without asking the typist which one they meant.
 
+The set is deduplicated after every key, and that has to stay. A leading space is both a step of
+indent and a plain space, so two paths reach one state. Without the dedup the copies double per key.
+A C++ `public:` indented by one space made every space a step and ran the test worker out of heap.
+
 ## Japanese material carries a reading, not just kanji
 
 The engine turns kana into keys. It cannot turn kanji into keys, because that is the direction an
@@ -148,6 +152,7 @@ The length term counts symbol keystrokes only, and its exponent is well under on
 the score rather than driving it. What drives it is hardness per keystroke: the Shift share times
 the number of distinct symbol shapes.
 
-The result is the one that matches anyone who has typed both. No Rust session lands below Hard, no
-Java session lands above it, and the only Expert+ session is the Rust `transaction` that takes a
-closure, which scores 41.9 against 31.3 for the next one down.
+The result is the one that matches anyone who has typed both. The only Rust session below Hard is
+`serde-rename`, which is attributes on a struct and really is easy. No Java session lands above Hard.
+The only Expert+ session is the Rust `transaction` that takes a closure, which scores 41.9 against
+31.1 for the next one down.

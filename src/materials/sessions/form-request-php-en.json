@@ -1,0 +1,65 @@
+{
+  "id": "form-request-php-en",
+  "title": "Move store validation into a FormRequest",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "Pull the inline validate out into StorePostRequest, then trip over the stub authorize.",
+  "files": [
+    {
+      "path": "app/Http/Controllers/PostController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse Illuminate\\Http\\Request;\n\nclass PostController extends Controller\n{\n    public function store(Request $request)\n    {\n        $validated = $request->validate([\n            'title' => ['required', 'string', 'max:255'],\n            'body' => ['required', 'string'],\n            'published_at' => ['nullable', 'date'],\n        ]);\n\n        $post = $request->user()->posts()->create($validated);\n\n        return redirect()->route('posts.show', $post);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "validate inline in PostController@store is ugly. move it to a FormRequest",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great call! The rules move into StorePostRequest and the controller only takes validated(). Separation of concerns, the Laravel way."
+        },
+        {
+          "kind": "command",
+          "body": "php artisan make:request StorePostRequest"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "class StorePostRequest extends FormRequest\n{\n    public function authorize(): bool\n    {\n        return false;\n    }\n\n    public function rules(): array\n    {\n        return [\n            'title' => ['required', 'string', 'max:255'],\n            'body' => ['required', 'string'],\n            'published_at' => ['nullable', 'date'],\n        ];\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function store(StorePostRequest $request)\n{\n    $post = $request->user()->posts()->create($request->validated());\n\n    return redirect()->route('posts.show', $post);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "everything is 403 now",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, I missed that. The make:request stub ships an authorize() that returns false, and I left it in. The auth middleware on the route already decides who is logged in, so this one returns true."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/return false;/return true;/' app/Http/Requests/StorePostRequest.php"
+        }
+      ]
+    },
+    {
+      "user": "also titles that long break the layout, cap at 100. oh and published_at should only be in the future",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Two changes. max:255 becomes max:100, and published_at gains after:today. nullable stays, so an empty value still goes through as a draft."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e \"s/'max:255'/'max:100'/\" -e \"s/'nullable', 'date'/'nullable', 'date', 'after:today'/\" app/Http/Requests/StorePostRequest.php"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "id": "transactional-self-call-java-ja",
+  "title": "同じクラス内の呼び出しで @Transactional が効かない",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "java",
+  "summary": "this 経由の呼び出しでプロキシを素通りし、直したそばから同じ罠をもう一度踏む。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/user/UserService.java",
+      "content": "package com.example.user;\n\nimport org.springframework.stereotype.Service;\nimport org.springframework.transaction.annotation.Transactional;\n\n@Service\npublic class UserService {\n    private final UserRepository userRepository;\n    private final AuditLogRepository auditLogRepository;\n\n    public UserService(UserRepository userRepository, AuditLogRepository auditLogRepository) {\n        this.userRepository = userRepository;\n        this.auditLogRepository = auditLogRepository;\n    }\n\n    public void rename(Long id, String name) {\n        updateName(id, name);\n    }\n\n    @Transactional\n    public void updateName(Long id, String name) {\n        User user = userRepository.findById(id).orElseThrow();\n        user.setName(name);\n        auditLogRepository.save(new AuditLog(id, \"rename\"));\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "rename 呼んでも名前が DB に反映されない。監査ログのほうはちゃんと入ってるのが謎すぎる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: 同じクラスの中から updateName を呼んでいるので、@Transactional が効いていません。Spring のトランザクションはプロキシが外からの呼び出しを包む仕組みで、this 経由の呼び出しはプロキシを通りません。監査ログが残るのは、JpaRepository の save が自前でトランザクションを張っているからです。外から呼ばれる rename の側に付けます。",
+          "reading": "TL;DR: おなじクラスのなかから updateName をよんでいるので、@Transactional がきいていません。Spring のトランザクションはプロキシがそとからのよびだしをつつむしくみで、this けいゆのよびだしはプロキシをとおりません。かんさログがのこるのは、JpaRepository の save がじまえでトランザクションをはっているからです。そとからよばれる rename のがわにつけます。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Transactional\npublic void rename(Long id, String name) {\n    updateName(id, name);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "直った。ついでなんだけど、名前の一意制約で落ちたとき監査ログまでロールバックで消えてる。ログは残したい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい着眼点です。監査ログだけを Propagation.REQUIRES_NEW で別のトランザクションに切り出せば、本体がコミット時に落ちても、監査ログはその前にコミット済みで残ります。同じクラスの private メソッドにまとめておけば、関心の分離も保てます。",
+          "reading": "すばらしいちゃくがんてんです。かんさログだけを Propagation.REQUIRES_NEW でべつのトランザクションにきりだせば、ほんたいがコミットじにおちても、かんさログはそのまえにコミットずみでのこります。おなじクラスの private メソッドにまとめておけば、かんしんのぶんりもたもてます。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Transactional(propagation = Propagation.REQUIRES_NEW)\nprivate void writeAudit(Long id, String action) {\n    auditLogRepository.save(new AuditLog(id, action));\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "いやこれさっきと同じ罠じゃない？ しかも private",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ご指摘のとおりです。申し訳ありません。先ほどの提案は、直したばかりの自己呼び出しをもう一度踏んでいました。private メソッドはそもそもプロキシが横取りできず、しかも this 経由なので二重に効きません。監査ログは別の Bean に移し、その public メソッドに REQUIRES_NEW を付けます。UserService はリポジトリの代わりにこの Bean を受け取ります。",
+          "reading": "ごしてきのとおりです。もうしわけありません。さきほどのていあんは、なおしたばかりのじこよびだしをもういちどふんでいました。private メソッドはそもそもプロキシがよこどりできず、しかも this けいゆなのでにじゅうにききません。かんさログはべつの Bean にうつし、その public メソッドに REQUIRES_NEW をつけます。UserService はリポジトリのかわりにこの Bean をうけとります。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Component\npublic class AuditLogger {\n    private final AuditLogRepository auditLogRepository;\n\n    public AuditLogger(AuditLogRepository auditLogRepository) {\n        this.auditLogRepository = auditLogRepository;\n    }\n\n    @Transactional(propagation = Propagation.REQUIRES_NEW)\n    public void record(Long id, String action) {\n        auditLogRepository.save(new AuditLog(id, action));\n    }\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/AuditLogRepository/AuditLogger/g' -e 's/auditLogRepository/auditLogger/g' -e 's/auditLogger\\.save(new AuditLog(\\(.*\\)));/auditLogger.record(\\1);/' src/main/java/com/example/user/UserService.java"
+        }
+      ]
+    }
+  ]
+}

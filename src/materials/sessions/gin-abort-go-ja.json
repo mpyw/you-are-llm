@@ -1,0 +1,45 @@
+{
+  "id": "gin-abort-go-ja",
+  "title": "c.Abort() の後ろが走り続ける",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "go",
+  "summary": "Gin のミドルウェアで Abort の後に return が無く、関数の残りが動いていたのを止める。",
+  "files": [
+    {
+      "path": "internal/middleware/auth.go",
+      "content": "package middleware\n\nimport (\n  \"net/http\"\n\n  \"github.com/gin-gonic/gin\"\n)\n\nfunc RequireToken(verify func(string) (string, error)) gin.HandlerFunc {\n  return func(c *gin.Context) {\n    token := c.GetHeader(\"Authorization\")\n    if token == \"\" {\n      c.AbortWithStatus(http.StatusUnauthorized)\n    }\n    userID, err := verify(token)\n    if err != nil {\n      c.AbortWithStatus(http.StatusUnauthorized)\n    }\n    c.Set(\"userID\", userID)\n    c.Next()\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "トークン無しで叩くと 401 は返るんだけど、ログに headers were already written って出るし verify に空文字が飛んでる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: c.Abort() は後ろに控えるハンドラを止めるだけで、いま走っている関数からは抜けません。なので空のトークンのまま verify まで進み、2 回目の AbortWithStatus がもう書き終えたヘッダを上書きしようとしています。ポイントは、Abort の直後に必ず return を置くことです。",
+          "reading": "TL;DR: c.Abort() はうしろにひかえるはんどらをとめるだけで、いまはしっているかんすうからはぬけません。なのでからのとーくんのまま verify まですすみ、2 かいめの AbortWithStatus がもうかきおえたへっだをうわがきしようとしています。ぽいんとは、Abort のちょくごにかならず return をおくことです。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "return func(c *gin.Context) {\n  token := c.GetHeader(\"Authorization\")\n  if token == \"\" {\n    c.AbortWithStatus(http.StatusUnauthorized)\n    return\n  }\n  userID, err := verify(token)\n  if err != nil {\n    c.AbortWithStatus(http.StatusUnauthorized)\n    return\n  }\n  c.Set(\"userID\", userID)\n  c.Next()\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "Abort で止まると思ってた。他のミドルウェアにも同じのありそう",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's 洗い出しの手順です。-A1 で Abort の次の行も出るので、そこが return でない箇所を網羅的に確認できます。",
+          "reading": "Here's あらいだしのてじゅんです。-A1 で Abort のつぎのぎょうもでるので、そこが return でないかしょをもうらてきにかくにんできます。"
+        },
+        {
+          "kind": "command",
+          "body": "grep -rn -A1 'Abort' internal/middleware"
+        }
+      ]
+    }
+  ]
+}

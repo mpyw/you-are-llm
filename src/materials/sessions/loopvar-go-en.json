@@ -2,7 +2,7 @@
   "id": "loopvar-go-en",
   "title": "One capture bug, four moving requirements",
   "language": "en",
-  "difficulty": "expert",
+  "difficulty": "hard",
   "codeLanguage": "go",
   "summary": "Loop variable capture, the go directive in go.mod, a swallowed Close, then a late cap on concurrency.",
   "files": [

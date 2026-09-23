@@ -1,0 +1,56 @@
+{
+  "id": "gtest-fixture-cpp-en",
+  "title": "Fold the repeated setup into TEST_F",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "cpp",
+  "summary": "Copied GoogleTest setup moves into a fixture. TEST and TEST_F cannot share one test suite.",
+  "files": [
+    {
+      "path": "tests/cart_test.cpp",
+      "content": "#include <gtest/gtest.h>\n\n#include \"cart.h\"\n\nTEST(CartTest, StartsEmpty) {\n  Inventory inventory;\n  inventory.add(\"apple\", 3);\n  Cart cart(inventory);\n  EXPECT_TRUE(cart.empty());\n}\n\nTEST(CartTest, AddsItem) {\n  Inventory inventory;\n  inventory.add(\"apple\", 3);\n  Cart cart(inventory);\n  cart.add(\"apple\", 1);\n  EXPECT_EQ(cart.count(\"apple\"), 1);\n}\n\nTEST(CartTest, RejectsOverStock) {\n  Inventory inventory;\n  inventory.add(\"apple\", 3);\n  Cart cart(inventory);\n  EXPECT_FALSE(cart.add(\"apple\", 4));\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "the first 3 lines of every test in cart_test are copy paste. fix it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch. Those lines belong in a TEST_F fixture. Members of a class derived from ::testing::Test are built fresh for every test, so no test can leak state into another. I added it right after the includes and rewrote StartsEmpty. The remaining TEST cases keep working as they are."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "class CartTest : public ::testing::Test {\n protected:\n  void SetUp() override { inventory_.add(\"apple\", 3); }\n\n  Inventory inventory_;\n  Cart cart_{inventory_};\n};\n\nTEST_F(CartTest, StartsEmpty) {\n  EXPECT_TRUE(cart_.empty());\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "everything fails. All tests in the same test suite must use the same test fixture class. keep working huh",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was not accurate. Inside the CartTest suite, TEST uses ::testing::Test as its fixture and TEST_F uses CartTest, and GoogleTest rejects the mix at run time. The rest become TEST_F too, and the three local lines go so the tests use the members."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^TEST(CartTest,/TEST_F(CartTest,/; /^  Inventory inventory;$/d; /^  inventory\\.add(\"apple\", 3);$/d; /^  Cart cart(inventory);$/d; s/\\([ (]\\)cart\\./\\1cart_./g' tests/cart_test.cpp"
+        }
+      ]
+    },
+    {
+      "user": "passes. do we even need SetUp? why not the constructor. idk",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Short answer: both work, but the GoogleTest FAQ suggests the constructor first. Reach for SetUp only when the setup needs ASSERT_ macros or has to call a virtual function. Here it only calls add, so it moves into the constructor."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/void SetUp() override {/CartTest() {/' tests/cart_test.cpp"
+        }
+      ]
+    }
+  ]
+}

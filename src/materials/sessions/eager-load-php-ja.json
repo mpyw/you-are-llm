@@ -1,0 +1,46 @@
+{
+  "id": "eager-load-php-ja",
+  "title": "記事一覧の N+1 を with() で潰す",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "php",
+  "summary": "投稿者の遅延読み込みを Eager Loading に寄せ、コメント数は withCount で取る。",
+  "files": [
+    {
+      "path": "app/Http/Controllers/PostController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse App\\Models\\Post;\n\nclass PostController extends Controller\n{\n    public function index()\n    {\n        $posts = Post::latest()->paginate(20);\n\n        return view('posts.index', ['posts' => $posts]);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "記事一覧おそい。debugbar 見たら 1 ページでクエリ 22 本出てた。PostController@index",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、原因は典型的な N+1 です。ビューで $post->user->name を読むたびに、投稿者を 1 件ずつ取りに行っています。with('user') で先にまとめて読み込めば、1 ページあたり 3 クエリ（件数、記事、投稿者）に収まることを保証します。",
+          "reading": "Now、げんいんはてんけいてきな N+1 です。ビューで $post->user->name をよむたびに、とうこうしゃを 1 けんずつとりにいっています。with('user') でさきにまとめてよみこめば、1 ぺーじあたり 3 くえり（けんすう、きじ、とうこうしゃ）におさまることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function index()\n{\n    $posts = Post::with('user')->latest()->paginate(20);\n\n    return view('posts.index', ['posts' => $posts]);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、ついでにコメント数も一覧に出したい。これもクエリ増えないやつで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。withCount('comments') を足すと、件数はサブクエリとして同じ SELECT に入り、各記事に comments_count 属性が生えます。言い換えると、コメント本体は 1 件も読み込まずに数だけ取れます。",
+          "reading": "かしこまりました。withCount('comments') をたすと、けんすうはサブクエリとしておなじ SELECT にはいり、かくきじに comments_count ぞくせいがはえます。いいかえると、コメントほんたいは 1 けんもよみこまずにかずだけとれます。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "$posts = Post::with('user')\n    ->withCount('comments')\n    ->latest()\n    ->paginate(20);\n"
+        }
+      ]
+    }
+  ]
+}

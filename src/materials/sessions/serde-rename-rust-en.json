@@ -1,0 +1,44 @@
+{
+  "id": "serde-rename-rust-en",
+  "title": "Read camelCase JSON with serde",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "rust",
+  "summary": "Rename only the JSON side to camelCase with rename_all, then default the fields old clients leave out.",
+  "files": [
+    {
+      "path": "src/settings.rs",
+      "content": "use serde::Deserialize;\n\n#[derive(Debug, Deserialize)]\npub struct Settings {\n    pub user_name: String,\n    pub retry_count: u32,\n    pub timeout_secs: u64,\n}\n\npub fn load(raw: &str) -> serde_json::Result<Settings> {\n    serde_json::from_str(raw)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "the frontend sends userName etc and serde just says missing field `user_name`. fix pls",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Good catch. Adding #[serde(rename_all = \"camelCase\")] to the struct. The Rust fields stay snake_case and only the JSON side reads as camelCase."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "#[derive(Debug, Deserialize)]\n#[serde(rename_all = \"camelCase\")]\npub struct Settings {\n    pub user_name: String,\n    pub retry_count: u32,\n    pub timeout_secs: u64,\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ok that works. but old clients dont send timeoutSecs at all. default it to 30. retryCount can be 0 if missing",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: a bare #[serde(default)] would give timeout_secs the u64 default, which is 0. So timeout_secs gets a function that returns 30, and retry_count keeps the plain default."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "#[derive(Debug, Deserialize)]\n#[serde(rename_all = \"camelCase\")]\npub struct Settings {\n    pub user_name: String,\n    #[serde(default)]\n    pub retry_count: u32,\n    #[serde(default = \"default_timeout_secs\")]\n    pub timeout_secs: u64,\n}\n\nfn default_timeout_secs() -> u64 {\n    30\n}\n"
+        }
+      ]
+    }
+  ]
+}

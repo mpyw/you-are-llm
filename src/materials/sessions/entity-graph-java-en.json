@@ -1,0 +1,96 @@
+{
+  "id": "entity-graph-java-en",
+  "title": "Fix the JPA N+1 with @EntityGraph",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "java",
+  "summary": "An N+1 on the post list gets fixed, then paging is added and quietly loads every row into memory.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/blog/Post.java",
+      "content": "package com.example.blog;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.FetchType;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.ManyToOne;\nimport jakarta.persistence.OneToMany;\nimport java.util.ArrayList;\nimport java.util.List;\n\n@Entity\npublic class Post {\n    @Id\n    @GeneratedValue\n    private Long id;\n\n    private String title;\n\n    private boolean published;\n\n    @ManyToOne(fetch = FetchType.LAZY)\n    private Author author;\n\n    @OneToMany(mappedBy = \"post\")\n    private List<Comment> comments = new ArrayList<>();\n\n    public Long getId() { return id; }\n    public String getTitle() { return title; }\n    public Author getAuthor() { return author; }\n    public List<Comment> getComments() { return comments; }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/blog/PostRepository.java",
+      "content": "package com.example.blog;\n\nimport java.util.List;\nimport org.springframework.data.jpa.repository.JpaRepository;\n\npublic interface PostRepository extends JpaRepository<Post, Long> {\n    List<Post> findByPublishedTrue();\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/blog/PostQueryService.java",
+      "content": "package com.example.blog;\n\nimport java.util.List;\nimport org.springframework.stereotype.Service;\nimport org.springframework.transaction.annotation.Transactional;\n\n@Service\npublic class PostQueryService {\n    private final PostRepository postRepository;\n\n    public PostQueryService(PostRepository postRepository) {\n        this.postRepository = postRepository;\n    }\n\n    @Transactional(readOnly = true)\n    public List<PostSummary> published() {\n        return postRepository.findByPublishedTrue().stream()\n            .map(post -> new PostSummary(post.getId(), post.getTitle(), post.getAuthor().getName(), post.getComments().size()))\n            .toList();\n    }\n}\n"
+    },
+    {
+      "path": "src/main/resources/application.properties",
+      "content": "spring.jpa.show-sql=true\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "post list endpoint is slow. turned on show-sql and theres like 200 selects going by",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Short answer: a classic N+1. findByPublishedTrue fetches the posts once, then author and comments are LAZY, so every post fires extra selects when the summary touches them. For 100 posts that is up to 1 + 200 queries. An @EntityGraph pulls both into the first query."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@EntityGraph(attributePaths = {\"author\", \"comments\"})\nList<Post> findByPublishedTrue();\n"
+        }
+      ]
+    },
+    {
+      "user": "way faster! now PM wants paging. can I just add a Pageable?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! Yes, add a Pageable parameter and return Page<Post>. The @EntityGraph keeps working, so the N+1 stays fixed. On the service side, Page.map turns each post into the DTO."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@EntityGraph(attributePaths = {\"author\", \"comments\"})\nPage<Post> findByPublishedTrue(Pageable pageable);\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Transactional(readOnly = true)\npublic Page<PostSummary> published(Pageable pageable) {\n    return postRepository.findByPublishedTrue(pageable)\n        .map(post -> new PostSummary(post.getId(), post.getTitle(), post.getAuthor().getName(), post.getComments().size()));\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "counts look right but the log says firstResult/maxResults specified with collection fetch; applying in memory. is it reading everything??",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. With a collection like comments fetched in the same query, Hibernate cannot put a LIMIT on the SQL, so it reads every published post and slices the page in memory. The counts were right because it read everything. author is a to-one join, which adds no rows, so it can stay. comments comes out of the graph and loads through default_batch_fetch_size, 100 at a time in an IN list. A page of 20 costs three queries, the count included."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/attributePaths = {\"author\", \"comments\"}/attributePaths = \"author\"/' src/main/java/com/example/blog/PostRepository.java"
+        },
+        {
+          "kind": "command",
+          "body": "echo 'spring.jpa.properties.hibernate.default_batch_fetch_size=100' >> src/main/resources/application.properties"
+        }
+      ]
+    },
+    {
+      "user": "review says that setting hits the whole project, not ok. just do it for comments",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Understood. The line comes out of application.properties, and Hibernate @BatchSize goes directly on Post.comments. It loads the same way, but only this association is affected."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import org.hibernate.annotations.BatchSize;\n\n@BatchSize(size = 100)\n@OneToMany(mappedBy = \"post\")\nprivate List<Comment> comments = new ArrayList<>();\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/^spring\\.jpa\\.properties\\.hibernate\\.default_batch_fetch_size=/d' src/main/resources/application.properties"
+        }
+      ]
+    }
+  ]
+}

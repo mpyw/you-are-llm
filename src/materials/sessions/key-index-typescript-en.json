@@ -1,0 +1,44 @@
+{
+  "id": "key-index-typescript-en",
+  "title": "Stop keying the list by index",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "typescript",
+  "summary": "Checkboxes slide down a row when a todo is prepended. Key by a stable id instead.",
+  "files": [
+    {
+      "path": "src/components/TodoList.tsx",
+      "content": "type Todo = { id: string; title: string; done: boolean }\n\nexport function TodoList({ todos }: { todos: Todo[] }) {\n  return (\n    <ul>\n      {todos.map((todo, i) => (\n        <li key={i}>\n          <input type=\"checkbox\" defaultChecked={todo.done} />\n          {todo.title}\n        </li>\n      ))}\n    </ul>\n  )\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "adding a todo at the top shifts all the checkmarks down one row. why",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch. With key={i}, prepending one item shifts every key by one. React matches rows by key, so each checkbox keeps its state and stays with the old position rather than the old todo. Key by todo.id instead."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "{todos.map((todo) => (\n  <li key={todo.id}>\n    <input type=\"checkbox\" defaultChecked={todo.done} />\n    {todo.title}\n  </li>\n))}\n"
+        }
+      ]
+    },
+    {
+      "user": "some of them have no id. the ones from the form. can i just put randomUUID in the key",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Not in the render, no. Calling crypto.randomUUID() there hands out a new key every render, so every row is rebuilt and the checks are lost again. Assign the id once, when the todo is created, and treat it as the single source of truth from then on."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "export function newTodo(title: string): Todo {\n  return { id: crypto.randomUUID(), title, done: false }\n}\n"
+        }
+      ]
+    }
+  ]
+}

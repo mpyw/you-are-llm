@@ -1,0 +1,45 @@
+{
+  "id": "field-injection-java-ja",
+  "title": "フィールドの @Autowired をコンストラクタインジェクションにする",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "java",
+  "summary": "mock を差し込めない OrderService を、コンストラクタで依存を受け取る形に直す。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/order/OrderService.java",
+      "content": "package com.example.order;\n\nimport org.springframework.beans.factory.annotation.Autowired;\nimport org.springframework.stereotype.Service;\n\n@Service\npublic class OrderService {\n    @Autowired\n    private OrderRepository orderRepository;\n\n    @Autowired\n    private PaymentClient paymentClient;\n\n    public Order place(OrderRequest request) {\n        Order order = orderRepository.save(Order.from(request));\n        paymentClient.charge(order.getId(), order.getTotal());\n        return order;\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "OrderService の単体テスト書こうとしたら mock 差し込めなくて詰んだ。Spring 起動しないとテストできないの？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "おっしゃるとおり、原因はフィールドの @Autowired です。Spring がリフレクションで private フィールドに直接値を入れるので、テストから new したときに差し込む口がありません。コンストラクタインジェクションに移行しましょう！フィールドを final にできるので、依存が揃っていないインスタンスは作れないことを保証します。",
+          "reading": "おっしゃるとおり、げんいんはフィールドの @Autowired です。Spring がリフレクションで private フィールドにちょくせつあたいをいれるので、テストから new したときにさしこむくちがありません。コンストラクタインジェクションにいこうしましょう！フィールドを final にできるので、いぞんがそろっていないインスタンスはつくれないことをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Service\npublic class OrderService {\n    private final OrderRepository orderRepository;\n    private final PaymentClient paymentClient;\n\n    public OrderService(OrderRepository orderRepository, PaymentClient paymentClient) {\n        this.orderRepository = orderRepository;\n        this.paymentClient = paymentClient;\n    }\n"
+        }
+      ]
+    },
+    {
+      "user": "いけた。てかコンストラクタに @Autowired いらないの？ あと import が unused で怒られてる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。コンストラクタが 1 つだけなら、Spring 4.3 以降は @Autowired を省略しても自動で使われます。Boot 3 の中身は Spring 6 なので問題ありません。使われなくなった import は 1 行消します。",
+          "reading": "しょうちしました。コンストラクタが 1 つだけなら、Spring 4.3 いこうは @Autowired をしょうりゃくしてもじどうでつかわれます。Boot 3 のなかみは Spring 6 なのでもんだいありません。つかわれなくなった import は 1 ぎょうけします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/^import org\\.springframework\\.beans\\.factory\\.annotation\\.Autowired;$/d' src/main/java/com/example/order/OrderService.java"
+        }
+      ]
+    }
+  ]
+}

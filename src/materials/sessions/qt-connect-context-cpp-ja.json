@@ -1,0 +1,41 @@
+{
+  "id": "qt-connect-context-cpp-ja",
+  "title": "パネルを閉じるとラムダの中で落ちる",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "cpp",
+  "summary": "Qt の connect にラムダだけ渡すと、受け手が消えても接続が残る。第 3 引数に this を渡す。",
+  "files": [
+    {
+      "path": "src/ui/statuspanel.cpp",
+      "content": "#include \"statuspanel.h\"\n\n#include <QLabel>\n#include <QVBoxLayout>\n\n#include \"downloader.h\"\n\nStatusPanel::StatusPanel(Downloader *downloader, QWidget *parent)\n    : QWidget(parent), m_label(new QLabel(this))\n{\n    auto *layout = new QVBoxLayout(this);\n    layout->addWidget(m_label);\n\n    connect(downloader, &Downloader::progressChanged, [this](int percent) {\n        m_label->setText(QStringLiteral(\"%1%\").arg(percent));\n    });\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "ダウンロード中にパネル閉じるとたまに落ちる。スタック見たら progressChanged のラムダの中だった",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。原因はラムダが握っている this です。コンテキストオブジェクトなしで connect すると、パネルが破棄されても接続は Downloader 側に残り、解放済みの m_label に触ります。第 3 引数に this を渡せば、パネルの破棄と同時に接続も切れることを保証します。",
+          "reading": "しょうちしました。げんいんはらむだがにぎっている this です。こんてきすとおぶじぇくとなしで connect すると、ぱねるがはきされてもせつぞくは Downloader がわにのこり、かいほうずみの m_label にさわります。だい 3 ひきすうに this をわたせば、ぱねるのはきとどうじにせつぞくもきれることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "connect(downloader, &Downloader::progressChanged, this, [this](int percent) {\n    m_label->setText(QStringLiteral(\"%1%\").arg(percent));\n});\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、言ってなかったけど Downloader は別スレッドで回してる。それでもいける？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "良い質問です。むしろコンテキストを渡したほうが安全になります。受け手の this は GUI スレッドにいるので、AutoConnection がキュー接続を選び、ラムダは GUI スレッドで呼ばれます。言い換えると、これまでのようにワーカースレッドから QLabel を直接触ることはもうありません。",
+          "reading": "よいしつもんです。むしろこんてきすとをわたしたほうがあんぜんになります。うけての this は GUI すれっどにいるので、AutoConnection がきゅーせつぞくをえらび、らむだは GUI すれっどでよばれます。いいかえると、これまでのようにわーかーすれっどから QLabel をちょくせつさわることはもうありません。"
+        }
+      ]
+    }
+  ]
+}

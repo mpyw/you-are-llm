@@ -1,0 +1,71 @@
+{
+  "id": "fetch-abort-typescript-en",
+  "title": "Clean up a fetch in useEffect with AbortController",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "typescript",
+  "summary": "A late response overwrites the current user. Abort it on cleanup, then quiet the AbortError StrictMode surfaces.",
+  "files": [
+    {
+      "path": "src/components/UserCard.tsx",
+      "content": "import { useEffect, useState } from 'react'\n\ntype User = { id: string; name: string }\n\nexport function UserCard({ userId }: { userId: string }) {\n  const [user, setUser] = useState<User | null>(null)\n\n  useEffect(() => {\n    fetch(`/api/users/${userId}`)\n      .then((res) => res.json())\n      .then((data: User) => setUser(data))\n  }, [userId])\n\n  if (user === null) return <p>Loading...</p>\n  return <h2>{user.name}</h2>\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "if i flip userId quickly UserCard sometimes shows the wrong person. think a slow response lands late",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "That is exactly it. A fetch for the previous userId can resolve after the new one and overwrite it. Create an AbortController per effect and abort it in the cleanup, and the stale request is cut off where it stands. setUser is never called with an old result again."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "useEffect(() => {\n  const controller = new AbortController()\n  fetch(`/api/users/${userId}`, { signal: controller.signal })\n    .then((res) => res.json())\n    .then((data: User) => setUser(data))\n  return () => controller.abort()\n}, [userId])\n"
+        }
+      ]
+    },
+    {
+      "user": "now dev prints an AbortError in the console every time. StrictMode?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer left something out. abort rejects the promise with an AbortError, and with no catch that becomes an unhandled rejection. In development StrictMode runs the effect, cleans it up and runs it again, so the first fetch is aborted every time. That abort is expected, so drop the error only when the signal was aborted."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "useEffect(() => {\n  const controller = new AbortController()\n  fetch(`/api/users/${userId}`, { signal: controller.signal })\n    .then((res) => res.json())\n    .then((data: User) => setUser(data))\n    .catch((reason: unknown) => {\n      if (controller.signal.aborted) return\n      console.error(reason)\n    })\n  return () => controller.abort()\n}, [userId])\n"
+        }
+      ]
+    },
+    {
+      "user": "oh we moved to api v2. just change the path",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. It is one path in one place, so sed will do."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's#/api/users/#/api/v2/users/#' src/components/UserCard.tsx"
+        }
+      ]
+    },
+    {
+      "user": "actually do show errors on screen. a 500 too",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "fetch does not reject on a 500, so the handler checks res.ok and throws itself. Aborts stay silent and every other failure goes into error state."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "export function UserCard({ userId }: { userId: string }) {\n  const [user, setUser] = useState<User | null>(null)\n  const [error, setError] = useState<Error | null>(null)\n\n  useEffect(() => {\n    const controller = new AbortController()\n    fetch(`/api/v2/users/${userId}`, { signal: controller.signal })\n      .then((res) => {\n        if (!res.ok) throw new Error(`HTTP ${res.status}`)\n        return res.json()\n      })\n      .then((data: User) => {\n        setUser(data)\n        setError(null)\n      })\n      .catch((reason: unknown) => {\n        if (controller.signal.aborted) return\n        setError(reason instanceof Error ? reason : new Error(String(reason)))\n      })\n    return () => controller.abort()\n  }, [userId])\n\n  if (error !== null) return <p role=\"alert\">{error.message}</p>\n  if (user === null) return <p>Loading...</p>\n  return <h2>{user.name}</h2>\n}\n"
+        }
+      ]
+    }
+  ]
+}

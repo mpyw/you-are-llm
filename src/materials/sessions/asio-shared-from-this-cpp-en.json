@@ -1,0 +1,61 @@
+{
+  "id": "asio-shared-from-this-cpp-en",
+  "title": "The echo server hangs up on connect",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "cpp",
+  "summary": "A Boost.Asio Session dies before its handlers run. shared_from_this keeps it alive, and make_shared creates it.",
+  "files": [
+    {
+      "path": "src/net/session.cpp",
+      "content": "#include <array>\n#include <memory>\n#include <utility>\n\n#include <boost/asio.hpp>\n\nusing boost::asio::ip::tcp;\n\nclass Session {\n public:\n  explicit Session(tcp::socket socket) : socket_(std::move(socket)) {}\n\n  void start() { do_read(); }\n\n private:\n  void do_read() {\n    socket_.async_read_some(boost::asio::buffer(data_),\n        [this](boost::system::error_code ec, std::size_t length) {\n          if (!ec) do_write(length);\n        });\n  }\n\n  void do_write(std::size_t length) {\n    boost::asio::async_write(socket_, boost::asio::buffer(data_, length),\n        [this](boost::system::error_code ec, std::size_t) {\n          if (!ec) do_read();\n        });\n  }\n\n  tcp::socket socket_;\n  std::array<char, 1024> data_;\n};\n\nvoid accept_loop(tcp::acceptor& acceptor) {\n  acceptor.async_accept([&acceptor](boost::system::error_code ec, tcp::socket socket) {\n    if (!ec) {\n      Session session(std::move(socket));\n      session.start();\n    }\n    accept_loop(acceptor);\n  });\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "echo server drops the connection the instant nc connects. nothing comes back",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's walk through it. Session is a local inside the accept handler, so it is destroyed as soon as start() returns, and the socket closes with it. To keep a Session alive until its async work is done, derive from enable_shared_from_this and give every handler a copy of shared_from_this(). As long as a handler is pending, the Session is too."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "class Session : public std::enable_shared_from_this<Session> {\n public:\n  explicit Session(tcp::socket socket) : socket_(std::move(socket)) {}\n\n  void start() { do_read(); }\n\n private:\n  void do_read() {\n    auto self = shared_from_this();\n    socket_.async_read_some(boost::asio::buffer(data_),\n        [this, self](boost::system::error_code ec, std::size_t length) {\n          if (!ec) do_write(length);\n        });\n  }\n\n  void do_write(std::size_t length) {\n    auto self = shared_from_this();\n    boost::asio::async_write(socket_, boost::asio::buffer(data_, length),\n        [this, self](boost::system::error_code ec, std::size_t) {\n          if (!ec) do_read();\n        });\n  }\n"
+        }
+      ]
+    },
+    {
+      "user": "now it dies on connect with terminate called after throwing an instance of 'std::bad_weak_ptr'",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous fix never reached accept_loop. shared_from_this() only works on an object that a shared_ptr already owns. Called on a Session that lives on the stack, it throws std::bad_weak_ptr since C++17. The Session has to be created with make_shared."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "    if (!ec) {\n      std::make_shared<Session>(std::move(socket))->start();\n    }\n"
+        }
+      ]
+    },
+    {
+      "user": "works. but [this, self] holds it twice, feels gross. self alone is enough right? oh and bump the buffer to 4096",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Good point. The only uses of this inside the lambdas are the calls to do_write and do_read, so going through self-> makes the this capture unnecessary. The lambdas are defined inside member functions, so they can still reach private members. The buffer size changes in the same pass."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/\\[this, self\\]/[self]/; s/if (!ec) do_/if (!ec) self->do_/; s/std::array<char, 1024>/std::array<char, 4096>/' src/net/session.cpp"
+        },
+        {
+          "kind": "text",
+          "body": "The lifetime of a Session is now decided by the shared_ptr its pending handlers hold, and nothing else. When the last handler returns without starting another operation, the Session cleans itself up."
+        }
+      ]
+    }
+  ]
+}

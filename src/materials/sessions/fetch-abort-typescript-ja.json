@@ -1,0 +1,75 @@
+{
+  "id": "fetch-abort-typescript-ja",
+  "title": "useEffect の fetch を AbortController で片付ける",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "typescript",
+  "summary": "遅れて返った古い結果が上書きする UserCard に後始末を入れ、StrictMode の AbortError も黙らせる。",
+  "files": [
+    {
+      "path": "src/components/UserCard.tsx",
+      "content": "import { useEffect, useState } from 'react'\n\ntype User = { id: string; name: string }\n\nexport function UserCard({ userId }: { userId: string }) {\n  const [user, setUser] = useState<User | null>(null)\n\n  useEffect(() => {\n    fetch(`/api/users/${userId}`)\n      .then((res) => res.json())\n      .then((data: User) => setUser(data))\n  }, [userId])\n\n  if (user === null) return <p>Loading...</p>\n  return <h2>{user.name}</h2>\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "UserCard、userId ぽちぽち切り替えると別の人の名前出ることある。遅いのが後から来てる気がする",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "おっしゃるとおりです。前の userId の fetch が遅れて返ると、新しい結果を上書きします。effect ごとに AbortController を作り、クリーンアップで abort すれば、古いリクエストはその場で打ち切られます。これで setUser が古い結果で呼ばれることはなくなり、堅牢な実装になります。",
+          "reading": "おっしゃるとおりです。まえの userId の fetch がおくれてかえると、あたらしいけっかをうわがきします。effect ごとに AbortController をつくり、くりーんあっぷで abort すれば、ふるいりくえすとはそのばでうちきられます。これで setUser がふるいけっかでよばれることはなくなり、けんろうなじっそうになります。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "useEffect(() => {\n  const controller = new AbortController()\n  fetch(`/api/users/${userId}`, { signal: controller.signal })\n    .then((res) => res.json())\n    .then((data: User) => setUser(data))\n  return () => controller.abort()\n}, [userId])\n"
+        }
+      ]
+    },
+    {
+      "user": "dev だとコンソールに AbortError 毎回出るんだけど。StrictMode？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの説明は正確ではありませんでした。abort は Promise を AbortError で reject するので、catch がないと未処理の拒否になります。StrictMode は開発中に effect を一度走らせて片付け、もう一度走らせるため、最初の fetch が毎回打ち切られてこれが出ます。打ち切りは想定内なので、signal が aborted のときだけ黙って捨てます。",
+          "reading": "もうしわけありません。さきほどのせつめいはせいかくではありませんでした。abort は Promise を AbortError で reject するので、catch がないとみしょりのきょひになります。StrictMode はかいはつちゅうに effect をいちどはしらせてかたづけ、もういちどはしらせるため、さいしょの fetch がまいかいうちきられてこれがでます。うちきりはそうていないなので、signal が aborted のときだけだまってすてます。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "useEffect(() => {\n  const controller = new AbortController()\n  fetch(`/api/users/${userId}`, { signal: controller.signal })\n    .then((res) => res.json())\n    .then((data: User) => setUser(data))\n    .catch((reason: unknown) => {\n      if (controller.signal.aborted) return\n      console.error(reason)\n    })\n  return () => controller.abort()\n}, [userId])\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、API v2 になったんだった。パスだけ変えといて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。変わるのはパスの 1 か所だけなので、sed で置き換えます。",
+          "reading": "しょうちしました。かわるのはぱすの 1 かしょだけなので、sed でおきかえます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's#/api/users/#/api/v2/users/#' src/components/UserCard.tsx"
+        }
+      ]
+    },
+    {
+      "user": "やっぱエラー画面に出して。500 のときも",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's エラー表示を足した版です。fetch は 500 では reject しないので、res.ok を見て自分で throw します。打ち切りとそれ以外の失敗を分けて扱うことで、関心の分離が優雅に保たれます。",
+          "reading": "Here's えらーひょうじをたしたばんです。fetch は 500 では reject しないので、res.ok をみてじぶんで throw します。うちきりとそれいがいのしっぱいをわけてあつかうことで、かんしんのぶんりがゆうがにたもたれます。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "export function UserCard({ userId }: { userId: string }) {\n  const [user, setUser] = useState<User | null>(null)\n  const [error, setError] = useState<Error | null>(null)\n\n  useEffect(() => {\n    const controller = new AbortController()\n    fetch(`/api/v2/users/${userId}`, { signal: controller.signal })\n      .then((res) => {\n        if (!res.ok) throw new Error(`HTTP ${res.status}`)\n        return res.json()\n      })\n      .then((data: User) => {\n        setUser(data)\n        setError(null)\n      })\n      .catch((reason: unknown) => {\n        if (controller.signal.aborted) return\n        setError(reason instanceof Error ? reason : new Error(String(reason)))\n      })\n    return () => controller.abort()\n  }, [userId])\n\n  if (error !== null) return <p role=\"alert\">{error.message}</p>\n  if (user === null) return <p>Loading...</p>\n  return <h2>{user.name}</h2>\n}\n"
+        }
+      ]
+    }
+  ]
+}

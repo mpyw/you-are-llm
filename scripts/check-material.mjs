@@ -131,7 +131,7 @@ function needsSelfCorrection(proseBlocks) {
 
 const LANGUAGES = new Set(['ja', 'en'])
 const DIFFICULTIES = new Set(['easy', 'normal', 'hard', 'expert', 'expertplus'])
-const CODE_LANGUAGES = new Set(['c', 'cpp', 'csharp', 'go', 'java', 'php', 'rust', 'typescript'])
+const CODE_LANGUAGES = new Set(['c', 'cpp', 'csharp', 'go', 'java', 'php', 'python', 'rust', 'typescript'])
 const BLOCK_KINDS = new Set(['text', 'code', 'command'])
 
 /** A katakana word of three or more characters, which has one transcription. */

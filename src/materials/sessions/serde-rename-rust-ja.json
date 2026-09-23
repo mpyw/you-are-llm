@@ -1,0 +1,46 @@
+{
+  "id": "serde-rename-rust-ja",
+  "title": "camelCase の JSON を serde で読む",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "rust",
+  "summary": "rename_all で JSON 側だけ camelCase にして、来ないフィールドに default を付ける。",
+  "files": [
+    {
+      "path": "src/settings.rs",
+      "content": "use serde::Deserialize;\n\n#[derive(Debug, Deserialize)]\npub struct Settings {\n    pub user_name: String,\n    pub retry_count: u32,\n    pub timeout_secs: u64,\n}\n\npub fn load(raw: &str) -> serde_json::Result<Settings> {\n    serde_json::from_str(raw)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "フロントから来る設定 JSON が userName とかで来るから読めない。missing field `user_name` って怒られる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。構造体に #[serde(rename_all = \"camelCase\")] を付けます。言い換えると、Rust 側の名前は snake_case のまま、JSON 側だけ camelCase で読むことが可能になります。",
+          "reading": "しょうちしました。こうぞうたいに #[serde(rename_all = \"camelCase\")] をつけます。いいかえると、Rust がわのなまえは snake_case のまま、JSON がわだけ camelCase でよむことがかのうになります。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "#[derive(Debug, Deserialize)]\n#[serde(rename_all = \"camelCase\")]\npub struct Settings {\n    pub user_name: String,\n    pub retry_count: u32,\n    pub timeout_secs: u64,\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "読めた。けど古いクライアントは timeoutSecs 送ってこないんだった。無かったら 30 で。retryCount も無ければ 0 でいい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: #[serde(default)] だけだと u64 の Default である 0 が入ってしまいます。timeout_secs には 30 を返す関数を渡し、retry_count は素の default で 0 にします。",
+          "reading": "Note: #[serde(default)] だけだと u64 の Default である 0 がはいってしまいます。timeout_secs には 30 をかえすかんすうをわたし、retry_count はすの default で 0 にします。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "#[derive(Debug, Deserialize)]\n#[serde(rename_all = \"camelCase\")]\npub struct Settings {\n    pub user_name: String,\n    #[serde(default)]\n    pub retry_count: u32,\n    #[serde(default = \"default_timeout_secs\")]\n    pub timeout_secs: u64,\n}\n\nfn default_timeout_secs() -> u64 {\n    30\n}\n"
+        }
+      ]
+    }
+  ]
+}

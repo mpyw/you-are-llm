@@ -1,0 +1,57 @@
+{
+  "id": "gin-bind-go-en",
+  "title": "Rejecting bad input with binding tags",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "go",
+  "summary": "Binding tags on a ShouldBindJSON request, and a required int that turns away zero.",
+  "files": [
+    {
+      "path": "internal/handler/user.go",
+      "content": "package handler\n\nimport (\n  \"net/http\"\n\n  \"github.com/gin-gonic/gin\"\n)\n\ntype CreateUserRequest struct {\n  Name  string `json:\"name\"`\n  Email string `json:\"email\"`\n  Age   int    `json:\"age\"`\n}\n\nfunc (h *Handler) CreateUser(c *gin.Context) {\n  var req CreateUserRequest\n  if err := c.ShouldBindJSON(&req); err != nil {\n    c.JSON(http.StatusBadRequest, gin.H{\"error\": err.Error()})\n    return\n  }\n  user, err := h.users.Create(c.Request.Context(), req.Name, req.Email, req.Age)\n  if err != nil {\n    c.JSON(http.StatusInternalServerError, gin.H{\"error\": \"create user failed\"})\n    return\n  }\n  c.JSON(http.StatusCreated, user)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "create user accepts an empty name and garbage emails. reject those. age comes in negative sometimes too",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! ShouldBindJSON runs the validator over the binding tags, so adding tags to the struct is enough. The existing 400 branch already handles the failure. Age gets required plus a range, so anything from 0 to 130 works as expected."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "type CreateUserRequest struct {\n  Name  string `json:\"name\" binding:\"required,max=50\"`\n  Email string `json:\"email\" binding:\"required,email\"`\n  Age   int    `json:\"age\" binding:\"required,gte=0,lte=130\"`\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "sent age 0 and got a 400. parents create accounts for their kids so 0 is a normal value here",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. On an int, required treats the zero value as missing, so 0 is rejected. With *int, required only checks for nil, and gte and lte apply to the value behind the pointer. In other words, leaving the field out and sending 0 are now two different things."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "type CreateUserRequest struct {\n  Name  string `json:\"name\" binding:\"required,max=50\"`\n  Email string `json:\"email\" binding:\"required,email\"`\n  Age   *int   `json:\"age\" binding:\"required,gte=0,lte=130\"`\n}\n\nuser, err := h.users.Create(c.Request.Context(), req.Name, req.Email, *req.Age)\n"
+        }
+      ]
+    },
+    {
+      "user": "also 50 chars for name is too short apparently. make it 100. no wait, product says 80",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: max counts runes, not bytes, so a Japanese name also gets the full 80 characters. Only the number in the tag changes."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/required,max=50/required,max=80/' internal/handler/user.go"
+        }
+      ]
+    }
+  ]
+}

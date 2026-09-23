@@ -1,0 +1,100 @@
+{
+  "id": "entity-graph-java-ja",
+  "title": "JPA の N+1 を @EntityGraph で潰す",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "java",
+  "summary": "記事一覧の N+1 を直したあと、ページングを足したら全件をメモリで切っていた。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/blog/Post.java",
+      "content": "package com.example.blog;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.FetchType;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.ManyToOne;\nimport jakarta.persistence.OneToMany;\nimport java.util.ArrayList;\nimport java.util.List;\n\n@Entity\npublic class Post {\n    @Id\n    @GeneratedValue\n    private Long id;\n\n    private String title;\n\n    private boolean published;\n\n    @ManyToOne(fetch = FetchType.LAZY)\n    private Author author;\n\n    @OneToMany(mappedBy = \"post\")\n    private List<Comment> comments = new ArrayList<>();\n\n    public Long getId() { return id; }\n    public String getTitle() { return title; }\n    public Author getAuthor() { return author; }\n    public List<Comment> getComments() { return comments; }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/blog/PostRepository.java",
+      "content": "package com.example.blog;\n\nimport java.util.List;\nimport org.springframework.data.jpa.repository.JpaRepository;\n\npublic interface PostRepository extends JpaRepository<Post, Long> {\n    List<Post> findByPublishedTrue();\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/blog/PostQueryService.java",
+      "content": "package com.example.blog;\n\nimport java.util.List;\nimport org.springframework.stereotype.Service;\nimport org.springframework.transaction.annotation.Transactional;\n\n@Service\npublic class PostQueryService {\n    private final PostRepository postRepository;\n\n    public PostQueryService(PostRepository postRepository) {\n        this.postRepository = postRepository;\n    }\n\n    @Transactional(readOnly = true)\n    public List<PostSummary> published() {\n        return postRepository.findByPublishedTrue().stream()\n            .map(post -> new PostSummary(post.getId(), post.getTitle(), post.getAuthor().getName(), post.getComments().size()))\n            .toList();\n    }\n}\n"
+    },
+    {
+      "path": "src/main/resources/application.properties",
+      "content": "spring.jpa.show-sql=true\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "記事一覧の API が遅い。show-sql 見たら select が 200 本くらい流れてる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、典型的な N+1 です。findByPublishedTrue で記事を 1 回取ったあと、author と comments が LAZY なので、記事 1 件ごとに追加の select が走っています。100 件なら最大で 201 回の select です。@EntityGraph で、この 2 つを最初のクエリで一緒に取ります。",
+          "reading": "けつろんからいうと、てんけいてきな N+1 です。findByPublishedTrue できじを 1 かいとったあと、author と comments が LAZY なので、きじ 1 けんごとについかの select がはしっています。100 けんならさいだいで 201 かいの select です。@EntityGraph で、この 2 つをさいしょのクエリでいっしょにとります。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@EntityGraph(attributePaths = {\"author\", \"comments\"})\nList<Post> findByPublishedTrue();\n"
+        }
+      ]
+    },
+    {
+      "user": "速くなった！ で、PM がページング付けてって。Pageable 足すだけでいける？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! はい、引数に Pageable を足して戻り値を Page<Post> にするだけです。@EntityGraph はそのまま効くので、N+1 は再発しません。サービス側は Page の map で DTO に詰め替えます。",
+          "reading": "Great question! はい、ひきすうに Pageable をたしてもどりちを Page<Post> にするだけです。@EntityGraph はそのままきくので、N+1 はさいはつしません。サービスがわは Page の map で DTO につめかえます。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@EntityGraph(attributePaths = {\"author\", \"comments\"})\nPage<Post> findByPublishedTrue(Pageable pageable);\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Transactional(readOnly = true)\npublic Page<PostSummary> published(Pageable pageable) {\n    return postRepository.findByPublishedTrue(pageable)\n        .map(post -> new PostSummary(post.getId(), post.getTitle(), post.getAuthor().getName(), post.getComments().size()));\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "件数は合ってるけど、ログに firstResult/maxResults specified with collection fetch; applying in memory って出てる。これ全件読んでない？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "重要な訂正があります。改めて確認したところ、先ほどの回答は正しくありませんでした。comments のようなコレクションを fetch したままページングすると、Hibernate は SQL に LIMIT を付けられず、公開記事を全件読んでからメモリ上で切り出します。言い換えると、件数が合っていたのは全件を読んだ結果です。author は ToOne なので行が増えず、fetch のままで問題ありません。comments だけを外し、default_batch_fetch_size で 100 件ずつ IN 句でまとめて読みます。1 ページ 20 件なら、クエリは件数取得を含めて 3 回です。",
+          "reading": "じゅうようなていせいがあります。あらためてかくにんしたところ、さきほどのかいとうはただしくありませんでした。comments のようなコレクションを fetch したままページングすると、Hibernate は SQL に LIMIT をつけられず、こうかいきじをぜんけんよんでからメモリじょうできりだします。いいかえると、けんすうがあっていたのはぜんけんをよんだけっかです。author は ToOne なのでぎょうがふえず、fetch のままでもんだいありません。comments だけをはずし、default_batch_fetch_size で 100 けんずつ IN くでまとめてよみます。1 ページ 20 けんなら、クエリはけんすうしゅとくをふくめて 3 かいです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/attributePaths = {\"author\", \"comments\"}/attributePaths = \"author\"/' src/main/java/com/example/blog/PostRepository.java"
+        },
+        {
+          "kind": "command",
+          "body": "echo 'spring.jpa.properties.hibernate.default_batch_fetch_size=100' >> src/main/resources/application.properties"
+        }
+      ]
+    },
+    {
+      "user": "その設定プロジェクト全体に効くからダメってレビューで言われた。comments だけにして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。application.properties の行を消し、Post の comments に Hibernate の @BatchSize を直接付けます。ポイントは、読み方は同じまま、影響範囲がこの関連だけになる点です。",
+          "reading": "しょうちしました。application.properties のぎょうをけし、Post の comments に Hibernate の @BatchSize をちょくせつつけます。ポイントは、よみかたはおなじまま、えいきょうはんいがこのかんれんだけになるてんです。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import org.hibernate.annotations.BatchSize;\n\n@BatchSize(size = 100)\n@OneToMany(mappedBy = \"post\")\nprivate List<Comment> comments = new ArrayList<>();\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/^spring\\.jpa\\.properties\\.hibernate\\.default_batch_fetch_size=/d' src/main/resources/application.properties"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "id": "gin-bind-go-ja",
+  "title": "binding タグで入力を弾く",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "go",
+  "summary": "ShouldBindJSON に binding タグを効かせ、int の required が 0 を弾く罠を *int で避ける。",
+  "files": [
+    {
+      "path": "internal/handler/user.go",
+      "content": "package handler\n\nimport (\n  \"net/http\"\n\n  \"github.com/gin-gonic/gin\"\n)\n\ntype CreateUserRequest struct {\n  Name  string `json:\"name\"`\n  Email string `json:\"email\"`\n  Age   int    `json:\"age\"`\n}\n\nfunc (h *Handler) CreateUser(c *gin.Context) {\n  var req CreateUserRequest\n  if err := c.ShouldBindJSON(&req); err != nil {\n    c.JSON(http.StatusBadRequest, gin.H{\"error\": err.Error()})\n    return\n  }\n  user, err := h.users.Create(c.Request.Context(), req.Name, req.Email, req.Age)\n  if err != nil {\n    c.JSON(http.StatusInternalServerError, gin.H{\"error\": \"create user failed\"})\n    return\n  }\n  c.JSON(http.StatusCreated, user)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "ユーザー作成、name 空でも email 適当でも通っちゃう。弾いて。age もマイナスとか来る",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。ShouldBindJSON は binding タグを見て validator を呼ぶので、構造体にタグを足すだけで、既存の 400 の分岐がそのまま効きます。age には required と範囲を付けます。これで 0 歳から 130 歳まで期待どおりに動作します。",
+          "reading": "しょうちしました。ShouldBindJSON は binding たぐをみて validator をよぶので、こうぞうたいにたぐをたすだけで、きそんの 400 のぶんきがそのままききます。age には required とはんいをつけます。これで 0 さいから 130 さいまできたいどおりにどうさします。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "type CreateUserRequest struct {\n  Name  string `json:\"name\" binding:\"required,max=50\"`\n  Email string `json:\"email\" binding:\"required,email\"`\n  Age   int    `json:\"age\" binding:\"required,gte=0,lte=130\"`\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "0 歳で送ったら 400 返ってきたんだけど。子供のアカウントを親が作る機能あるから 0 は普通に来る",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの説明は正しくありませんでした。int に required を付けると、ゼロ値の 0 は「値が無い」と見なされて弾かれます。*int にすれば、required は nil かどうかだけを見て、gte と lte は中身の値に掛かります。言い換えると、送らなかったことと 0 を送ったことを区別できるようになります。",
+          "reading": "もうしわけありません。さきほどのせつめいはただしくありませんでした。int に required をつけると、ぜろちの 0 は「あたいがない」とみなされてはじかれます。*int にすれば、required は nil かどうかだけをみて、gte と lte はなかみのあたいにかかります。いいかえると、おくらなかったことと 0 をおくったことをくべつできるようになります。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "type CreateUserRequest struct {\n  Name  string `json:\"name\" binding:\"required,max=50\"`\n  Email string `json:\"email\" binding:\"required,email\"`\n  Age   *int   `json:\"age\" binding:\"required,gte=0,lte=130\"`\n}\n\nuser, err := h.users.Create(c.Request.Context(), req.Name, req.Email, *req.Age)\n"
+        }
+      ]
+    },
+    {
+      "user": "あと name 50 文字は短いって言われた。100 で。いや企画に聞いたら 80 だって",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: max はバイト数ではなくルーン数で数えるので、日本語の名前でも 80 文字まで入ります。タグの数字だけ差し替えます。",
+          "reading": "Note: max はばいとすうではなくるーんすうでかぞえるので、にほんごのなまえでも 80 もじまではいります。たぐのすうじだけさしかえます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/required,max=50/required,max=80/' internal/handler/user.go"
+        }
+      ]
+    }
+  ]
+}

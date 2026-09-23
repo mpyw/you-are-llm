@@ -1,0 +1,39 @@
+{
+  "id": "qt-connect-context-cpp-en",
+  "title": "Closing the panel crashes inside a lambda",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "cpp",
+  "summary": "A Qt connect given only a lambda outlives its receiver. Pass this as the context object.",
+  "files": [
+    {
+      "path": "src/ui/statuspanel.cpp",
+      "content": "#include \"statuspanel.h\"\n\n#include <QLabel>\n#include <QVBoxLayout>\n\n#include \"downloader.h\"\n\nStatusPanel::StatusPanel(Downloader *downloader, QWidget *parent)\n    : QWidget(parent), m_label(new QLabel(this))\n{\n    auto *layout = new QVBoxLayout(this);\n    layout->addWidget(m_label);\n\n    connect(downloader, &Downloader::progressChanged, [this](int percent) {\n        m_label->setText(QStringLiteral(\"%1%\").arg(percent));\n    });\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "closing the panel mid download crashes sometimes. stack trace says inside the progressChanged lambda",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Got it. The culprit is the this the lambda holds. Without a context object, the connection lives on the Downloader side and survives the panel, so the lambda touches an m_label that is already freed. Pass this as the third argument and Qt drops the connection the moment the panel is destroyed."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "connect(downloader, &Downloader::progressChanged, this, [this](int percent) {\n    m_label->setText(QStringLiteral(\"%1%\").arg(percent));\n});\n"
+        }
+      ]
+    },
+    {
+      "user": "oh forgot to say, Downloader runs on its own thread. still fine?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question. The context actually makes it safer. The receiver lives on the GUI thread, so AutoConnection picks a queued connection and the lambda runs on the GUI thread. In other words, nothing touches QLabel from the worker thread any more, which the old code did on every update."
+        }
+      ]
+    }
+  ]
+}

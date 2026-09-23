@@ -1,0 +1,74 @@
+{
+  "id": "cond-wait-loop-c-ja",
+  "title": "pthread_cond_wait を while で待つ",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "c",
+  "summary": "if で待っていたコンシューマを while に直し、満杯のときの push も待たせる。",
+  "files": [
+    {
+      "path": "src/worker/queue.c",
+      "content": "#include <pthread.h>\n\nstruct queue {\n  pthread_mutex_t lock;\n  pthread_cond_t ready;\n  int items[16];\n  int head;\n  int count;\n};\n\nint queue_pop(struct queue *q) {\n  pthread_mutex_lock(&q->lock);\n  if (q->count == 0) {\n    pthread_cond_wait(&q->ready, &q->lock);\n  }\n  int v = q->items[q->head];\n  q->head = (q->head + 1) % 16;\n  q->count -= 1;\n  pthread_mutex_unlock(&q->lock);\n  return v;\n}\n\nvoid queue_push(struct queue *q, int v) {\n  pthread_mutex_lock(&q->lock);\n  q->items[(q->head + q->count) % 16] = v;\n  q->count += 1;\n  pthread_mutex_unlock(&q->lock);\n  pthread_cond_broadcast(&q->ready);\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "コンシューマ 4 本にしたら、たまに空のキューから値取ってる。1 本のときは平気だった",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、原因は pthread_cond_broadcast で待っている全員を起こしていることです。1 つの要素に 4 本が起きるので、2 本目以降は空のキューを読みます。pthread_cond_signal に替えれば、起きるのは 1 本だけになります。",
+          "reading": "けつろんからいうと、げんいんは pthread_cond_broadcast でまっているぜんいんをおこしていることです。1 つのようそに 4 ほんがおきるので、2 ほんめいこうはからのきゅーをよみます。pthread_cond_signal にかえれば、おきるのは 1 ぽんだけになります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/pthread_cond_broadcast/pthread_cond_signal/' src/worker/queue.c"
+        }
+      ]
+    },
+    {
+      "user": "signal にしたけどまだ出る。減ったけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの説明は正確ではありませんでした。POSIX は pthread_cond_wait が signal なしに戻ること、いわゆる spurious wakeup を認めています。さらに、起こされたスレッドが mutex を取り直す前に、別のコンシューマが先に要素を取ることもあります。なので条件は if で 1 回見るのではなく、while で起きるたびに見直す必要があります。signal はこのままで構いません。",
+          "reading": "もうしわけありません。さきほどのせつめいはせいかくではありませんでした。POSIX は pthread_cond_wait が signal なしにもどること、いわゆる spurious wakeup をみとめています。さらに、おこされたすれっどが mutex をとりなおすまえに、べつのこんしゅーまがさきにようそをとることもあります。なのでじょうけんは if で 1 かいみるのではなく、while でおきるたびにみなおすひつようがあります。signal はこのままでかまいません。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "int queue_pop(struct queue *q) {\n  pthread_mutex_lock(&q->lock);\n  while (q->count == 0) {\n    pthread_cond_wait(&q->ready, &q->lock);\n  }\n  int v = q->items[q->head];\n  q->head = (q->head + 1) % 16;\n  q->count -= 1;\n  pthread_mutex_unlock(&q->lock);\n  return v;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あと push、満杯でも上書きしてない？そっちも待たせて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。count が 16 のときも書き込んでいるので、いちばん古い要素を踏みつぶしています。満杯を待つための条件変数 not_full を足し、pop が 1 つ取るたびに signal します。待ち方は pop と同じく while です。Note: producer と consumer で条件変数を 1 つに兼ねると、signal が同じ側のスレッドに届いて誰も進めなくなることがあります。not_full も、キューを作る場所で pthread_cond_init を呼んでください。",
+          "reading": "するどいごしてきです。count が 16 のときもかきこんでいるので、いちばんふるいようそをふみつぶしています。まんぱいをまつためのじょうけんへんすう not_full をたし、pop が 1 つとるたびに signal します。まちかたは pop とおなじく while です。Note: producer と consumer でじょうけんへんすうを 1 つにかねると、signal がおなじがわのすれっどにとどいてだれもすすめなくなることがあります。not_full も、きゅーをつくるばしょで pthread_cond_init をよんでください。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "struct queue {\n  pthread_mutex_t lock;\n  pthread_cond_t ready;\n  pthread_cond_t not_full;\n  int items[16];\n  int head;\n  int count;\n};\n\nint queue_pop(struct queue *q) {\n  pthread_mutex_lock(&q->lock);\n  while (q->count == 0) {\n    pthread_cond_wait(&q->ready, &q->lock);\n  }\n  int v = q->items[q->head];\n  q->head = (q->head + 1) % 16;\n  q->count -= 1;\n  pthread_mutex_unlock(&q->lock);\n  pthread_cond_signal(&q->not_full);\n  return v;\n}\n\nvoid queue_push(struct queue *q, int v) {\n  pthread_mutex_lock(&q->lock);\n  while (q->count == 16) {\n    pthread_cond_wait(&q->not_full, &q->lock);\n  }\n  q->items[(q->head + q->count) % 16] = v;\n  q->count += 1;\n  pthread_mutex_unlock(&q->lock);\n  pthread_cond_signal(&q->ready);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "16 じゃ詰まるわ。64 にして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。このファイルの 16 はすべて容量の意味なので、一括で置換します。定数に切り出すほうが堅牢ですが、今回は差分を最小にします。",
+          "reading": "しょうちしました。このふぁいるの 16 はすべてようりょうのいみなので、いっかつでちかんします。ていすうにきりだすほうがけんろうですが、こんかいはさぶんをさいしょうにします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/16/64/g' src/worker/queue.c"
+        }
+      ]
+    }
+  ]
+}

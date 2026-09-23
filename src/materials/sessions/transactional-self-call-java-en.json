@@ -1,0 +1,62 @@
+{
+  "id": "transactional-self-call-java-en",
+  "title": "@Transactional does nothing on a call from the same class",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "java",
+  "summary": "A call through this skips the proxy, and the fix walks into the same trap one turn later.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/user/UserService.java",
+      "content": "package com.example.user;\n\nimport org.springframework.stereotype.Service;\nimport org.springframework.transaction.annotation.Transactional;\n\n@Service\npublic class UserService {\n    private final UserRepository userRepository;\n    private final AuditLogRepository auditLogRepository;\n\n    public UserService(UserRepository userRepository, AuditLogRepository auditLogRepository) {\n        this.userRepository = userRepository;\n        this.auditLogRepository = auditLogRepository;\n    }\n\n    public void rename(Long id, String name) {\n        updateName(id, name);\n    }\n\n    @Transactional\n    public void updateName(Long id, String name) {\n        User user = userRepository.findById(id).orElseThrow();\n        user.setName(name);\n        auditLogRepository.save(new AuditLog(id, \"rename\"));\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "calling rename does not save the new name. the audit log row DOES show up though, which makes no sense",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: rename calls updateName from inside the same class, so @Transactional never runs. Spring applies it through a proxy that wraps calls coming from outside, and a call through this never touches the proxy. The audit row survives because JpaRepository.save opens a transaction of its own. The annotation goes on rename, the method callers actually reach."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Transactional\npublic void rename(Long id, String name) {\n    updateName(id, name);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "fixed. also, when the unique constraint on name fails the audit row gets rolled back too. I want to keep it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great idea. Put only the audit write in its own transaction with Propagation.REQUIRES_NEW. It commits before the outer one fails at commit time, so the row stays. Keeping it as a private method in the same class gives a clean separation of concerns."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Transactional(propagation = Propagation.REQUIRES_NEW)\nprivate void writeAudit(Long id, String action) {\n    auditLogRepository.save(new AuditLog(id, action));\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "isnt that the exact same trap as before. and its private",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "You are right, and I apologize. My previous suggestion walked straight back into the self call I had just fixed. A private method cannot be intercepted by the proxy at all, and the call goes through this as well, so it fails twice over. The audit write moves to its own bean with REQUIRES_NEW on a public method, and UserService takes that bean instead of the repository."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Component\npublic class AuditLogger {\n    private final AuditLogRepository auditLogRepository;\n\n    public AuditLogger(AuditLogRepository auditLogRepository) {\n        this.auditLogRepository = auditLogRepository;\n    }\n\n    @Transactional(propagation = Propagation.REQUIRES_NEW)\n    public void record(Long id, String action) {\n        auditLogRepository.save(new AuditLog(id, action));\n    }\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/AuditLogRepository/AuditLogger/g' -e 's/auditLogRepository/auditLogger/g' -e 's/auditLogger\\.save(new AuditLog(\\(.*\\)));/auditLogger.record(\\1);/' src/main/java/com/example/user/UserService.java"
+        }
+      ]
+    }
+  ]
+}

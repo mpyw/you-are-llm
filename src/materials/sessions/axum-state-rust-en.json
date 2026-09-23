@@ -1,0 +1,56 @@
+{
+  "id": "axum-state-rust-en",
+  "title": "Share users through Axum State",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "rust",
+  "summary": "Hand shared state over with with_state, panic on the 0.7 path syntax, and fix it to {id}.",
+  "files": [
+    {
+      "path": "src/main.rs",
+      "content": "use axum::{routing::get, Json, Router};\nuse serde::Serialize;\n\n#[derive(Clone, Serialize)]\nstruct User {\n    id: u64,\n    name: String,\n}\n\nasync fn list_users() -> Json<Vec<User>> {\n    Json(vec![])\n}\n\n#[tokio::main]\nasync fn main() {\n    let app = Router::new().route(\"/users\", get(list_users));\n    let listener = tokio::net::TcpListener::bind(\"0.0.0.0:3000\").await.unwrap();\n    axum::serve(listener, app).await.unwrap();\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "list_users only ever returns []. keep some users in memory for now. also a /users/:id that gets one",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the plan. AppState goes into the Router with with_state, and each handler takes it through State. The Arc<RwLock<HashMap>> is the single source of truth for users."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::collections::HashMap;\nuse std::sync::{Arc, RwLock};\n\nuse axum::extract::{Path, State};\nuse axum::http::StatusCode;\n\n#[derive(Clone, Default)]\nstruct AppState {\n    users: Arc<RwLock<HashMap<u64, User>>>,\n}\n\nasync fn list_users(State(state): State<AppState>) -> Json<Vec<User>> {\n    let users = state.users.read().unwrap();\n    Json(users.values().cloned().collect())\n}\n\nasync fn get_user(\n    State(state): State<AppState>,\n    Path(id): Path<u64>,\n) -> Result<Json<User>, StatusCode> {\n    let users = state.users.read().unwrap();\n    users.get(&id).cloned().map(Json).ok_or(StatusCode::NOT_FOUND)\n}\n\n#[tokio::main]\nasync fn main() {\n    let app = Router::new()\n        .route(\"/users\", get(list_users))\n        .route(\"/users/:id\", get(get_user))\n        .with_state(AppState::default());\n    let listener = tokio::net::TcpListener::bind(\"0.0.0.0:3000\").await.unwrap();\n    axum::serve(listener, app).await.unwrap();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "panics the moment it starts. something about Path segments must not start with `:`",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, that route used the axum 0.7 syntax. Since 0.8 a path parameter is written in braces as {id}, and :id panics as soon as the Router is built. One line to fix."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's#\"/users/:id\"#\"/users/{id}\"#' src/main.rs"
+        }
+      ]
+    },
+    {
+      "user": "works. oh can the list come back in id order? its random every time",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. Swapping HashMap for BTreeMap. A BTreeMap iterates in key order, so values() comes out sorted by id. The same substitution fixes the use line."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/HashMap/BTreeMap/g' src/main.rs"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "id": "field-validator-python-ja",
+  "title": "field_validator で username を整える",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "python",
+  "summary": "Pydantic v2 のバリデータで前後の空白と大文字を落とし、空になったら弾く。",
+  "files": [
+    {
+      "path": "app/schemas.py",
+      "content": "from pydantic import BaseModel\n\n\nclass SignupForm(BaseModel):\n    email: str\n    username: str\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "signup の username に \" Mpyw \" みたいなのが来るとそのまま DB に入る。前後の空白消して小文字にしといて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。v2 では validator ではなく field_validator を使うのがベストプラクティスです。classmethod はその下に重ねます。デフォルトでは型の検証が済んだ後に呼ばれるので、value は str として届きます。",
+          "reading": "しょうちしました。v2 では validator ではなく field_validator をつかうのがべすとぷらくてぃすです。classmethod はそのしたにかさねます。でふぉるとではかたのけんしょうがすんだあとによばれるので、value は str としてとどきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from pydantic import BaseModel, field_validator\n\n\nclass SignupForm(BaseModel):\n    email: str\n    username: str\n\n    @field_validator(\"username\")\n    @classmethod\n    def normalize_username(cls, value: str) -> str:\n        return value.strip().lower()\n"
+        }
+      ]
+    },
+    {
+      "user": "スペースだけ送られてくると空文字で通るわ。弾いて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ポイントは、ValueError を投げれば Pydantic が ValidationError に包んでくれることです。FastAPI 経由ならそのまま 422 が返ります。Note: 空かどうかは strip の後で見ます。",
+          "reading": "ぽいんとは、ValueError をなげれば Pydantic が ValidationError につつんでくれることです。FastAPI けいゆならそのまま 422 がかえります。Note: からかどうかは strip のあとでみます。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "@field_validator(\"username\")\n@classmethod\ndef normalize_username(cls, value: str) -> str:\n    value = value.strip().lower()\n    if not value:\n        raise ValueError(\"username must not be blank\")\n    return value\n"
+        }
+      ]
+    }
+  ]
+}

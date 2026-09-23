@@ -2,7 +2,7 @@
   "id": "loopvar-go-ja",
   "title": "ループ変数のキャプチャから始まる直し合戦",
   "language": "ja",
-  "difficulty": "expert",
+  "difficulty": "hard",
   "codeLanguage": "go",
   "summary": "go.mod の go 行、握り潰した Close、後出しの並列数制限まで要件が転がる。",
   "files": [

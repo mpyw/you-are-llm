@@ -2,7 +2,7 @@
   "id": "branded-id-typescript-en",
   "title": "Stop UserId and PostId swapping places",
   "language": "en",
-  "difficulty": "expert",
+  "difficulty": "hard",
   "codeLanguage": "typescript",
   "summary": "Brand the ids with a unique symbol, add type predicates, then win inference back with satisfies.",
   "files": [

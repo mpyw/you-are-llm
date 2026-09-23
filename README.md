@@ -13,7 +13,7 @@
 
 ## Status
 
-The trainer runs end to end. 96 sessions cover eight programming languages and two natural
+The trainer runs end to end. 150 sessions cover nine programming languages and two natural
 languages, graded from Easy to Expert+. AZIK is not implemented yet.
 
 ## Commands
@@ -128,17 +128,17 @@ Each session sits on three axes.
 | --- | --- |
 | Language | `ja`, `en` |
 | Difficulty | `easy`, `normal`, `hard`, `expert`, `expertplus` |
-| Code language | C, C++, C#, Go, Java, PHP, Rust, TypeScript |
+| Code language | C, C++, C#, Go, Java, PHP, Python, Rust, TypeScript |
 
 Difficulty is measured, not chosen. `scripts/typing-load.mjs` scores every session across the whole
-set rather than within one language, so Rust has no easy session at all.
+set rather than within one language, so Rust has one easy session, and that one is serde attributes.
 
 | Difficulty | Score | Sessions |
 | --- | --- | --- |
-| Easy | under 11 | 24 |
-| Normal | 11 to 16 | 22 |
-| Hard | 16 to 22 | 30 |
-| Expert | 22 to 34 | 18 |
+| Easy | under 11 | 38 |
+| Normal | 11 to 16 | 38 |
+| Hard | 16 to 22 | 50 |
+| Expert | 22 to 34 | 22 |
 | Expert+ | over 34 | 2 |
 
 The score is how hard a session is per keystroke, stretched a little by how much of it there is.
@@ -151,7 +151,7 @@ dozen others.
 Length counts symbol keystrokes rather than all of them. A session is not harder for spelling out
 `htmlspecialchars`, which is the easiest kind of key there is.
 
-No Rust session comes out below Hard, and no Java one comes out above it. The only Expert+ session
+The only Rust session below Hard is `serde-rename`, which is attributes on a struct. No Java one comes out above Hard. The only Expert+ session
 is the Rust `transaction` that takes a closure.
 
 The front page filters on all three, and a filtered view is a shareable URL. It opens on Japanese,

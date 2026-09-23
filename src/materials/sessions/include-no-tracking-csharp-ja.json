@@ -1,0 +1,64 @@
+{
+  "id": "include-no-tracking-csharp-ja",
+  "title": "明細数が 0 の注文一覧を EF Core で直す",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "csharp",
+  "summary": "Include 漏れで空だった明細を読み、AsNoTracking を付け、最後は Select の投影で件数だけを SQL に数えさせる。",
+  "files": [
+    {
+      "path": "src/Orders/OrderQueries.cs",
+      "content": "using Acme.Data;\nusing Microsoft.EntityFrameworkCore;\n\nnamespace Acme.Orders;\n\npublic sealed record OrderSummary(int Id, DateTime PlacedAt, int LineCount);\n\npublic sealed class OrderQueries(ShopDbContext db)\n{\n    public async Task<List<OrderSummary>> ListRecentAsync(int customerId, CancellationToken ct)\n    {\n        var orders = await db.Orders\n            .Where(o => o.CustomerId == customerId)\n            .OrderByDescending(o => o.PlacedAt)\n            .Take(20)\n            .ToListAsync(ct);\n\n        return orders\n            .Select(o => new OrderSummary(o.Id, o.PlacedAt, o.Lines.Count))\n            .ToList();\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "注文一覧の明細数が全部 0 になってる。DB 見たらちゃんと入ってるのに",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ポイントは読み込みです。EF Core は既定では関連エンティティを読み込まないので、Include を付けない限り Lines は空のままです。読むだけの一覧なので、AsNoTracking も付けて変更追跡のコストを省きます。",
+          "reading": "ぽいんとはよみこみです。EF Core はきていではかんれんえんてぃてぃをよみこまないので、Include をつけないかぎり Lines はからのままです。よむだけのいちらんなので、AsNoTracking もつけてへんこうついせきのこすとをはぶきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "var orders = await db.Orders\n    .AsNoTracking()\n    .Include(o => o.Lines)\n    .Where(o => o.CustomerId == customerId)\n    .OrderByDescending(o => o.PlacedAt)\n    .Take(20)\n    .ToListAsync(ct);\n"
+        }
+      ]
+    },
+    {
+      "user": "直った。けど件数出すだけに明細全部引っ張ってくるの重くない？ 1 注文 300 行とかあるやつもある",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。Select をクエリの中に移せば、o.Lines.Count は SQL の COUNT に翻訳され、明細の行は 1 件も転送されません。Include は投影でも読み込みの指定として必要なので残しておきます。",
+          "reading": "するどいごしてきです。Select をくえりのなかにうつせば、o.Lines.Count は SQL の COUNT にほんやくされ、めいさいのぎょうは 1 けんもてんそうされません。Include はとうえいでもよみこみのしていとしてひつようなのでのこしておきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public async Task<List<OrderSummary>> ListRecentAsync(int customerId, CancellationToken ct)\n{\n    return await db.Orders\n        .AsNoTracking()\n        .Include(o => o.Lines)\n        .Where(o => o.CustomerId == customerId)\n        .OrderByDescending(o => o.PlacedAt)\n        .Take(20)\n        .Select(o => new OrderSummary(o.Id, o.PlacedAt, o.Lines.Count))\n        .ToListAsync(ct);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "Include 要る？ 投影したら無視されるってドキュメントに書いてなかったっけ。あと 20 件じゃ足りないって言われたから 50 で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、先ほどの説明は正確ではありませんでした。エンティティ以外を返す投影では Include は無視されるので、行ごと消します。言い換えると、読み込む範囲は Select が唯一の情報源です。件数も合わせて変えます。",
+          "reading": "あらためてかくにんしたところ、さきほどのせつめいはせいかくではありませんでした。えんてぃてぃいがいをかえすとうえいでは Include はむしされるので、ぎょうごとけします。いいかえると、よみこむはんいは Select がゆいいつのじょうほうげんです。けんすうもあわせてかえます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/\\.Include(o => o\\.Lines)/d' src/Orders/OrderQueries.cs"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/\\.Take(20)/.Take(50)/' src/Orders/OrderQueries.cs"
+        }
+      ]
+    }
+  ]
+}

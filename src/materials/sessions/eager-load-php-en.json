@@ -1,0 +1,44 @@
+{
+  "id": "eager-load-php-en",
+  "title": "Kill the N+1 on the post list with with()",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "php",
+  "summary": "Eager load the author instead of fetching it per row, and count comments with withCount.",
+  "files": [
+    {
+      "path": "app/Http/Controllers/PostController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse App\\Models\\Post;\n\nclass PostController extends Controller\n{\n    public function index()\n    {\n        $posts = Post::latest()->paginate(20);\n\n        return view('posts.index', ['posts' => $posts]);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "post list is slow. debugbar says 22 queries for one page. PostController@index",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Classic N+1! Every $post->user->name in the view fetches its author one row at a time. Here's the fix: with('user') loads every author up front, so a page costs three queries, the count, the posts and the authors."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function index()\n{\n    $posts = Post::with('user')->latest()->paginate(20);\n\n    return view('posts.index', ['posts' => $posts]);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "oh also want the comment count on each row. without adding more queries pls",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "withCount('comments') puts the count in the same SELECT as a subquery and gives each post a comments_count attribute. No comment rows are loaded at all, only the number."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "$posts = Post::with('user')\n    ->withCount('comments')\n    ->latest()\n    ->paginate(20);\n"
+        }
+      ]
+    }
+  ]
+}

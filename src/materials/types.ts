@@ -32,7 +32,7 @@ export type Language = 'ja' | 'en'
 /**
  * How hard the session is to type, measured across every language rather than
  * within one. Rust reaches for `&`, `<>` and `::` in its gentlest session, so
- * an easy Rust session does not exist. `scripts/typing-load.mjs` does the sums.
+ * an easy Rust session is rare. `scripts/typing-load.mjs` does the sums.
  */
 export type Difficulty = 'easy' | 'normal' | 'hard' | 'expert' | 'expertplus'
 
@@ -44,6 +44,7 @@ export type CodeLanguage =
   | 'go'
   | 'java'
   | 'php'
+  | 'python'
   | 'rust'
   | 'typescript'
 
@@ -54,6 +55,7 @@ export const CODE_LANGUAGE_LABELS: Readonly<Record<CodeLanguage, string>> = {
   go: 'Go',
   java: 'Java',
   php: 'PHP',
+  python: 'Python',
   rust: 'Rust',
   typescript: 'TypeScript',
 }

@@ -1,0 +1,60 @@
+{
+  "id": "stale-closure-typescript-ja",
+  "title": "setInterval の古い state を関数型更新で直す",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "typescript",
+  "summary": "1 で止まるカウンタを直し、あとから足した step を依存配列に入れる。",
+  "files": [
+    {
+      "path": "src/components/Ticker.tsx",
+      "content": "import { useEffect, useState } from 'react'\n\nexport function Ticker() {\n  const [count, setCount] = useState(0)\n\n  useEffect(() => {\n    const id = setInterval(() => {\n      setCount(count + 1)\n    }, 1000)\n    return () => clearInterval(id)\n  }, [])\n\n  return <p>{count}</p>\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "Ticker が 1 で止まる。interval は動いてるっぽいのに",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。effect は最初の描画で一度だけ走るので、コールバックが見ている count はずっと 0 のままです。0 + 1 を毎秒書き込んでいるだけなので、表示は 1 で止まります。依存配列に count を入れれば、最新の値でコールバックが作り直されます。",
+          "reading": "するどいごしてきです。effect はさいしょのびょうがでいちどだけはしるので、こーるばっくがみている count はずっと 0 のままです。0 + 1 をまいびょうかきこんでいるだけなので、ひょうじは 1 でとまります。いぞんはいれつに count をいれれば、さいしんのあたいでこーるばっくがつくりなおされます。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "useEffect(() => {\n  const id = setInterval(() => {\n    setCount(count + 1)\n  }, 1000)\n  return () => clearInterval(id)\n}, [count])\n"
+        }
+      ]
+    },
+    {
+      "user": "動いた。けどこれ毎秒 interval 作り直してない？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "前言を撤回します。count を依存に入れると、1 秒ごとに clearInterval と setInterval が回ります。ポイントは、setCount に関数を渡せば React が最新の値を引数でくれることです。effect が count を読まなくなるので、依存配列は空に戻せます。",
+          "reading": "ぜんげんをてっかいします。count をいぞんにいれると、1 びょうごとに clearInterval と setInterval がまわります。ぽいんとは、setCount にかんすうをわたせば React がさいしんのあたいをひきすうでくれることです。effect が count をよまなくなるので、いぞんはいれつはからにもどせます。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "useEffect(() => {\n  const id = setInterval(() => {\n    setCount((c) => c + 1)\n  }, 1000)\n  return () => clearInterval(id)\n}, [])\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、増える量 props で変えたいんだった。step とかで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、step を受け取って足す量にします。依存配列の観点から見ると、step は effect の中で読むので、今度は入れるのが正解です。step が変わったときだけ interval が張り直されることを保証します。",
+          "reading": "Now、step をうけとってたすりょうにします。いぞんはいれつのかんてんからみると、step は effect のなかでよむので、こんどはいれるのがせいかいです。step がかわったときだけ interval がはりなおされることをほしょうします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/export function Ticker() {/export function Ticker({ step }: { step: number }) {/' -e 's/c + 1/c + step/' -e 's/}, \\[\\])/}, [step])/' src/components/Ticker.tsx"
+        }
+      ]
+    }
+  ]
+}
