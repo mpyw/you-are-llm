@@ -794,12 +794,18 @@ h2 {
   position: relative;
 }
 
+/* The shape of an open box, U+2423, drawn with borders rather than taken
+   from the font. The glyph is wider than a space in proportional text and
+   would spill into the letter before it. Borders fit the space exactly. */
 .typing-target .space[data-eol]::after {
-  content: '·';
+  content: '';
   position: absolute;
-  inset-inline: 0;
-  text-align: center;
-  color: var(--accent);
+  inset-inline: 0.08em;
+  inset-block-end: 0.2em;
+  block-size: 0.3em;
+  min-inline-size: 0.2em;
+  border: 1.5px solid var(--accent);
+  border-block-start: none;
   opacity: 0.8;
 }
 
