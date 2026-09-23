@@ -9,6 +9,8 @@ afterEach(cleanup)
 
 const CARD: ShareCard = {
   title: 'Add a retry to fetchUser',
+  codeLanguage: 'TypeScript',
+  difficulty: 'Normal',
   rank: 'A',
   keysPerMinute: 312,
   accuracy: 97,

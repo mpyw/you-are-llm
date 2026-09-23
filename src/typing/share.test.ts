@@ -3,6 +3,8 @@ import { clipboardText, shareTargets, shareText } from './share'
 
 const CARD = {
   title: '%w を付け忘れて errors.Is が効かない',
+  codeLanguage: 'Go',
+  difficulty: 'Easy',
   rank: 'S',
   keysPerMinute: 412,
   accuracy: 100,
@@ -14,7 +16,7 @@ const LINK = 'https://mpyw.me/you-are-llm/sessions/errwrap-go-easy-ja'
 describe('shareText', () => {
   it('leads with the rank and carries the numbers', () => {
     expect(shareText(CARD)).toBe(
-      'S rank on "%w を付け忘れて errors.Is が効かない" — 412 keys/min, 100% accuracy, ×387 best combo. #YouAreLLM',
+      'S rank on "%w を付け忘れて errors.Is が効かない" (Go, Easy) — 412 keys/min, 100% accuracy, ×387 best combo. #YouAreLLM',
     )
   })
 })

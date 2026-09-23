@@ -171,6 +171,8 @@ export function SessionPlayer({ session }: { readonly session: Session }) {
           {done || step === undefined || state === null ? (
             <Result
               title={session.title}
+              codeLanguage={CODE_LANGUAGE_LABELS[session.codeLanguage]}
+              difficulty={DIFFICULTY_LABELS[session.difficulty]}
               tally={tally}
               bestCombo={progress.bestCombo}
               onRestart={restart}
@@ -264,11 +266,15 @@ const RANK_WORDS: Readonly<Record<Rank, string>> = {
 
 function Result({
   title,
+  codeLanguage,
+  difficulty,
   tally,
   bestCombo,
   onRestart,
 }: {
   readonly title: string
+  readonly codeLanguage: string
+  readonly difficulty: string
   readonly tally: Tally
   readonly bestCombo: number
   readonly onRestart: () => void
@@ -276,6 +282,8 @@ function Result({
   const grade = rank(tally)
   const card: ShareCard = {
     title,
+    codeLanguage,
+    difficulty,
     rank: grade,
     keysPerMinute: keysPerMinute(tally),
     accuracy: accuracy(tally),

@@ -2,6 +2,9 @@ import type { Rank } from './stats'
 
 export interface ShareCard {
   readonly title: string
+  /** Display labels, such as `Go` and `Hard`, not the ids in the material. */
+  readonly codeLanguage: string
+  readonly difficulty: string
   readonly rank: Rank
   readonly keysPerMinute: number
   readonly accuracy: number
@@ -17,7 +20,10 @@ export function shareText(card: ShareCard): string {
     `${String(card.accuracy)}% accuracy`,
     `×${String(card.bestCombo)} best combo`,
   ].join(', ')
-  return `${card.rank} rank on "${card.title}" — ${score}. ${HASHTAG}`
+  // A title alone does not say what was typed or how hard it was, and those are
+  // the two things a reader weighs the numbers against.
+  const where = `"${card.title}" (${card.codeLanguage}, ${card.difficulty})`
+  return `${card.rank} rank on ${where} — ${score}. ${HASHTAG}`
 }
 
 /** What lands on the clipboard, which is the boast and the link together. */
