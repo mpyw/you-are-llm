@@ -1,0 +1,75 @@
+{
+  "id": "security-filter-chain-java-ja",
+  "title": "WebSecurityConfigurerAdapter を SecurityFilterChain に移す",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "java",
+  "summary": "Boot 3 に上げてセキュリティ設定を書き直し、ロールを 1 つ足したら広いルールが先に当たっていた。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/config/SecurityConfig.java",
+      "content": "package com.example.config;\n\nimport org.springframework.context.annotation.Configuration;\nimport org.springframework.security.config.annotation.web.builders.HttpSecurity;\nimport org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;\nimport org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;\n\n@Configuration\n@EnableWebSecurity\npublic class SecurityConfig extends WebSecurityConfigurerAdapter {\n    @Override\n    protected void configure(HttpSecurity http) throws Exception {\n        http\n            .csrf().disable()\n            .authorizeRequests()\n                .antMatchers(\"/actuator/health\", \"/api/public/**\").permitAll()\n                .antMatchers(\"/api/admin/**\").hasRole(\"ADMIN\")\n                .anyRequest().authenticated()\n            .and()\n            .httpBasic();\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "Boot 3 に上げたら SecurityConfig がコンパイル通らない。WebSecurityConfigurerAdapter が無いって言われる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: WebSecurityConfigurerAdapter は Spring Security 5.7 で非推奨になり、Boot 3 が使う 6.0 で削除されました。今は HttpSecurity を受け取って SecurityFilterChain を返す @Bean を登録します。あわせて authorizeRequests は authorizeHttpRequests に、antMatchers は requestMatchers に変わりました。and() でつなぐ書き方も 6.1 で非推奨なので、ラムダ DSL で書き直します。",
+          "reading": "Note: WebSecurityConfigurerAdapter は Spring Security 5.7 でひすいしょうになり、Boot 3 がつかう 6.0 でさくじょされました。いまは HttpSecurity をうけとって SecurityFilterChain をかえす @Bean をとうろくします。あわせて authorizeRequests は authorizeHttpRequests に、antMatchers は requestMatchers にかわりました。and() でつなぐかきかたも 6.1 でひすいしょうなので、ラムダ DSL でかきなおします。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import org.springframework.context.annotation.Bean;\nimport org.springframework.context.annotation.Configuration;\nimport org.springframework.security.config.Customizer;\nimport org.springframework.security.config.annotation.web.builders.HttpSecurity;\nimport org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;\nimport org.springframework.security.web.SecurityFilterChain;\n\n@Configuration\n@EnableWebSecurity\npublic class SecurityConfig {\n    @Bean\n    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {\n        http\n            .csrf(csrf -> csrf.disable())\n            .authorizeHttpRequests(auth -> auth\n                .requestMatchers(\"/actuator/health\", \"/api/public/**\").permitAll()\n                .requestMatchers(\"/api/admin/**\").hasRole(\"ADMIN\")\n                .anyRequest().authenticated())\n            .httpBasic(Customizer.withDefaults());\n        return http.build();\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "動いた。で、/api/admin/reports/** だけは AUDITOR ロールの人も見られるようにしたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。admin のルールの直後に、reports 用の行を 1 つ足します。ポイントは、ROLE_ の接頭辞は hasAnyRole が自動で付けるので、ロール名だけを渡す点です。",
+          "reading": "しょうちしました。admin のルールのちょくごに、reports ようのぎょうを 1 つたします。ポイントは、ROLE_ のせっとうじは hasAnyRole がじどうでつけるので、ロールめいだけをわたすてんです。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": ".authorizeHttpRequests(auth -> auth\n    .requestMatchers(\"/actuator/health\", \"/api/public/**\").permitAll()\n    .requestMatchers(\"/api/admin/**\").hasRole(\"ADMIN\")\n    .requestMatchers(\"/api/admin/reports/**\").hasAnyRole(\"ADMIN\", \"AUDITOR\")\n    .anyRequest().authenticated())\n"
+        }
+      ]
+    },
+    {
+      "user": "AUDITOR のユーザーで /api/admin/reports/daily 叩いたら 403 なんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "重要な訂正があります。authorizeHttpRequests のルールは上から順に照合され、最初に一致したものだけが使われます。/api/admin/reports/daily は先に /api/admin/** に一致するので、そこで hasRole(\"ADMIN\") と判定され、下の行には届いていません。狭いルールを広いルールより前に置くのが、順序に関するベストプラクティスです。anyRequest を最後に置かないと起動時に例外になるのも、同じ理由です。",
+          "reading": "じゅうようなていせいがあります。authorizeHttpRequests のルールはうえからじゅんにしょうごうされ、さいしょにいっちしたものだけがつかわれます。/api/admin/reports/daily はさきに /api/admin/** にいっちするので、そこで hasRole(\"ADMIN\") とはんていされ、したのぎょうにはとどいていません。せまいルールをひろいルールよりまえにおくのが、じゅんじょにかんするベストプラクティスです。anyRequest をさいごにおかないときどうじにれいがいになるのも、おなじりゆうです。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": ".authorizeHttpRequests(auth -> auth\n    .requestMatchers(\"/actuator/health\", \"/api/public/**\").permitAll()\n    .requestMatchers(\"/api/admin/reports/**\").hasAnyRole(\"ADMIN\", \"AUDITOR\")\n    .requestMatchers(\"/api/admin/**\").hasRole(\"ADMIN\")\n    .anyRequest().authenticated())\n"
+        }
+      ]
+    },
+    {
+      "user": "あと運用から actuator の info も認証なしで見たいって。health の横に足すだけでいいよね",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "はい、permitAll の行にパスを 1 つ足すだけです。ただ、Boot 3 の既定では Web に公開されるのは health だけなので、management.endpoints.web.exposure.include に info が入っているかも確認することをお勧めします。",
+          "reading": "はい、permitAll のぎょうにパスを 1 つたすだけです。ただ、Boot 3 のきていでは Web にこうかいされるのは health だけなので、management.endpoints.web.exposure.include に info がはいっているかもかくにんすることをおすすめします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's|\"/actuator/health\", |\"/actuator/health\", \"/actuator/info\", |' src/main/java/com/example/config/SecurityConfig.java"
+        }
+      ]
+    }
+  ]
+}

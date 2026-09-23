@@ -1,0 +1,60 @@
+{
+  "id": "asio-steady-timer-cpp-ja",
+  "title": "黙ったサーバを待ち続けるクライアント",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "cpp",
+  "summary": "Boost.Asio の async_read_some に steady_timer で期限を付ける。期限を延ばすと古い待ちは operation_aborted で呼ばれる。",
+  "files": [
+    {
+      "path": "src/net/client.cpp",
+      "content": "#include <array>\n#include <chrono>\n#include <memory>\n\n#include <boost/asio.hpp>\n\nusing boost::asio::ip::tcp;\n\nclass Client : public std::enable_shared_from_this<Client> {\n public:\n  explicit Client(boost::asio::io_context& io) : socket_(io) {}\n\n  void start(const tcp::endpoint& endpoint) {\n    auto self = shared_from_this();\n    socket_.async_connect(endpoint, [self](boost::system::error_code ec) {\n      if (!ec) self->do_read();\n    });\n  }\n\n private:\n  void do_read() {\n    auto self = shared_from_this();\n    socket_.async_read_some(boost::asio::buffer(data_),\n        [self](boost::system::error_code ec, std::size_t length) {\n          if (ec) return;\n          self->handle(length);\n          self->do_read();\n        });\n  }\n\n  void handle(std::size_t length);\n\n  tcp::socket socket_;\n  std::array<char, 1024> data_;\n};\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "このクライアント、サーバが途中で無言になると async_read_some が一生返ってこない。10 秒来なかったら切りたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、steady_timer で読み込みに期限を付けます。Asio のソケット操作そのものにはタイムアウトの引数が無いので、タイマーが切れたらソケットを close して、保留中の読み込みを operation_aborted で終わらせるのが定石です。do_read のたびに expires_after で期限を 10 秒先に延ばします。",
+          "reading": "Now、steady_timer でよみこみにきげんをつけます。Asio のそけっとそうさそのものにはたいむあうとのひきすうがないので、たいまーがきれたらそけっとを close して、ほりゅうちゅうのよみこみを operation_aborted でおわらせるのがじょうせきです。do_read のたびに expires_after できげんを 10 びょうさきにのばします。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "  explicit Client(boost::asio::io_context& io) : socket_(io), timer_(io) {}\n\n  void do_read() {\n    auto self = shared_from_this();\n    timer_.expires_after(std::chrono::seconds(10));\n    timer_.async_wait([self](boost::system::error_code) {\n      self->socket_.close();\n    });\n    socket_.async_read_some(boost::asio::buffer(data_),\n        [self](boost::system::error_code ec, std::size_t length) {\n          if (ec) return;\n          self->handle(length);\n          self->do_read();\n        });\n  }\n\n  tcp::socket socket_;\n  boost::asio::steady_timer timer_;\n  std::array<char, 1024> data_;\n"
+        }
+      ]
+    },
+    {
+      "user": "1 個目のメッセージは読めるけど、その直後に毎回切れる。2 回目の read が operation_aborted で返ってきてる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、先ほどのタイマーのハンドラが原因でした。expires_after で期限を張り直すと、待っていた古い async_wait は取り消され、operation_aborted を渡されて呼ばれます。ec を見ずに close していたので、期限を延ばすたびに自分でソケットを閉じていました。取り消されたときは何もしないようにします。",
+          "reading": "あらためてかくにんしたところ、さきほどのたいまーのはんどらがげんいんでした。expires_after できげんをはりなおすと、まっていたふるい async_wait はとりけされ、operation_aborted をわたされてよばれます。ec をみずに close していたので、きげんをのばすたびにじぶんでそけっとをとじていました。とりけされたときはなにもしないようにします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/async_wait(\\[self\\](boost::system::error_code) {/async_wait([self](boost::system::error_code ec) {/; s/^      self->socket_\\.close();/      if (ec != boost::asio::error::operation_aborted) self->socket_.close();/' src/net/client.cpp"
+        }
+      ]
+    },
+    {
+      "user": "直った。あとサーバが先に切ったとき Client のデストラクタが 10 秒遅れて走る。なんで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。読み込みが eof で終わっても、async_wait のハンドラがまだ self を握っているので、タイマーが切れるまで Client は破棄されません。読み込みが失敗したらタイマーも cancel して、最後の shared_ptr を手放させます。以上で、Client の寿命は保留中の非同期処理と一致することを保証します。",
+          "reading": "するどいごしてきです。よみこみが eof でおわっても、async_wait のはんどらがまだ self をにぎっているので、たいまーがきれるまで Client ははきされません。よみこみがしっぱいしたらたいまーも cancel して、さいごの shared_ptr をてばなさせます。いじょうで、Client のじゅみょうはほりゅうちゅうのひどうきしょりといっちすることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "        [self](boost::system::error_code ec, std::size_t length) {\n          if (ec) {\n            self->timer_.cancel();\n            return;\n          }\n          self->handle(length);\n          self->do_read();\n        });\n"
+        }
+      ]
+    }
+  ]
+}

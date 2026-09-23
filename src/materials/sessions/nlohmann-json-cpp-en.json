@@ -1,0 +1,44 @@
+{
+  "id": "nlohmann-json-cpp-en",
+  "title": "Config loading dies on a missing key",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "cpp",
+  "summary": "operator[] in nlohmann/json creates a null for a missing key. Read required keys with at(), optional ones with value(), and test with contains().",
+  "files": [
+    {
+      "path": "src/config/load.cpp",
+      "content": "#include <fstream>\n#include <string>\n\n#include <nlohmann/json.hpp>\n\nusing json = nlohmann::json;\n\nstruct Config {\n  std::string host;\n  int port;\n  int timeout_ms;\n};\n\nConfig load_config(const std::string& path) {\n  std::ifstream in(path);\n  json j = json::parse(in);\n\n  Config config;\n  config.host = j[\"host\"];\n  config.port = j[\"port\"];\n  config.timeout_ms = j[\"timeout_ms\"];\n  return config;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "if config.json has no timeout_ms it dies with type must be number, but is null. want it optional",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Got it. The cause is operator[] on a json that is not const. For a missing key it inserts a null element and returns it, and converting that null to int throws type_error. In other words, just reading the config changes j. The required host and port move to at(), which throws out_of_range naming the missing key. The optional timeout_ms goes through value() with a default."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "  Config config;\n  config.host = j.at(\"host\").get<std::string>();\n  config.port = j.at(\"port\").get<int>();\n  config.timeout_ms = j.value(\"timeout_ms\", 3000);\n  return config;\n"
+        }
+      ]
+    },
+    {
+      "user": "oh and read the cert path only when there's a tls block. plain otherwise",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: testing with j[\"tls\"].is_null() would create a null tls entry just by asking. contains() never creates a key. Add std::string cert_path to Config and read it like this."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "  if (j.contains(\"tls\")) {\n    config.cert_path = j.at(\"tls\").at(\"cert\").get<std::string>();\n  }\n"
+        }
+      ]
+    }
+  ]
+}

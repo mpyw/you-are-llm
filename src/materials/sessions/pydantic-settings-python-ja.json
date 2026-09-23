@@ -1,0 +1,45 @@
+{
+  "id": "pydantic-settings-python-ja",
+  "title": "os.environ の直読みを BaseSettings にまとめる",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "python",
+  "summary": "散らばった環境変数の読み込みを pydantic-settings に寄せ、あとから APP_ プレフィックスを付ける。",
+  "files": [
+    {
+      "path": "app/config.py",
+      "content": "import os\n\nDATABASE_URL = os.environ[\"DATABASE_URL\"]\nREDIS_URL = os.environ.get(\"REDIS_URL\", \"redis://localhost:6379/0\")\nDEBUG = os.environ.get(\"DEBUG\", \"False\") == \"True\"\nMAX_UPLOAD_MB = int(os.environ.get(\"MAX_UPLOAD_MB\", \"10\"))\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "config.py が os.environ 直読みで地獄。DEBUG=true 入れても False のままだし。pydantic-settings で書き直して",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。BaseSettings を継承したクラスに型付きで並べれば、環境変数の読み込みと型変換は Pydantic が引き受けます。フィールド名は大文字小文字を区別しないので、database_url は DATABASE_URL から読まれます。bool は true、1、yes、on のどれでも True になります。このクラスが設定の唯一の情報源です。get_settings を lru_cache で包んでおけば、.env を読むのは最初の 1 回だけです。",
+          "reading": "しょうちしました。BaseSettings をけいしょうしたくらすにかたつきでならべれば、かんきょうへんすうのよみこみとかたへんかんは Pydantic がひきうけます。ふぃーるどめいはおおもじこもじをくべつしないので、database_url は DATABASE_URL からよまれます。bool は true、1、yes、on のどれでも True になります。このくらすがせっていのゆいいつのじょうほうげんです。get_settings を lru_cache でつつんでおけば、.env をよむのはさいしょの 1 かいだけです。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from functools import lru_cache\n\nfrom pydantic_settings import BaseSettings, SettingsConfigDict\n\n\nclass Settings(BaseSettings):\n    model_config = SettingsConfigDict(env_file=\".env\")\n\n    database_url: str\n    redis_url: str = \"redis://localhost:6379/0\"\n    debug: bool = False\n    max_upload_mb: int = 10\n\n\n@lru_cache\ndef get_settings() -> Settings:\n    return Settings()\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、本番の env 全部 APP_ 付いてたわ。APP_DATABASE_URL とか",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "model_config に env_prefix を足すだけです。Note: .env ファイル側のキーにもプレフィックスが要る点に注意することが重要です。",
+          "reading": "model_config に env_prefix をたすだけです。Note: .env ふぁいるがわのきーにもぷれふぃっくすがいるてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/SettingsConfigDict(env_file=\".env\")/SettingsConfigDict(env_prefix=\"APP_\", env_file=\".env\")/' app/config.py"
+        }
+      ]
+    }
+  ]
+}

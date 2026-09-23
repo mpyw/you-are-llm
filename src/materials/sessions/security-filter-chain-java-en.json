@@ -1,0 +1,71 @@
+{
+  "id": "security-filter-chain-java-en",
+  "title": "Move WebSecurityConfigurerAdapter to a SecurityFilterChain",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "java",
+  "summary": "The security config is rewritten for Boot 3, then a new role goes in below a broader rule that catches it first.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/config/SecurityConfig.java",
+      "content": "package com.example.config;\n\nimport org.springframework.context.annotation.Configuration;\nimport org.springframework.security.config.annotation.web.builders.HttpSecurity;\nimport org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;\nimport org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;\n\n@Configuration\n@EnableWebSecurity\npublic class SecurityConfig extends WebSecurityConfigurerAdapter {\n    @Override\n    protected void configure(HttpSecurity http) throws Exception {\n        http\n            .csrf().disable()\n            .authorizeRequests()\n                .antMatchers(\"/actuator/health\", \"/api/public/**\").permitAll()\n                .antMatchers(\"/api/admin/**\").hasRole(\"ADMIN\")\n                .anyRequest().authenticated()\n            .and()\n            .httpBasic();\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "upgraded to boot 3 and SecurityConfig does not compile. says WebSecurityConfigurerAdapter does not exist",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: WebSecurityConfigurerAdapter was deprecated in Spring Security 5.7 and removed in 6.0, which is what Boot 3 uses. The replacement is a @Bean that takes HttpSecurity and returns a SecurityFilterChain. Along the way authorizeRequests became authorizeHttpRequests and antMatchers became requestMatchers. Chaining with and() is deprecated as of 6.1 too, so this is written in the lambda DSL."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import org.springframework.context.annotation.Bean;\nimport org.springframework.context.annotation.Configuration;\nimport org.springframework.security.config.Customizer;\nimport org.springframework.security.config.annotation.web.builders.HttpSecurity;\nimport org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;\nimport org.springframework.security.web.SecurityFilterChain;\n\n@Configuration\n@EnableWebSecurity\npublic class SecurityConfig {\n    @Bean\n    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {\n        http\n            .csrf(csrf -> csrf.disable())\n            .authorizeHttpRequests(auth -> auth\n                .requestMatchers(\"/actuator/health\", \"/api/public/**\").permitAll()\n                .requestMatchers(\"/api/admin/**\").hasRole(\"ADMIN\")\n                .anyRequest().authenticated())\n            .httpBasic(Customizer.withDefaults());\n        return http.build();\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "works. now /api/admin/reports/** should also be open to the AUDITOR role",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. One line for reports goes right after the admin rule. hasAnyRole adds the ROLE_ prefix itself, so it takes bare role names."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": ".authorizeHttpRequests(auth -> auth\n    .requestMatchers(\"/actuator/health\", \"/api/public/**\").permitAll()\n    .requestMatchers(\"/api/admin/**\").hasRole(\"ADMIN\")\n    .requestMatchers(\"/api/admin/reports/**\").hasAnyRole(\"ADMIN\", \"AUDITOR\")\n    .anyRequest().authenticated())\n"
+        }
+      ]
+    },
+    {
+      "user": "logged in as an AUDITOR and /api/admin/reports/daily gives me 403",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, I got the order wrong. authorizeHttpRequests checks its rules top to bottom and uses the first one that matches. /api/admin/reports/daily matches /api/admin/** first, gets judged by hasRole(\"ADMIN\") there, and never reaches the line below. Best practice: narrow rules before broad ones. It is the same reason anyRequest has to come last, or the app fails at startup."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": ".authorizeHttpRequests(auth -> auth\n    .requestMatchers(\"/actuator/health\", \"/api/public/**\").permitAll()\n    .requestMatchers(\"/api/admin/reports/**\").hasAnyRole(\"ADMIN\", \"AUDITOR\")\n    .requestMatchers(\"/api/admin/**\").hasRole(\"ADMIN\")\n    .anyRequest().authenticated())\n"
+        }
+      ]
+    },
+    {
+      "user": "ops also wants actuator info without auth. just add it next to health right",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Yes, one more path on the permitAll line. Keep in mind Boot 3 only exposes health over the web by default, so check that management.endpoints.web.exposure.include lists info as well."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's|\"/actuator/health\", |\"/actuator/health\", \"/actuator/info\", |' src/main/java/com/example/config/SecurityConfig.java"
+        }
+      ]
+    }
+  ]
+}

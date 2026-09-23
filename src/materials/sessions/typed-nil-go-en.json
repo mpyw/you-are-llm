@@ -2,7 +2,7 @@
   "id": "typed-nil-go-en",
   "title": "It returned nil and err != nil is still true",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "go",
   "summary": "A typed nil in an interface, fixed at the signature instead of at every call site.",
   "files": [

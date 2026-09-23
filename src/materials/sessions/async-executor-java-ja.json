@@ -1,0 +1,99 @@
+{
+  "id": "async-executor-java-ja",
+  "title": "@Async が効かない、そして例外が届かない",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "java",
+  "summary": "@EnableAsync と自己呼び出しを直し、専用の executor を立てたあと、別スレッドの例外を try/catch で捕まえようとした。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/signup/Application.java",
+      "content": "package com.example.signup;\n\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\n\n@SpringBootApplication\npublic class Application {\n    public static void main(String[] args) {\n        SpringApplication.run(Application.class, args);\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/signup/SignupService.java",
+      "content": "package com.example.signup;\n\nimport org.springframework.scheduling.annotation.Async;\nimport org.springframework.stereotype.Service;\n\n@Service\npublic class SignupService {\n    private final UserRepository userRepository;\n    private final MailGateway mailGateway;\n\n    public SignupService(UserRepository userRepository, MailGateway mailGateway) {\n        this.userRepository = userRepository;\n        this.mailGateway = mailGateway;\n    }\n\n    public User signup(SignupRequest request) {\n        User user = userRepository.save(User.from(request));\n        sendWelcomeMail(user);\n        return user;\n    }\n\n    @Async\n    public void sendWelcomeMail(User user) {\n        mailGateway.send(user.getEmail(), \"welcome\");\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "新規登録 API、ウェルカムメール送るとこに @Async 付けたのにレスポンス 3 秒かかるのが変わらない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、原因は 2 つあります。1 つは @EnableAsync がどこにもないことで、これがないと @Async はただの注釈として無視されます。もう 1 つは、signup が同じクラスの sendWelcomeMail を this 経由で呼んでいることです。@Async はプロキシが呼び出しを横取りして別スレッドに渡す仕組みなので、クラスの内側からの呼び出しには効きません。メール送信を WelcomeMailer という別の Bean に切り出し、SignupService からはそれを呼びます。",
+          "reading": "けつろんからいうと、げんいんは 2 つあります。1 つは @EnableAsync がどこにもないことで、これがないと @Async はただのちゅうしゃくとしてむしされます。もう 1 つは、signup がおなじクラスの sendWelcomeMail を this けいゆでよんでいることです。@Async はプロキシがよびだしをよこどりしてべつスレッドにわたすしくみなので、クラスのうちがわからのよびだしにはききません。メールそうしんを WelcomeMailer というべつの Bean にきりだし、SignupService からはそれをよびます。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import org.springframework.scheduling.annotation.EnableAsync;\n\n@EnableAsync\n@SpringBootApplication\npublic class Application {\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.signup;\n\nimport org.springframework.scheduling.annotation.Async;\nimport org.springframework.stereotype.Component;\n\n@Component\npublic class WelcomeMailer {\n    private final MailGateway mailGateway;\n\n    public WelcomeMailer(MailGateway mailGateway) {\n        this.mailGateway = mailGateway;\n    }\n\n    @Async\n    public void send(User user) {\n        mailGateway.send(user.getEmail(), \"welcome\");\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "public User signup(SignupRequest request) {\n    User user = userRepository.save(User.from(request));\n    welcomeMailer.send(user);\n    return user;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "速くなった。で、来週キャンペーンで登録が一気に来るんだけど、既定のスレッドプールってどうなってんの",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "良い質問ですね。Boot の既定は applicationTaskExecutor で、コア 8 スレッド、キューの上限なしです。キューが埋まらない限りスレッドは 8 本から増えないので、登録が殺到するとメールは際限なくメモリに積まれ、停止時にはキューに残った分が失われます。メール専用の mailExecutor を定義し、キューに上限を設けます。上限に達したら CallerRunsPolicy で呼び出し元のスレッドが自分で送るので、取りこぼしの代わりにレスポンスが遅くなります。",
+          "reading": "よいしつもんですね。Boot のきていは applicationTaskExecutor で、コア 8 スレッド、キューのじょうげんなしです。キューがうまらないかぎりスレッドは 8 ほんからふえないので、とうろくがさっとうするとメールはさいげんなくメモリにつまれ、ていしじにはキューにのこったぶんがうしなわれます。メールせんようの mailExecutor をていぎし、キューにじょうげんをもうけます。じょうげんにたっしたら CallerRunsPolicy でよびだしもとのスレッドがじぶんでおくるので、とりこぼしのかわりにレスポンスがおそくなります。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.signup;\n\nimport java.util.concurrent.ThreadPoolExecutor;\nimport org.springframework.context.annotation.Bean;\nimport org.springframework.context.annotation.Configuration;\nimport org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;\n\n@Configuration\npublic class AsyncConfig {\n    @Bean\n    public ThreadPoolTaskExecutor mailExecutor() {\n        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();\n        executor.setCorePoolSize(4);\n        executor.setMaxPoolSize(8);\n        executor.setQueueCapacity(500);\n        executor.setThreadNamePrefix(\"mail-\");\n        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());\n        executor.setWaitForTasksToCompleteOnShutdown(true);\n        executor.setAwaitTerminationSeconds(30);\n        return executor;\n    }\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/@Async$/@Async(\"mailExecutor\")/' src/main/java/com/example/signup/WelcomeMailer.java"
+        }
+      ]
+    },
+    {
+      "user": "おk。あとメールサーバ落ちてた日、登録は全部成功してて誰にもメール届いてなかった。失敗したら failed_mails に積んで後で再送したい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。signup 側で send の呼び出しを try/catch で囲み、MailException を捕まえたら FailedMailRepository に保存します。これで送信失敗が漏れなく記録されることを保証します。",
+          "reading": "しょうちしました。signup がわで send のよびだしを try/catch でかこみ、MailException をつかまえたら FailedMailRepository にほぞんします。これでそうしんしっぱいがもれなくきろくされることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "public User signup(SignupRequest request) {\n    User user = userRepository.save(User.from(request));\n    try {\n        welcomeMailer.send(user);\n    } catch (MailException e) {\n        failedMailRepository.save(new FailedMail(user.getId(), e.getMessage()));\n    }\n    return user;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "メールサーバ止めて試したけど failed_mails 空のまま。ログに Unexpected exception occurred invoking async method ってのは出てる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "重要な訂正があります。先ほどの try/catch は何も捕まえられません。send はプロキシが別スレッドに仕事を渡した時点で戻るので、例外が起きる頃には try の外に出ています。void の @Async で投げた例外は AsyncUncaughtExceptionHandler に渡され、既定ではそのログを 1 行出して終わりです。send の戻り値を CompletableFuture<Void> にすると、例外はその Future に入って返ってきます。signup では exceptionally で失敗を受け取り、そこで保存します。なお、Future を受け取って誰も見なければ、今度はそのログ 1 行すら出なくなる点に注意することが重要です。",
+          "reading": "じゅうようなていせいがあります。さきほどの try/catch はなにもつかまえられません。send はプロキシがべつスレッドにしごとをわたしたじてんでもどるので、れいがいがおきるころには try のそとにでています。void の @Async でなげたれいがいは AsyncUncaughtExceptionHandler にわたされ、きていではそのログを 1 ぎょうだしておわりです。send のもどりちを CompletableFuture<Void> にすると、れいがいはその Future にはいってかえってきます。signup では exceptionally でしっぱいをうけとり、そこでほぞんします。なお、Future をうけとってだれもみなければ、こんどはそのログ 1 ぎょうすらでなくなるてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Async(\"mailExecutor\")\npublic CompletableFuture<Void> send(User user) {\n    mailGateway.send(user.getEmail(), \"welcome\");\n    return CompletableFuture.completedFuture(null);\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "public User signup(SignupRequest request) {\n    User user = userRepository.save(User.from(request));\n    welcomeMailer.send(user).exceptionally(ex -> {\n        failedMailRepository.save(new FailedMail(user.getId(), ex.getMessage()));\n        return null;\n    });\n    return user;\n}\n"
+        }
+      ]
+    }
+  ]
+}

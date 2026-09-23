@@ -1,0 +1,69 @@
+{
+  "id": "echo-http-error-go-ja",
+  "title": "Echo のエラーレスポンスを 1 か所にまとめる",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "go",
+  "summary": "ハンドラごとの c.JSON を echo.NewHTTPError と独自の HTTPErrorHandler に寄せ、he.Error() をそのまま返していたのを Message に直す。",
+  "files": [
+    {
+      "path": "internal/handler/user.go",
+      "content": "package handler\n\nimport (\n  \"errors\"\n  \"net/http\"\n\n  \"github.com/labstack/echo/v4\"\n)\n\ntype UserHandler struct {\n  users UserStore\n}\n\nfunc (h *UserHandler) Show(c echo.Context) error {\n  u, err := h.users.Find(c.Request().Context(), c.Param(\"id\"))\n  if errors.Is(err, ErrNotFound) {\n    return c.JSON(http.StatusNotFound, map[string]string{\"error\": \"user not found\"})\n  }\n  if err != nil {\n    return c.JSON(http.StatusInternalServerError, map[string]string{\"error\": err.Error()})\n  }\n  return c.JSON(http.StatusOK, u)\n}\n\nfunc (h *UserHandler) Create(c echo.Context) error {\n  var req CreateUserRequest\n  if err := c.Bind(&req); err != nil {\n    return c.JSON(http.StatusBadRequest, map[string]string{\"message\": err.Error()})\n  }\n  u, err := h.users.Create(c.Request().Context(), req.Name)\n  if err != nil {\n    return c.JSON(http.StatusInternalServerError, map[string]string{\"msg\": \"failed\"})\n  }\n  return c.JSON(http.StatusCreated, u)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "エラーの JSON がハンドラごとにバラバラ。error だったり message だったり msg だったり。フロントから苦情きた。統一して",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。Echo では、ハンドラはエラーを return するだけにして、レスポンスの形は e.HTTPErrorHandler の 1 か所で決めるのが定石です。ステータスを付けたいときは echo.NewHTTPError を返します。c.Bind が返すエラーは最初から 400 の *echo.HTTPError なので、そのまま return で足ります。",
+          "reading": "しょうちしました。Echo では、はんどらはえらーを return するだけにして、れすぽんすのかたちは e.HTTPErrorHandler の 1 かしょできめるのがじょうせきです。すてーたすをつけたいときは echo.NewHTTPError をかえします。c.Bind がかえすえらーはさいしょから 400 の *echo.HTTPError なので、そのまま return でたります。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (h *UserHandler) Show(c echo.Context) error {\n  u, err := h.users.Find(c.Request().Context(), c.Param(\"id\"))\n  if errors.Is(err, ErrNotFound) {\n    return echo.NewHTTPError(http.StatusNotFound, \"user not found\")\n  }\n  if err != nil {\n    return err\n  }\n  return c.JSON(http.StatusOK, u)\n}\n\nfunc (h *UserHandler) Create(c echo.Context) error {\n  var req CreateUserRequest\n  if err := c.Bind(&req); err != nil {\n    return err\n  }\n  u, err := h.users.Create(c.Request().Context(), req.Name)\n  if err != nil {\n    return err\n  }\n  return c.JSON(http.StatusCreated, u)\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "Here's エラーハンドラ本体です。internal/handler/errors.go に置いて、main で e.HTTPErrorHandler = handler.ErrorHandler を設定します。HTTPError でないエラーは 500 に丸めて中身はログにだけ出すので、DB のエラー文がクライアントに漏れないことを保証します。",
+          "reading": "Here's えらーはんどらほんたいです。internal/handler/errors.go において、main で e.HTTPErrorHandler = handler.ErrorHandler をせっていします。HTTPError でないえらーは 500 にまるめてなかみはろぐにだけだすので、DB のえらーぶんがくらいあんとにもれないことをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "package handler\n\nimport (\n  \"errors\"\n  \"net/http\"\n\n  \"github.com/labstack/echo/v4\"\n)\n\nfunc ErrorHandler(err error, c echo.Context) {\n  if c.Response().Committed {\n    return\n  }\n  var he *echo.HTTPError\n  if !errors.As(err, &he) {\n    c.Logger().Error(err)\n    he = echo.NewHTTPError(http.StatusInternalServerError, \"internal server error\")\n  }\n  if err := c.JSON(he.Code, map[string]any{\"error\": he.Error()}); err != nil {\n    c.Logger().Error(err)\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "404 が {\"error\":\"code=404, message=user not found\"} になってる。code= いらんし、400 のとき internal= とか付いて中のエラー丸見えなんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。確認したところ、*echo.HTTPError の Error() は code= と message= を並べたログ向けの文字列で、SetInternal されていれば internal= まで付きます。c.Bind のエラーはまさにそれでした。レスポンスに載せるのは Message だけにします。",
+          "reading": "もうしわけありません。かくにんしたところ、*echo.HTTPError の Error() は code= と message= をならべたろぐむけのもじれつで、SetInternal されていれば internal= までつきます。c.Bind のえらーはまさにそれでした。れすぽんすにのせるのは Message だけにします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/he.Error()/he.Message/' internal/handler/errors.go"
+        }
+      ]
+    },
+    {
+      "user": "あーやっぱキーは message で。フロントの人がそっちがいいって",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、キーの名前はエラーハンドラの 1 行にしかないので、ここを変えるだけで全ハンドラに効きます。まとめると、エラーの形の唯一の情報源が ErrorHandler になったということです。",
+          "reading": "Now、きーのなまえはえらーはんどらの 1 ぎょうにしかないので、ここをかえるだけでぜんはんどらにききます。まとめると、えらーのかたちのゆいいつのじょうほうげんが ErrorHandler になったということです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/\"error\": he.Message/\"message\": he.Message/' internal/handler/errors.go"
+        }
+      ]
+    }
+  ]
+}

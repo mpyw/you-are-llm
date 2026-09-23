@@ -1,0 +1,71 @@
+{
+  "id": "fmt-format-cpp-en",
+  "title": "Request logging from sprintf to fmt::format",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "cpp",
+  "summary": "Replace sprintf into a fixed buffer with fmt::format. A format string read from config has to be wrapped in fmt::runtime.",
+  "files": [
+    {
+      "path": "src/log/request_log.cpp",
+      "content": "#include \"request_log.h\"\n\n#include <cstdio>\n#include <string>\n\nstd::string format_request_log(const Request &req, double elapsed_ms)\n{\n    char buf[128];\n    std::sprintf(buf, \"%s %s -> %d (%.1f ms) user=%lld\",\n                 req.method.c_str(), req.path.c_str(), req.status,\n                 elapsed_ms, req.user_id);\n    return buf;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "log formatting crashed on a url with a long query. want to drop sprintf and use fmt, it's already a dependency",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's walk through it. buf holds only 128 bytes, so a long path makes sprintf write past the end of the buffer. There is a second problem: user_id is std::int64_t, which is long on Linux, so it does not match %lld. fmt::format decides how to print from the argument types, so neither problem can happen. In C++20 the format string is also checked at compile time, and putting {:d} on a string fails the build."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include \"request_log.h\"\n\n#include <string>\n\n#include <fmt/format.h>\n\nstd::string format_request_log(const Request &req, double elapsed_ms)\n{\n    return fmt::format(\"{} {} -> {} ({:.1f} ms) user={}\",\n                       req.method, req.path, req.status, elapsed_ms, req.user_id);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "nice. drop the decimals on ms. and align the method, GET and DELETE don't line up and it's hard to read",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Both are format specs. {:<6} left aligns in a width of 6, and {:.0f} rounds away the decimals."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/\"{} {} -> /\"{:<6} {} -> /; s/{:\\.1f} ms/{:.0f} ms/' src/log/request_log.cpp"
+        }
+      ]
+    },
+    {
+      "user": "ops wants to change the format from a config file. take the pattern from config. would be nice to write names instead of positions",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. With fmt::arg the arguments get names, so the config can say {method} {path} -> {status}. The pattern comes in as a std::string_view from the caller and goes straight into fmt::format. The config file becomes the single source of truth for how the log looks."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "std::string format_request_log(std::string_view pattern, const Request &req, double elapsed_ms)\n{\n    return fmt::format(pattern,\n                       fmt::arg(\"method\", req.method), fmt::arg(\"path\", req.path),\n                       fmt::arg(\"status\", req.status), fmt::arg(\"ms\", elapsed_ms),\n                       fmt::arg(\"user\", req.user_id));\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "doesn't build. call to consteval function ... is not a constant expression. we're on C++20",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous code does not compile under C++20. In C++20, {fmt} takes the format string through a consteval constructor and checks it at compile time. A string read at run time is not a constant, so it has to be wrapped in fmt::runtime, which moves the check to run time. The price is that a typo such as {methd} in the config throws fmt::format_error, so it is caught here and logging keeps going."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "std::string format_request_log(std::string_view pattern, const Request &req, double elapsed_ms)\n{\n    try {\n        return fmt::format(fmt::runtime(pattern),\n                           fmt::arg(\"method\", req.method), fmt::arg(\"path\", req.path),\n                           fmt::arg(\"status\", req.status), fmt::arg(\"ms\", elapsed_ms),\n                           fmt::arg(\"user\", req.user_id));\n    } catch (const fmt::format_error &e) {\n        return fmt::format(\"bad log pattern: {}\", e.what());\n    }\n}\n"
+        }
+      ]
+    }
+  ]
+}

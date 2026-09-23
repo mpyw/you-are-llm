@@ -1,0 +1,60 @@
+{
+  "id": "jansson-decref-c-ja",
+  "title": "jansson の参照カウントを合わせる",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "c",
+  "summary": "json_object_set で漏れていた値を json_object_set_new と json_decref で片付ける。",
+  "files": [
+    {
+      "path": "src/api/payload.c",
+      "content": "#include <stdlib.h>\n#include <jansson.h>\n\nchar *build_user(const char *name, int age) {\n  json_t *root = json_object();\n  json_object_set(root, \"name\", json_string(name));\n  json_object_set(root, \"age\", json_integer(age));\n  char *out = json_dumps(root, JSON_COMPACT);\n  return out;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "build_user、valgrind でめっちゃ definitely lost 出る。jansson の使い方おかしい？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。json_string や json_integer は参照カウント 1 の新しい値を返します。json_object_set はそこに自分の参照を 1 つ足すので、呼び出し側の分が誰にも返されずに残ります。値を作ってすぐ入れるなら、参照を譲る json_object_set_new を使います。root 自体も最後に json_decref しないと、木ごと漏れます。json_dumps の戻り値は呼び出し側が free するという点に注意することが重要です。",
+          "reading": "するどいごしてきです。json_string や json_integer はさんしょうかうんと 1 のあたらしいあたいをかえします。json_object_set はそこにじぶんのさんしょうを 1 つたすので、よびだしがわのぶんがだれにもかえされずにのこります。あたいをつくってすぐいれるなら、さんしょうをゆずる json_object_set_new をつかいます。root じたいもさいごに json_decref しないと、きごともれます。json_dumps のもどりちはよびだしがわが free するというてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "char *build_user(const char *name, int age) {\n  json_t *root = json_object();\n  json_object_set_new(root, \"name\", json_string(name));\n  json_object_set_new(root, \"age\", json_integer(age));\n  char *out = json_dumps(root, JSON_COMPACT);\n  json_decref(root);\n  return out;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あと tags 配列足して。フロントの都合で meta の下にも同じ tags 入れてほしい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。tags を 1 つ作り、root と meta の両方にぶら下げます。どちらも作ったばかりの値を入れるので、set_new で揃えています。言い換えると、呼び出し側には解放すべき参照が残りません。",
+          "reading": "かしこまりました。tags を 1 つつくり、root と meta のりょうほうにぶらさげます。どちらもつくったばかりのあたいをいれるので、set_new でそろえています。いいかえると、よびだしがわにはかいほうすべきさんしょうがのこりません。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "char *build_user(const char *name, int age) {\n  json_t *root = json_object();\n  json_object_set_new(root, \"name\", json_string(name));\n  json_object_set_new(root, \"age\", json_integer(age));\n\n  json_t *tags = json_array();\n  json_array_append_new(tags, json_string(\"member\"));\n  json_object_set_new(root, \"tags\", tags);\n\n  json_t *meta = json_object();\n  json_object_set_new(meta, \"tags\", tags);\n  json_object_set_new(root, \"meta\", meta);\n\n  char *out = json_dumps(root, JSON_COMPACT);\n  json_decref(root);\n  return out;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ASan で heap-use-after-free。json_decref(root) のとこ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの説明は正確ではありませんでした。set_new は参照を 1 つ譲る操作なので、tags の参照 1 つを 2 回譲っていました。root を解放すると、tags は 1 回目の json_decref で消え、2 回目は解放済みの tags を触ります。2 つ目は自分の参照を足す json_object_set にします。これで tags の参照カウントは 2 になり、json_decref(root) で両方が正しく返されます。",
+          "reading": "もうしわけありません。さきほどのせつめいはせいかくではありませんでした。set_new はさんしょうを 1 つゆずるそうさなので、tags のさんしょう 1 つを 2 かいゆずっていました。root をかいほうすると、tags は 1 かいめの json_decref できえ、2 かいめはかいほうずみの tags をさわります。2 つめはじぶんのさんしょうをたす json_object_set にします。これで tags のさんしょうかうんとは 2 になり、json_decref(root) でりょうほうがただしくかえされます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/json_object_set_new(meta, \"tags\", tags)/json_object_set(meta, \"tags\", tags)/' src/api/payload.c"
+        }
+      ]
+    }
+  ]
+}

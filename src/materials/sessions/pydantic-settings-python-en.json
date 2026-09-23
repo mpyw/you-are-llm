@@ -1,0 +1,43 @@
+{
+  "id": "pydantic-settings-python-en",
+  "title": "Gather os.environ reads into BaseSettings",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "python",
+  "summary": "Move scattered environment reads into pydantic-settings, then add an APP_ prefix after the fact.",
+  "files": [
+    {
+      "path": "app/config.py",
+      "content": "import os\n\nDATABASE_URL = os.environ[\"DATABASE_URL\"]\nREDIS_URL = os.environ.get(\"REDIS_URL\", \"redis://localhost:6379/0\")\nDEBUG = os.environ.get(\"DEBUG\", \"False\") == \"True\"\nMAX_UPLOAD_MB = int(os.environ.get(\"MAX_UPLOAD_MB\", \"10\"))\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "config.py reads os.environ directly and its a mess. DEBUG=true still gives False. redo it with pydantic-settings",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! Declare the settings as typed fields on a BaseSettings subclass and Pydantic takes over reading and converting the environment. Field names are not case sensitive, so database_url is read from DATABASE_URL, and a bool accepts true, 1, yes or on. This class is now the single source of truth for configuration. Wrapping get_settings in lru_cache means the .env file is read only once."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from functools import lru_cache\n\nfrom pydantic_settings import BaseSettings, SettingsConfigDict\n\n\nclass Settings(BaseSettings):\n    model_config = SettingsConfigDict(env_file=\".env\")\n\n    database_url: str\n    redis_url: str = \"redis://localhost:6379/0\"\n    debug: bool = False\n    max_upload_mb: int = 10\n\n\n@lru_cache\ndef get_settings() -> Settings:\n    return Settings()\n"
+        }
+      ]
+    },
+    {
+      "user": "oh wait prod has APP_ on everything. APP_DATABASE_URL etc",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "That is one setting in model_config, env_prefix. Note: the keys in the .env file need the prefix too."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/SettingsConfigDict(env_file=\".env\")/SettingsConfigDict(env_prefix=\"APP_\", env_file=\".env\")/' app/config.py"
+        }
+      ]
+    }
+  ]
+}

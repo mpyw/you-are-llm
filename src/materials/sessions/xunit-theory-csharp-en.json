@@ -1,0 +1,65 @@
+{
+  "id": "xunit-theory-csharp-en",
+  "title": "Fold copied Facts into a Theory",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "csharp",
+  "summary": "Four copied [Fact] tests become one [Theory]. decimal cannot go in an attribute, so the cases move to TheoryData and MemberData.",
+  "files": [
+    {
+      "path": "src/Pricing/DiscountPolicy.cs",
+      "content": "namespace Acme.Pricing;\n\npublic static class DiscountPolicy\n{\n    public static decimal For(decimal subtotal) => subtotal switch\n    {\n        >= 5000m => subtotal * 0.1m,\n        >= 1000m => subtotal * 0.05m,\n        _ => 0m,\n    };\n}\n"
+    },
+    {
+      "path": "tests/Acme.Tests/DiscountPolicyTests.cs",
+      "content": "using Acme.Pricing;\nusing Xunit;\n\nnamespace Acme.Tests;\n\npublic class DiscountPolicyTests\n{\n    [Fact]\n    public void NoDiscountBelowOneThousand()\n    {\n        Assert.Equal(0m, DiscountPolicy.For(999m));\n    }\n\n    [Fact]\n    public void FivePercentFromOneThousand()\n    {\n        Assert.Equal(50m, DiscountPolicy.For(1000m));\n    }\n\n    [Fact]\n    public void FivePercentJustBelowFiveThousand()\n    {\n        Assert.Equal(249.95m, DiscountPolicy.For(4999m));\n    }\n\n    [Fact]\n    public void TenPercentFromFiveThousand()\n    {\n        Assert.Equal(500m, DiscountPolicy.For(5000m));\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "DiscountPolicyTests is copy paste all the way down. clean it up",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch! The four tests differ only in input and expected value, so they become one [Theory] with a row of [InlineData] each. A data row now names the case instead of a method name, and a new boundary is a single line."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public class DiscountPolicyTests\n{\n    [Theory]\n    [InlineData(999m, 0m)]\n    [InlineData(1000m, 50m)]\n    [InlineData(4999m, 249.95m)]\n    [InlineData(5000m, 500m)]\n    public void DiscountBySubtotal(decimal subtotal, decimal expected)\n    {\n        Assert.Equal(expected, DiscountPolicy.For(subtotal));\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "doesn't build. CS0182",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. An attribute argument has to be a constant of a type like int, double or string, and decimal is not one of them, so 999m fails with CS0182. To keep decimal, build the cases as a static TheoryData<decimal, decimal> property and point [MemberData] at it. The data is typed, so a wrong value type shows up at compile time."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public class DiscountPolicyTests\n{\n    public static TheoryData<decimal, decimal> Cases => new()\n    {\n        { 999m, 0m },\n        { 1000m, 50m },\n        { 4999m, 249.95m },\n        { 5000m, 500m },\n    };\n\n    [Theory]\n    [MemberData(nameof(Cases))]\n    public void DiscountBySubtotal(decimal subtotal, decimal expected)\n    {\n        Assert.Equal(expected, DiscountPolicy.For(subtotal));\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "oh the 10% line drops to 3000 next month. tests too",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Understood. The boundary lives in two places, DiscountPolicy and the test data, and changing only one fails the tests. sed updates both. TL;DR: the 4999 and 5000 rows become 2999 and 3000."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/>= 5000m/>= 3000m/' src/Pricing/DiscountPolicy.cs"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/{ 4999m, 249\\.95m }/{ 2999m, 149.95m }/' -e 's/{ 5000m, 500m }/{ 3000m, 300m }/' tests/Acme.Tests/DiscountPolicyTests.cs"
+        }
+      ]
+    }
+  ]
+}

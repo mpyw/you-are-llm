@@ -84,7 +84,7 @@ words stay as ASCII. Keep the reading faithful to the body, including particles.
 ## How long a session runs
 
 Difficulty no longer says anything about length. It measures how hard the session is to type,
-across every language rather than within one, which is why Rust has only one easy session, and it is serde attributes.
+across every language rather than within one, which is why Rust rarely lands below Hard.
 
 | Difficulty | Score | Sessions today |
 | --- | --- | --- |

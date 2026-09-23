@@ -1,0 +1,88 @@
+{
+  "id": "qt-move-to-thread-cpp-en",
+  "title": "Moving a QThread subclass import to moveToThread",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "cpp",
+  "summary": "Split a QThread that overrides run() into a worker object and moveToThread it. An object with a parent cannot be moved.",
+  "files": [
+    {
+      "path": "src/import/importthread.h",
+      "content": "#pragma once\n\n#include <QFile>\n#include <QString>\n#include <QThread>\n\nclass ImportThread : public QThread\n{\n    Q_OBJECT\npublic:\n    explicit ImportThread(const QString &path, QObject *parent = nullptr)\n        : QThread(parent), m_path(path)\n    {\n    }\n\nsignals:\n    void progress(int percent);\n    void done(int rows);\n\nprotected:\n    void run() override\n    {\n        QFile file(m_path);\n        if (!file.open(QIODevice::ReadOnly)) {\n            emit done(0);\n            return;\n        }\n        int rows = 0;\n        while (!file.atEnd()) {\n            file.readLine();\n            ++rows;\n            if (rows % 1000 == 0)\n                emit progress(int(file.pos() * 100 / file.size()));\n        }\n        emit done(rows);\n    }\n\nprivate:\n    QString m_path;\n};\n"
+    },
+    {
+      "path": "src/ui/mainwindow.cpp",
+      "content": "#include \"mainwindow.h\"\n\n#include \"import/importthread.h\"\n\nvoid MainWindow::startImport(const QString &path)\n{\n    auto *thread = new ImportThread(path, this);\n    connect(thread, &ImportThread::progress, this, &MainWindow::onImportProgress);\n    connect(thread, &ImportThread::done, this, &MainWindow::onImportDone);\n    thread->start();\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "import runs in a QThread subclass with the work in run(). review says use moveToThread instead. also apparently threads pile up if you import a bunch of times. fix both",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Got it. A QThread subclass is an object that manages a thread. It does not itself live in the new thread. ImportThread belongs to the GUI thread that created it, so any slot you add later, a cancel slot for example, runs in the GUI thread. On top of that, its parent is this, so finished threads stay around until the window closes. The best practice is to move the work into a QObject worker and use QThread as it is."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#pragma once\n\n#include <QObject>\n#include <QString>\n\nclass ImportWorker : public QObject\n{\n    Q_OBJECT\npublic:\n    explicit ImportWorker(QString path, QObject *parent = nullptr);\n\npublic slots:\n    void process();\n\nsignals:\n    void progress(int percent);\n    void done(int rows);\n\nprivate:\n    QString m_path;\n};\n"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include \"importworker.h\"\n\n#include <utility>\n\n#include <QFile>\n#include <QThread>\n\nImportWorker::ImportWorker(QString path, QObject *parent)\n    : QObject(parent), m_path(std::move(path))\n{\n}\n\nvoid ImportWorker::process()\n{\n    QFile file(m_path);\n    if (!file.open(QIODevice::ReadOnly)) {\n        emit done(0);\n        return;\n    }\n    int rows = 0;\n    while (!file.atEnd()) {\n        file.readLine();\n        ++rows;\n        if (rows % 1000 == 0)\n            emit progress(int(file.pos() * 100 / file.size()));\n    }\n    emit done(rows);\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "Here's the caller. The thread's finished signal is connected to deleteLater, so the worker and the thread are both cleaned up once they are done."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "void MainWindow::startImport(const QString &path)\n{\n    auto *thread = new QThread(this);\n    auto *worker = new ImportWorker(path, this);\n    worker->moveToThread(thread);\n\n    connect(thread, &QThread::started, worker, &ImportWorker::process);\n    connect(worker, &ImportWorker::progress, this, &MainWindow::onImportProgress);\n    connect(worker, &ImportWorker::done, this, &MainWindow::onImportDone);\n    connect(worker, &ImportWorker::done, thread, &QThread::quit);\n    connect(thread, &QThread::finished, worker, &QObject::deleteLater);\n    connect(thread, &QThread::finished, thread, &QObject::deleteLater);\n\n    thread->start();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "UI freezes now. not responding for the whole import. output says QObject::moveToThread: Cannot move objects with a parent",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous code gave the worker this as its parent. A QObject with a parent cannot be moved to another thread, so moveToThread prints that warning and the worker stays in the GUI thread. The connection from started then becomes a queued one, and process() runs to the end in the GUI thread. The worker is already cleaned up through finished and deleteLater, so it does not need a parent."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "    auto *worker = new ImportWorker(path);\n"
+        }
+      ]
+    },
+    {
+      "user": "works. want a cancel button. oh and progress every 1000 rows is way too many signals, make it 10k",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! QThread has requestInterruption(), and the worker only has to check QThread::currentThread()->isInterruptionRequested() in the loop condition. The progress interval changes in the same pass over importworker.cpp."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/rows % 1000 == 0/rows % 10000 == 0/; s/while (!file.atEnd()) {/while (!file.atEnd() \\&\\& !QThread::currentThread()->isInterruptionRequested()) {/' src/import/importworker.cpp"
+        },
+        {
+          "kind": "text",
+          "body": "The caller keeps the thread in a QPointer. It turns into nullptr on its own once deleteLater has run, so pressing the button after the import finished does nothing."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "// mainwindow.h\nQPointer<QThread> m_importThread;\n\n// startImport, just before thread->start()\nm_importThread = thread;\n\nvoid MainWindow::cancelImport()\n{\n    if (m_importThread)\n        m_importThread->requestInterruption();\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "TL;DR: a cancelled import still sends done with the rows read so far. If onImportDone needs to tell the two apart, add a separate signal for it."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "id": "tracing-instrument-rust-ja",
+  "title": "println! を tracing に移したら API キーが漏れた",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "rust",
+  "summary": "println! を tracing のイベントにして #[instrument] を付け、引数の Debug で秘密値と巨大な Vec がスパンに載るのを skip で止める。",
+  "files": [
+    {
+      "path": "src/sync.rs",
+      "content": "use serde::Serialize;\n\nuse crate::client::PushError;\n\npub struct Client {\n    pub base_url: String,\n    pub api_key: String,\n}\n\n#[derive(Serialize)]\npub struct Order {\n    pub id: u64,\n    pub total: u64,\n}\n\npub async fn sync_orders(client: &Client, orders: Vec<Order>) -> Result<usize, PushError> {\n    println!(\"sync start: {} orders\", orders.len());\n    let mut sent = 0;\n    for order in &orders {\n        println!(\"sending order {}\", order.id);\n        match client.push(order).await {\n            Ok(()) => sent += 1,\n            Err(error) => println!(\"push failed for order {}: {}\", order.id, error),\n        }\n    }\n    println!(\"sync done: {} sent\", sent);\n    Ok(sent)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "同期バッチのログが println! だらけで、本番だと並列で走ってどの行がどの実行のか分からん。tracing にして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。println! を info! と debug! と warn! に置き換え、sync_orders に #[instrument] を付けます。関数の中で出たイベントはすべて sync_orders のスパンにぶら下がるので、並列で走っても実行ごとに区別できることを保証します。値は文字列に埋め込まず、order_id = order.id のような構造化フィールドで渡します。#[instrument] は引数を Debug で記録するため、Client と Order に #[derive(Debug)] を足しました。main で tracing_subscriber::fmt::init() を一度呼んでください。",
+          "reading": "しょうちしました。println! を info! と debug! と warn! におきかえ、sync_orders に #[instrument] をつけます。かんすうのなかででたいべんとはすべて sync_orders のすぱんにぶらさがるので、へいれつではしってもじっこうごとにくべつできることをほしょうします。あたいはもじれつにうめこまず、order_id = order.id のようなこうぞうかふぃーるどでわたします。#[instrument] はひきすうを Debug できろくするため、Client と Order に #[derive(Debug)] をたしました。main で tracing_subscriber::fmt::init() をいちどよんでください。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use serde::Serialize;\nuse tracing::{debug, info, instrument, warn};\n\nuse crate::client::PushError;\n\n#[derive(Debug)]\npub struct Client {\n    pub base_url: String,\n    pub api_key: String,\n}\n\n#[derive(Debug, Serialize)]\npub struct Order {\n    pub id: u64,\n    pub total: u64,\n}\n\n#[instrument]\npub async fn sync_orders(client: &Client, orders: Vec<Order>) -> Result<usize, PushError> {\n    info!(count = orders.len(), \"sync start\");\n    let mut sent = 0;\n    for order in &orders {\n        debug!(order_id = order.id, \"sending\");\n        match client.push(order).await {\n            Ok(()) => sent += 1,\n            Err(error) => warn!(order_id = order.id, %error, \"push failed\"),\n        }\n    }\n    info!(sent, \"sync done\");\n    Ok(sent)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "出るようになった。けどログ基盤見たら全行に api_key が平文で載ってる。あと orders が 1 万件まるごとダンプされてて 1 行数 MB。やばい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "重要な訂正があります。#[instrument] は既定ですべての引数をスパンのフィールドとして記録し、スパンの中のイベントは毎回そのフィールドを連れて出力されます。そのため client の api_key も 1 万件の orders も全行に載ります。コンパイルを通すために Debug を derive したのは私の誤りでした。skip(client, orders) で記録から外し、件数だけを fields(count = orders.len()) で残します。sync start の count はスパン側に移ったので外します。Client の derive も消します。残しておくと、誰かが ?client と書いた瞬間にまた漏れるからです。Order の derive は Debug, Serialize なので、この削除には掛かりません。",
+          "reading": "じゅうようなていせいがあります。#[instrument] はきていですべてのひきすうをすぱんのふぃーるどとしてきろくし、すぱんのなかのいべんとはまいかいそのふぃーるどをつれてしゅつりょくされます。そのため client の api_key も 1 まんけんの orders もぜんぎょうにのります。こんぱいるをとおすために Debug を derive したのはわたしのあやまりでした。skip(client, orders) できろくからはずし、けんすうだけを fields(count = orders.len()) でのこします。sync start の count はすぱんがわにうつったのではずします。Client の derive もけします。のこしておくと、だれかが ?client とかいたしゅんかんにまたもれるからです。Order の derive は Debug, Serialize なので、このさくじょにはかかりません。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e '/^#\\[derive(Debug)\\]$/d' -e 's/^#\\[instrument\\]$/#[instrument(skip(client, orders), fields(count = orders.len()))]/' -e 's/info!(count = orders.len(), \"sync start\")/info!(\"sync start\")/' src/sync.rs"
+        }
+      ]
+    },
+    {
+      "user": "直った。ついでに注文ごとの span も欲しい。push の中で出たログがどの注文のか分かるように。span.enter() でいいんだよね？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Caveat: span.enter() のガードを持ったまま await すると、タスクが中断している間もスパンに入ったままになります。同じスレッドで次に動いた別のタスクのログまで、そのスパンに紛れ込みます。スパンと future の寿命の一致の観点から、.instrument(span) で future 側に付けます。push と warn! を async ブロックに包み、ブロックごと order_id のスパンに入れます。use には info_span と Instrument を足します。",
+          "reading": "Caveat: span.enter() のがーどをもったまま await すると、たすくがちゅうだんしているあいだもすぱんにはいったままになります。おなじすれっどでつぎにうごいたべつのたすくのろぐまで、そのすぱんにまぎれこみます。すぱんと future のじゅみょうのいっちのかんてんから、.instrument(span) で future がわにつけます。push と warn! を async ぶろっくにつつみ、ぶろっくごと order_id のすぱんにいれます。use には info_span と Instrument をたします。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use tracing::{debug, info, info_span, instrument, warn, Instrument};\n\nfor order in &orders {\n    let span = info_span!(\"push\", order_id = order.id);\n    async {\n        debug!(\"sending\");\n        match client.push(order).await {\n            Ok(()) => sent += 1,\n            Err(error) => warn!(%error, \"push failed\"),\n        }\n    }\n    .instrument(span)\n    .await;\n}\n"
+        }
+      ]
+    }
+  ]
+}

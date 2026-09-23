@@ -1,0 +1,70 @@
+{
+  "id": "concurrency-token-csharp-en",
+  "title": "Stop concurrent edits from silently overwriting",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "csharp",
+  "summary": "The last save of an article silently wins over a concurrent edit. Detect it with a [Timestamp] row version and turn DbUpdateConcurrencyException into 409.",
+  "files": [
+    {
+      "path": "src/Data/Article.cs",
+      "content": "namespace Acme.Data;\n\npublic class Article\n{\n    public int Id { get; set; }\n    public string Title { get; set; } = \"\";\n    public string Body { get; set; } = \"\";\n}\n"
+    },
+    {
+      "path": "src/Program.cs",
+      "content": "using Acme.Data;\nusing Microsoft.EntityFrameworkCore;\n\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddDbContext<BlogDbContext>(options =>\n    options.UseSqlServer(builder.Configuration.GetConnectionString(\"Blog\")));\n\nvar app = builder.Build();\n\napp.MapPut(\"/articles/{id:int}\", async (int id, ArticleUpdate input, BlogDbContext db) =>\n{\n    var article = await db.Articles.FindAsync(id);\n    if (article is null) return Results.NotFound();\n\n    article.Title = input.Title;\n    article.Body = input.Body;\n    await db.SaveChangesAsync();\n    return Results.NoContent();\n});\n\napp.Run();\n\npublic record ArticleUpdate(string Title, string Body);\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "two people editing the same article at once, whoever saves last overwrites everything and the first person's changes are just gone. no error at all",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: there is no optimistic concurrency control. The UPDATE only says WHERE Id = @id, so it cannot tell that someone else saved in between. Adding a [Timestamp] RowVersion to Article gives it a SQL Server rowversion column, and EF Core adds that value to the WHERE of every UPDATE. When it no longer matches, zero rows change and DbUpdateConcurrencyException is thrown. The client sends back the RowVersion it got from GET along with the PUT."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using System.ComponentModel.DataAnnotations;\n\nnamespace Acme.Data;\n\npublic class Article\n{\n    public int Id { get; set; }\n    public string Title { get; set; } = \"\";\n    public string Body { get; set; } = \"\";\n\n    [Timestamp]\n    public byte[] RowVersion { get; set; } = [];\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "dotnet ef migrations add AddArticleRowVersion"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using Microsoft.AspNetCore.Http.HttpResults;\n\napp.MapPut(\"/articles/{id:int}\", async Task<Results<NoContent, NotFound, Conflict>> (int id, ArticleUpdate input, BlogDbContext db) =>\n{\n    var article = await db.Articles.FindAsync(id);\n    if (article is null) return TypedResults.NotFound();\n\n    article.Title = input.Title;\n    article.Body = input.Body;\n    article.RowVersion = input.RowVersion;\n    try\n    {\n        await db.SaveChangesAsync();\n    }\n    catch (DbUpdateConcurrencyException)\n    {\n        return TypedResults.Conflict();\n    }\n    return TypedResults.NoContent();\n});\n\npublic record ArticleUpdate(string Title, string Body, byte[] RowVersion);\n"
+        }
+      ]
+    },
+    {
+      "user": "sent a RowVersion from an old tab and it saved anyway. no 409",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous implementation was wrong. Assigning article.RowVersion only changes the current value. EF Core builds the WHERE from the original value, the one it read, and FindAsync has just read the latest row, so the check always passes. Note: the client's value has to go into OriginalValue on the entry."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/article\\.RowVersion = input\\.RowVersion;/db.Entry(article).Property(a => a.RowVersion).OriginalValue = input.RowVersion;/' src/Program.cs"
+        }
+      ]
+    },
+    {
+      "user": "a bare 409 doesn't let the frontend show what changed. send back what's in the db now. and what if the other person deleted it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the change: take the entry from the exception, fetch the current row with GetDatabaseValuesAsync, and put it in the 409 body. If the other side deleted the article, that returns null and the handler answers 404. The returned row carries the latest RowVersion, so the client can resend with it."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "app.MapPut(\"/articles/{id:int}\", async Task<Results<NoContent, NotFound, Conflict<Article>>> (int id, ArticleUpdate input, BlogDbContext db) =>\n{\n    var article = await db.Articles.FindAsync(id);\n    if (article is null) return TypedResults.NotFound();\n\n    article.Title = input.Title;\n    article.Body = input.Body;\n    db.Entry(article).Property(a => a.RowVersion).OriginalValue = input.RowVersion;\n    try\n    {\n        await db.SaveChangesAsync();\n    }\n    catch (DbUpdateConcurrencyException ex)\n    {\n        var current = await ex.Entries.Single().GetDatabaseValuesAsync();\n        if (current is null) return TypedResults.NotFound();\n        return TypedResults.Conflict((Article)current.ToObject());\n    }\n    return TypedResults.NoContent();\n});\n"
+        }
+      ]
+    }
+  ]
+}

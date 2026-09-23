@@ -1,0 +1,57 @@
+{
+  "id": "gorm-transaction-go-en",
+  "title": "The outer db inside a GORM Transaction",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "go",
+  "summary": "The callback used the outer db, so nothing rolled back. Switch to tx, then undo a tidy up that read tx.RowsAffected.",
+  "files": [
+    {
+      "path": "internal/order/place.go",
+      "content": "package order\n\nimport (\n  \"context\"\n  \"errors\"\n\n  \"gorm.io/gorm\"\n)\n\nvar ErrOutOfStock = errors.New(\"out of stock\")\n\ntype Order struct {\n  ID     uint\n  UserID uint\n  ItemID uint\n}\n\ntype Stock struct {\n  ItemID   uint `gorm:\"primaryKey\"`\n  Quantity int\n}\n\nfunc Place(ctx context.Context, db *gorm.DB, userID, itemID uint) error {\n  return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {\n    if err := db.Create(&Order{UserID: userID, ItemID: itemID}).Error; err != nil {\n      return err\n    }\n    res := db.Model(&Stock{}).\n      Where(\"item_id = ? AND quantity > 0\", itemID).\n      Update(\"quantity\", gorm.Expr(\"quantity - 1\"))\n    if res.Error != nil {\n      return res.Error\n    }\n    if res.RowsAffected == 0 {\n      return ErrOutOfStock\n    }\n    return nil\n  })\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "when stock runs out we get ErrOutOfStock but the order row is still there. it's inside Transaction, why",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! The db inside the callback is the outer *gorm.DB, which has nothing to do with the transaction. Create and Update each autocommit on some other connection from the pool, so returning ErrOutOfStock rolls back tx, which never ran anything. The inner db also lost the WithContext. Using tx fixes both."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/db\\.Create(/tx.Create(/; s/db\\.Model(/tx.Model(/' internal/order/place.go"
+        }
+      ]
+    },
+    {
+      "user": "works. now let me pass a quantity. qty. store it on the order too",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! Order gets a Quantity, and stock drops by qty only on a row where quantity >= qty. The check and the decrement are one atomic UPDATE, so concurrent orders can never push stock below zero. I also dropped the res variable and check Error in place."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "type Order struct {\n  ID       uint\n  UserID   uint\n  ItemID   uint\n  Quantity int\n}\n\nfunc Place(ctx context.Context, db *gorm.DB, userID, itemID uint, qty int) error {\n  return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {\n    order := Order{UserID: userID, ItemID: itemID, Quantity: qty}\n    if err := tx.Create(&order).Error; err != nil {\n      return err\n    }\n    if err := tx.Model(&Stock{}).\n      Where(\"item_id = ? AND quantity >= ?\", itemID, qty).\n      Update(\"quantity\", gorm.Expr(\"quantity - ?\", qty)).Error; err != nil {\n      return err\n    }\n    if tx.RowsAffected == 0 {\n      return ErrOutOfStock\n    }\n    return nil\n  })\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "now everything is out of stock. stock 3, qty 2, still fails",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. Every call in a GORM chain returns a new *gorm.DB, and RowsAffected is set on that returned value. RowsAffected on tx itself stays 0, so every order was judged out of stock. Back to holding the result in res."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "res := tx.Model(&Stock{}).\n  Where(\"item_id = ? AND quantity >= ?\", itemID, qty).\n  Update(\"quantity\", gorm.Expr(\"quantity - ?\", qty))\nif res.Error != nil {\n  return res.Error\n}\nif res.RowsAffected == 0 {\n  return ErrOutOfStock\n}\n"
+        }
+      ]
+    }
+  ]
+}

@@ -2,7 +2,7 @@
   "id": "qsort-compare-c-ja",
   "title": "qsort の比較関数を組み直す",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "c",
   "summary": "ポインタ配列の比較関数のキャストと引き算を直し、同点の順序と固定長の名前の比較も塞ぐ。",
   "files": [

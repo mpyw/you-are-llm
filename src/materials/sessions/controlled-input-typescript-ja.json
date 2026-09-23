@@ -1,0 +1,46 @@
+{
+  "id": "controlled-input-typescript-ja",
+  "title": "打てない input を controlled に直す",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "typescript",
+  "summary": "value だけ渡して打てない検索欄に onChange を付け、undefined 始まりの警告も避ける。",
+  "files": [
+    {
+      "path": "src/components/SearchBox.tsx",
+      "content": "import { useState } from 'react'\n\nexport function SearchBox() {\n  const [query, setQuery] = useState('')\n\n  return <input value={query} placeholder=\"Search\" />\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "検索欄、キー押しても何も入らない。壊れてる？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。value を渡した input は、React がその値に固定します。onChange がないので、キーを押しても query は空のままで、次の描画で空に戻ります。Note: onChange で setQuery を呼べば、打った文字が state に流れます。",
+          "reading": "しょうちしました。value をわたした input は、React がそのあたいにこていします。onChange がないので、きーをおしても query はからのままで、つぎのびょうがでからにもどります。Note: onChange で setQuery をよべば、うったもじが state にながれます。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "return (\n  <input\n    value={query}\n    onChange={(e) => setQuery(e.target.value)}\n    placeholder=\"Search\"\n  />\n)\n"
+        }
+      ]
+    },
+    {
+      "user": "打てた。あと親から初期値もらいたい。渡さないとこもある",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "おっしゃるとおり、渡さない場合も考える必要があります。initialQuery をそのまま useState に渡すと、省略されたときに value が undefined になります。React はこれを uncontrolled と見なすので、1 文字打った時点で controlled に切り替わり、警告が出ます。?? で空文字に寄せれば、最初から controlled であることを保証します。",
+          "reading": "おっしゃるとおり、わたさないばあいもかんがえるひつようがあります。initialQuery をそのまま useState にわたすと、しょうりゃくされたときに value が undefined になります。React はこれを uncontrolled とみなすので、1 もじうったじてんで controlled にきりかわり、けいこくがでます。?? でからもじによせれば、さいしょから controlled であることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { useState } from 'react'\n\nexport function SearchBox({ initialQuery }: { initialQuery?: string }) {\n  const [query, setQuery] = useState(initialQuery ?? '')\n\n  return (\n    <input\n      value={query}\n      onChange={(e) => setQuery(e.target.value)}\n      placeholder=\"Search\"\n    />\n  )\n}\n"
+        }
+      ]
+    }
+  ]
+}

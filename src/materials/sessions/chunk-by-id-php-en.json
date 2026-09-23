@@ -1,0 +1,64 @@
+{
+  "id": "chunk-by-id-php-en",
+  "title": "The trial expiry job skips rows",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "chunk() skips rows while updating the column it filters on. Fix it with chunkById, fall into the same hole again with lazy(), and close it with lazyById.",
+  "files": [
+    {
+      "path": "app/Console/Commands/ExpireTrials.php",
+      "content": "<?php\n\nnamespace App\\Console\\Commands;\n\nuse App\\Models\\Subscription;\nuse Illuminate\\Console\\Command;\n\nclass ExpireTrials extends Command\n{\n    protected $signature = 'trials:expire';\n\n    protected $description = 'Expire trials whose end date has passed';\n\n    public function handle(): int\n    {\n        Subscription::where('status', 'trial')\n            ->where('trial_ends_at', '<', now())\n            ->chunk(500, function ($subscriptions) {\n                foreach ($subscriptions as $subscription) {\n                    $subscription->update(['status' => 'expired']);\n                }\n            });\n\n        return self::SUCCESS;\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "trials:expire runs every night but loads of expired trials are still there. running it again by hand clears more. no errors. the update is one by one on purpose, an observer sends the email, keep that",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: chunk() counts pages by offset. Once the first 500 rows are set to expired, they drop out of where('status', 'trial'). The second page asks for offset 500, so it skips the 500 unprocessed rows that just moved up to the front."
+        },
+        {
+          "kind": "text",
+          "body": "chunkById() does not use an offset. It asks for rows with an id greater than the last one on the previous page, so the next page starts in the right place even when processed rows leave the filter. The update still goes through the observer."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/->chunk(500,/->chunkById(500,/' app/Console/Commands/ExpireTrials.php"
+        }
+      ]
+    },
+    {
+      "user": "fixed. but a foreach inside a closure is nested too deep. heard lazy() flattens it. also log how many got expired",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now, lazy() fetches 500 at a time internally and hands them back one by one as a LazyCollection. It fetches the same way chunkById() does, only the nesting flattens into a single foreach. A counter tracks the total and prints it at the end."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function handle(): int\n{\n    $expired = 0;\n\n    $trials = Subscription::where('status', 'trial')\n        ->where('trial_ends_at', '<', now())\n        ->lazy(500);\n\n    foreach ($trials as $subscription) {\n        $subscription->update(['status' => 'expired']);\n        $expired++;\n    }\n\n    $this->info(\"Expired {$expired} trials.\");\n\n    return self::SUCCESS;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "last night had 1200 due and it said Expired 700 trials. 500 still there. did it come back?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. lazy() pages by offset, the same as chunk(). Rewriting it away from chunkById() brought back the exact skip we had fixed. After the first 500 expire, the second page reads from row 501 of the remaining 700, so it only picks up 200. When you update the column you filter on, lazyById() is the one to use."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/->lazy(500)/->lazyById(500)/' app/Console/Commands/ExpireTrials.php"
+        },
+        {
+          "kind": "command",
+          "body": "php artisan trials:expire"
+        }
+      ]
+    }
+  ]
+}

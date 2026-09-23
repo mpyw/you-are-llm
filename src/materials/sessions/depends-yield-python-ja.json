@@ -2,7 +2,7 @@
   "id": "depends-yield-python-ja",
   "title": "Depends で Session を yield して閉じる",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "python",
   "summary": "FastAPI の QueuePool 枯渇を yield 依存で直し、commit と rollback を寄せ、握り潰した例外を投げ直す。",
   "files": [

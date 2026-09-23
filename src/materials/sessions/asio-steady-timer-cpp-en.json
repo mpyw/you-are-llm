@@ -1,0 +1,57 @@
+{
+  "id": "asio-steady-timer-cpp-en",
+  "title": "The client that waits forever on a silent server",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "cpp",
+  "summary": "A steady_timer puts a deadline on Boost.Asio's async_read_some. Pushing the deadline back calls the old wait with operation_aborted.",
+  "files": [
+    {
+      "path": "src/net/client.cpp",
+      "content": "#include <array>\n#include <chrono>\n#include <memory>\n\n#include <boost/asio.hpp>\n\nusing boost::asio::ip::tcp;\n\nclass Client : public std::enable_shared_from_this<Client> {\n public:\n  explicit Client(boost::asio::io_context& io) : socket_(io) {}\n\n  void start(const tcp::endpoint& endpoint) {\n    auto self = shared_from_this();\n    socket_.async_connect(endpoint, [self](boost::system::error_code ec) {\n      if (!ec) self->do_read();\n    });\n  }\n\n private:\n  void do_read() {\n    auto self = shared_from_this();\n    socket_.async_read_some(boost::asio::buffer(data_),\n        [self](boost::system::error_code ec, std::size_t length) {\n          if (ec) return;\n          self->handle(length);\n          self->do_read();\n        });\n  }\n\n  void handle(std::size_t length);\n\n  tcp::socket socket_;\n  std::array<char, 1024> data_;\n};\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "if the server goes quiet halfway, async_read_some never comes back. drop it after 10s of nothing",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's give the read a deadline with steady_timer. Asio socket operations take no timeout of their own, so the usual pattern is to close the socket when the timer fires, which ends the pending read with operation_aborted. Every do_read pushes the deadline 10 seconds out with expires_after."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "  explicit Client(boost::asio::io_context& io) : socket_(io), timer_(io) {}\n\n  void do_read() {\n    auto self = shared_from_this();\n    timer_.expires_after(std::chrono::seconds(10));\n    timer_.async_wait([self](boost::system::error_code) {\n      self->socket_.close();\n    });\n    socket_.async_read_some(boost::asio::buffer(data_),\n        [self](boost::system::error_code ec, std::size_t length) {\n          if (ec) return;\n          self->handle(length);\n          self->do_read();\n        });\n  }\n\n  tcp::socket socket_;\n  boost::asio::steady_timer timer_;\n  std::array<char, 1024> data_;\n"
+        }
+      ]
+    },
+    {
+      "user": "first message comes through, then it drops right after. every time. the second read returns operation_aborted",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. The timer handler was the cause. When expires_after resets the deadline, the old async_wait is cancelled and its handler still runs, with operation_aborted. Mine closed the socket without looking at ec, so every extension closed the connection. A cancelled wait now does nothing."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/async_wait(\\[self\\](boost::system::error_code) {/async_wait([self](boost::system::error_code ec) {/; s/^      self->socket_\\.close();/      if (ec != boost::asio::error::operation_aborted) self->socket_.close();/' src/net/client.cpp"
+        }
+      ]
+    },
+    {
+      "user": "fixed. also when the server hangs up first the Client destructor runs 10s late. why",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Good catch. After the read ends with eof, the async_wait handler still holds self, so Client lives until the timer fires. When the read fails, cancel the timer too, and the last shared_ptr goes with it."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "        [self](boost::system::error_code ec, std::size_t length) {\n          if (ec) {\n            self->timer_.cancel();\n            return;\n          }\n          self->handle(length);\n          self->do_read();\n        });\n"
+        }
+      ]
+    }
+  ]
+}

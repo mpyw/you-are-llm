@@ -1,0 +1,44 @@
+{
+  "id": "use-ref-focus-typescript-en",
+  "title": "Replace getElementById focus with useRef",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "typescript",
+  "summary": "Two search boxes and only one gets focus. Give each one a ref to its own input.",
+  "files": [
+    {
+      "path": "src/components/SearchBox.tsx",
+      "content": "import { useEffect } from 'react'\n\nexport function SearchBox() {\n  useEffect(() => {\n    document.getElementById('search')?.focus()\n  }, [])\n\n  return <input id=\"search\" type=\"search\" />\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "put SearchBox in the header and on the page. the page one never gets focus",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch. document.getElementById returns only the first element when two share an id. Both SearchBox effects grab the header input, so the page one is never reached. With useRef, each component holds a reference to its own input."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { useEffect, useRef } from 'react'\n\nexport function SearchBox() {\n  const inputRef = useRef<HTMLInputElement>(null)\n\n  useEffect(() => {\n    inputRef.current?.focus()\n  }, [])\n\n  return <input ref={inputRef} type=\"search\" />\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "also want a clear button. empties it and lets me keep typing",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. The same ref empties the value and puts focus back. The input is still uncontrolled, so the DOM is the single source of truth for its value and writing to it directly is fine. Note: ref.current can be null, so check it first."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "function clear() {\n  const input = inputRef.current\n  if (input === null) return\n  input.value = ''\n  input.focus()\n}\n\nreturn (\n  <div>\n    <input ref={inputRef} type=\"search\" />\n    <button type=\"button\" onClick={clear}>Clear</button>\n  </div>\n)\n"
+        }
+      ]
+    }
+  ]
+}

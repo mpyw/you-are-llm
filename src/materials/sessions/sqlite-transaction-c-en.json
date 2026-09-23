@@ -1,0 +1,44 @@
+{
+  "id": "sqlite-transaction-c-en",
+  "title": "Wrap ten thousand INSERTs in one transaction",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "c",
+  "summary": "Put BEGIN and COMMIT around INSERTs that were committing one row at a time, then wait out locks.",
+  "files": [
+    {
+      "path": "src/db/import.c",
+      "content": "#include <stddef.h>\n#include <sqlite3.h>\n\nint import_scores(sqlite3 *db, const int *scores, int n) {\n  sqlite3_stmt *stmt = NULL;\n  int rc = sqlite3_prepare_v2(db, \"INSERT INTO scores (value) VALUES (?)\", -1, &stmt, NULL);\n  if (rc != SQLITE_OK) return rc;\n  for (int i = 0; i < n; i++) {\n    sqlite3_bind_int(stmt, 1, scores[i]);\n    rc = sqlite3_step(stmt);\n    if (rc != SQLITE_DONE) break;\n    sqlite3_reset(stmt);\n  }\n  sqlite3_finalize(stmt);\n  return rc == SQLITE_DONE ? SQLITE_OK : rc;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "import_scores takes like 40s for 10k rows. im already reusing the prepared statement so why",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! Reusing the statement does help, but the time goes somewhere else. Without an explicit transaction, SQLite commits after every INSERT and syncs the journal to disk each time, so ten thousand rows means ten thousand syncs. Wrapping the loop in BEGIN and COMMIT brings that down to one. If a row fails, ROLLBACK undoes the whole batch, so a half imported table is never left behind."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "int import_scores(sqlite3 *db, const int *scores, int n) {\n  sqlite3_stmt *stmt = NULL;\n  int rc = sqlite3_exec(db, \"BEGIN\", NULL, NULL, NULL);\n  if (rc != SQLITE_OK) return rc;\n  rc = sqlite3_prepare_v2(db, \"INSERT INTO scores (value) VALUES (?)\", -1, &stmt, NULL);\n  if (rc != SQLITE_OK) {\n    sqlite3_exec(db, \"ROLLBACK\", NULL, NULL, NULL);\n    return rc;\n  }\n  for (int i = 0; i < n; i++) {\n    sqlite3_bind_int(stmt, 1, scores[i]);\n    rc = sqlite3_step(stmt);\n    if (rc != SQLITE_DONE) break;\n    sqlite3_reset(stmt);\n  }\n  sqlite3_finalize(stmt);\n  if (rc != SQLITE_DONE && n > 0) {\n    sqlite3_exec(db, \"ROLLBACK\", NULL, NULL, NULL);\n    return rc;\n  }\n  return sqlite3_exec(db, \"COMMIT\", NULL, NULL, NULL);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "way faster. but when it overlaps with the nightly job it dies with database is locked",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "database is locked is SQLITE_BUSY. By default, when another connection holds the lock, SQLite returns the error at once instead of waiting. Calling sqlite3_busy_timeout right after opening the connection makes it retry for up to 5 seconds while the lock clears. Note: this is a per connection setting, so it belongs next to sqlite3_open_v2 rather than inside import_scores."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "sqlite3 *db = NULL;\nint rc = sqlite3_open_v2(path, &db, SQLITE_OPEN_READWRITE, NULL);\nif (rc != SQLITE_OK) return rc;\nsqlite3_busy_timeout(db, 5000);\n"
+        }
+      ]
+    }
+  ]
+}

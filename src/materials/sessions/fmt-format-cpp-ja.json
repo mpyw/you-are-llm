@@ -1,0 +1,75 @@
+{
+  "id": "fmt-format-cpp-ja",
+  "title": "リクエストログを sprintf から fmt::format に",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "cpp",
+  "summary": "固定長バッファの sprintf を fmt::format に置き換える。設定から読んだ書式文字列は fmt::runtime で包む。",
+  "files": [
+    {
+      "path": "src/log/request_log.cpp",
+      "content": "#include \"request_log.h\"\n\n#include <cstdio>\n#include <string>\n\nstd::string format_request_log(const Request &req, double elapsed_ms)\n{\n    char buf[128];\n    std::sprintf(buf, \"%s %s -> %d (%.1f ms) user=%lld\",\n                 req.method.c_str(), req.path.c_str(), req.status,\n                 elapsed_ms, req.user_id);\n    return buf;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "クエリ長い URL 来たらログ整形で落ちた。sprintf やめて fmt にしたい、依存にはもう入ってる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、順を追って見ていきます。buf は 128 バイトしかないので、長いパスが来た時点で sprintf がバッファの外に書き込みます。もう一つ、user_id は std::int64_t ですが、Linux ではこれが long なので %lld とは型が合っていません。fmt::format は引数の型から出力の仕方を決めるので、どちらの問題も起きません。C++20 では書式文字列もコンパイル時に検査され、たとえば文字列に {:d} を当てるとビルドが通らないことを保証します。",
+          "reading": "Now、じゅんをおってみていきます。buf は 128 ばいとしかないので、ながいぱすがきたじてんで sprintf がばっふぁのそとにかきこみます。もうひとつ、user_id は std::int64_t ですが、Linux ではこれが long なので %lld とはかたがあっていません。fmt::format はひきすうのかたからしゅつりょくのしかたをきめるので、どちらのもんだいもおきません。C++20 ではしょしきもじれつもこんぱいるじにけんさされ、たとえばもじれつに {:d} をあてるとびるどがとおらないことをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include \"request_log.h\"\n\n#include <string>\n\n#include <fmt/format.h>\n\nstd::string format_request_log(const Request &req, double elapsed_ms)\n{\n    return fmt::format(\"{} {} -> {} ({:.1f} ms) user={}\",\n                       req.method, req.path, req.status, elapsed_ms, req.user_id);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "いいね。ms の小数いらない。あとメソッドの幅揃えて、GET と DELETE でずれて読みにくい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "どちらも書式指定だけで済みます。{:<6} で左寄せの 6 文字幅にし、{:.0f} で小数を丸めます。",
+          "reading": "どちらもしょしきしていだけですみます。{:<6} でひだりよせの 6 もじはばにし、{:.0f} でしょうすうをまるめます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/\"{} {} -> /\"{:<6} {} -> /; s/{:\\.1f} ms/{:.0f} ms/' src/log/request_log.cpp"
+        }
+      ]
+    },
+    {
+      "user": "運用からフォーマットを設定ファイルで変えたいって言われた。pattern を config から受け取る形にして。順番じゃなくて名前で書けるといい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。fmt::arg で名前付き引数にすれば、設定側は {method} {path} -> {status} のように名前で書けます。書式は呼び出し側から std::string_view で受け取り、そのまま fmt::format に渡します。言い換えると、ログの見た目は設定ファイルが正本になります。",
+          "reading": "しょうちしました。fmt::arg でなまえつきひきすうにすれば、せっていがわは {method} {path} -> {status} のようになまえでかけます。しょしきはよびだしがわから std::string_view でうけとり、そのまま fmt::format にわたします。いいかえると、ろぐのみためはせっていふぁいるがせいほんになります。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "std::string format_request_log(std::string_view pattern, const Request &req, double elapsed_ms)\n{\n    return fmt::format(pattern,\n                       fmt::arg(\"method\", req.method), fmt::arg(\"path\", req.path),\n                       fmt::arg(\"status\", req.status), fmt::arg(\"ms\", elapsed_ms),\n                       fmt::arg(\"user\", req.user_id));\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ビルド通らない。call to consteval function ... is not a constant expression だって。うち C++20 ね",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどのコードは C++20 では通りません。{fmt} は C++20 だと書式文字列を consteval のコンストラクタで受け取り、コンパイル時に検査します。実行時に読んだ文字列は定数ではないので、fmt::runtime で包んで検査を実行時に回す必要があります。その代わり、設定に {methd} のような誤字があると fmt::format_error が投げられるので、ここで捕まえてログ自体は止めないようにします。",
+          "reading": "もうしわけありません。さきほどのこーどは C++20 ではとおりません。{fmt} は C++20 だとしょしきもじれつを consteval のこんすとらくたでうけとり、こんぱいるじにけんさします。じっこうじによんだもじれつはていすうではないので、fmt::runtime でつつんでけんさをじっこうじにまわすひつようがあります。そのかわり、せっていに {methd} のようなごじがあると fmt::format_error がなげられるので、ここでつかまえてろぐじたいはとめないようにします。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "std::string format_request_log(std::string_view pattern, const Request &req, double elapsed_ms)\n{\n    try {\n        return fmt::format(fmt::runtime(pattern),\n                           fmt::arg(\"method\", req.method), fmt::arg(\"path\", req.path),\n                           fmt::arg(\"status\", req.status), fmt::arg(\"ms\", elapsed_ms),\n                           fmt::arg(\"user\", req.user_id));\n    } catch (const fmt::format_error &e) {\n        return fmt::format(\"bad log pattern: {}\", e.what());\n    }\n}\n"
+        }
+      ]
+    }
+  ]
+}

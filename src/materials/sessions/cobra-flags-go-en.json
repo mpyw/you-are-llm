@@ -1,0 +1,60 @@
+{
+  "id": "cobra-flags-go-en",
+  "title": "Subcommand says unknown flag: --config",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "go",
+  "summary": "Move the root flag from Flags to PersistentFlags, then admit that only MarkPersistentFlagRequired makes it required.",
+  "files": [
+    {
+      "path": "cmd/root.go",
+      "content": "package cmd\n\nimport (\n  \"fmt\"\n\n  \"github.com/spf13/cobra\"\n)\n\nvar (\n  configPath string\n  dryRun     bool\n)\n\nvar rootCmd = &cobra.Command{\n  Use:   \"deployctl\",\n  Short: \"Deploy services from a config file\",\n}\n\nvar applyCmd = &cobra.Command{\n  Use:   \"apply\",\n  Short: \"Apply the config\",\n  RunE: func(cmd *cobra.Command, args []string) error {\n    fmt.Printf(\"apply %s (dry run: %v)\\n\", configPath, dryRun)\n    return nil\n  },\n}\n\nfunc init() {\n  rootCmd.Flags().StringVarP(&configPath, \"config\", \"c\", \"deploy.yaml\", \"path to the config file\")\n  applyCmd.Flags().BoolVar(&dryRun, \"dry-run\", false, \"print the plan without applying it\")\n  rootCmd.AddCommand(applyCmd)\n}\n\nfunc Execute() error {\n  return rootCmd.Execute()\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "deployctl apply --config prod.yaml -> unknown flag: --config. its defined on root though",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Good catch. A flag defined on rootCmd.Flags() is accepted by the root command only. To hand it down to subcommands, define it on PersistentFlags() instead. In other words, Flags belong to that one command, and PersistentFlags apply to every subcommand below it."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/rootCmd\\.Flags()/rootCmd.PersistentFlags()/' cmd/root.go"
+        }
+      ]
+    },
+    {
+      "user": "works. also make config required. the deploy.yaml default once pushed dev settings to prod",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. The default becomes empty and MarkFlagRequired makes the flag mandatory. That guarantees cobra rejects any run without --config."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func init() {\n  rootCmd.PersistentFlags().StringVarP(&configPath, \"config\", \"c\", \"\", \"path to the config file (required)\")\n  rootCmd.MarkFlagRequired(\"config\")\n  applyCmd.Flags().BoolVar(&dryRun, \"dry-run\", false, \"print the plan without applying it\")\n  rootCmd.AddCommand(applyCmd)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "added it, still runs without --config. apply went ahead with an empty configPath",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous change did not do what I said. rootCmd.MarkFlagRequired looks the flag up in Flags(), and a persistent flag is not merged into Flags() until the command runs. So it returned a no such flag error, and since the return value was dropped, nobody saw it. Switching to MarkPersistentFlagRequired, and cobra.CheckErr makes a failure stop the program at startup."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/rootCmd\\.MarkFlagRequired(\"config\")/cobra.CheckErr(rootCmd.MarkPersistentFlagRequired(\"config\"))/' cmd/root.go"
+        },
+        {
+          "kind": "text",
+          "body": "Note: the flag is required at the root now, so a future subcommand like version will ask for --config too."
+        }
+      ]
+    }
+  ]
+}

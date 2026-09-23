@@ -1,0 +1,59 @@
+{
+  "id": "pthread-once-c-ja",
+  "title": "自作の二重チェックを pthread_once に替える",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "c",
+  "summary": "ロックの外で読む二重チェックロッキングが ARM で壊れるので、volatile ではなく pthread_once で初期化する。",
+  "files": [
+    {
+      "path": "src/config/config.c",
+      "content": "#include <pthread.h>\n#include <stdlib.h>\n\nstruct config {\n  int max_conn;\n  char *root;\n};\n\nstruct config *load_config(void);\n\nstatic struct config *instance = NULL;\nstatic pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;\n\nstruct config *config_get(void) {\n  if (instance == NULL) {\n    pthread_mutex_lock(&lock);\n    if (instance == NULL) {\n      instance = load_config();\n    }\n    pthread_mutex_unlock(&lock);\n  }\n  return instance;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "ARM のサーバに移したら、起動直後だけ config_get()->max_conn が 0 のことがある。x86 では見たことない。ちゃんとロックしてるのに",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。外側の if はロックの外で instance を読んでいます。最適化されたビルドでは、コンパイラがこの読み出しをレジスタに載せたまま使い回すことがあり、ほかのスレッドの書き込みが見えないまま進みます。instance を volatile にすれば読むたびにメモリから取り直すので、二重チェックが期待どおりに動作します。",
+          "reading": "するどいごしてきです。そとがわの if はろっくのそとで instance をよんでいます。さいてきかされたびるどでは、こんぱいらがこのよみだしをれじすたにのせたままつかいまわすことがあり、ほかのすれっどのかきこみがみえないまますすみます。instance を volatile にすればよむたびにめもりからとりなおすので、にじゅうちぇっくがきたいどおりにどうさします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^static struct config \\*instance/static struct config *volatile instance/' src/config/config.c"
+        }
+      ]
+    },
+    {
+      "user": "volatile 付けたけど普通に再現する。てか volatile ってスレッド間のこと何も保証しなくない？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "おっしゃるとおりです。前言を撤回します。volatile はコンパイラに読み書きを省かせないだけで、ほかのコアから見た書き込みの順序は何も約束しません。ARM は x86 よりメモリ順序が緩く、load_config が書いた max_conn より先に instance への書き込みが見えることがあります。そのスレッドは外側の if でロックを取らずに素通りし、中身がまだ見えていない構造体を読みます。さらに、ロックの外の読み出しは書き込みと競合するので、C の規格ではそれだけで未定義動作です。二重チェックの自作はやめて pthread_once に任せます。pthread_once から戻った時点で、初期化関数の書き込みはすべて見えています。",
+          "reading": "おっしゃるとおりです。ぜんげんをてっかいします。volatile はこんぱいらによみかきをはぶかせないだけで、ほかのこあからみたかきこみのじゅんじょはなにもやくそくしません。ARM は x86 よりめもりじゅんじょがゆるく、load_config がかいた max_conn よりさきに instance へのかきこみがみえることがあります。そのすれっどはそとがわの if でろっくをとらずにすどおりし、なかみがまだみえていないこうぞうたいをよみます。さらに、ろっくのそとのよみだしはかきこみときょうごうするので、C のきかくではそれだけでみていぎどうさです。にじゅうちぇっくのじさくはやめて pthread_once にまかせます。pthread_once からもどったじてんで、しょきかかんすうのかきこみはすべてみえています。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#include <pthread.h>\n#include <stdlib.h>\n\nstruct config {\n  int max_conn;\n  char *root;\n};\n\nstruct config *load_config(void);\n\nstatic struct config *instance = NULL;\nstatic pthread_once_t once = PTHREAD_ONCE_INIT;\n\nstatic void init_config(void) {\n  instance = load_config();\n}\n\nstruct config *config_get(void) {\n  pthread_once(&once, init_config);\n  return instance;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "load_config が NULL 返したらどうなる？ 次の呼び出しでやり直すの？ 起動時に落ちてくれたほうがいいんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "やり直しません。pthread_once は init_config が戻った時点で完了とみなすので、NULL が入ったら以後ずっと NULL を返します。リトライが要るなら mutex で守った素朴な実装に戻すことになりますが、設定を読めないまま動き続けるよりは止まるほうが安全です。言い換えると、最初の呼び出しで abort させるのがこのケースのベストプラクティスです。",
+          "reading": "やりなおしません。pthread_once は init_config がもどったじてんでかんりょうとみなすので、NULL がはいったらいごずっと NULL をかえします。りとらいがいるなら mutex でまもったそぼくなじっそうにもどすことになりますが、せっていをよめないままうごきつづけるよりはとまるほうがあんぜんです。いいかえると、さいしょのよびだしで abort させるのがこのけーすのべすとぷらくてぃすです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/  instance = load_config();/  if ((instance = load_config()) == NULL) abort();/' src/config/config.c"
+        }
+      ]
+    }
+  ]
+}

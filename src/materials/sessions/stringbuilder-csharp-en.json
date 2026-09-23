@@ -2,7 +2,7 @@
   "id": "stringbuilder-csharp-en",
   "title": "Rewrite the 30 second CSV export",
   "language": "en",
-  "difficulty": "expert",
+  "difficulty": "hard",
   "codeLanguage": "csharp",
   "summary": "Replace string concatenation in a loop with StringBuilder, then fix the escaping and the number format.",
   "files": [

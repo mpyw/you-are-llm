@@ -1,0 +1,74 @@
+{
+  "id": "api-resource-php-en",
+  "title": "Move the posts API onto a Resource",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "Returning the model leaks the author's email. Move it onto a JsonResource and handle the relation with whenLoaded.",
+  "files": [
+    {
+      "path": "app/Http/Controllers/Api/PostController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers\\Api;\n\nuse App\\Http\\Controllers\\Controller;\nuse App\\Models\\Post;\n\nclass PostController extends Controller\n{\n    public function index()\n    {\n        return Post::with('author')->latest()->paginate(20);\n    }\n\n    public function show(Post $post)\n    {\n        return $post->load('author');\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "/api/posts is returning the author's email and is_admin. and draft_note on the post. only send what we need",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! Returning the model turns every column that is not in $hidden into JSON. An API Resource lets you list the fields that go out explicitly. Let's make one for Post and one for User."
+        },
+        {
+          "kind": "command",
+          "body": "php artisan make:resource PostResource && php artisan make:resource UserResource"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "class PostResource extends JsonResource\n{\n    public function toArray(Request $request): array\n    {\n        return [\n            'id' => $this->id,\n            'title' => $this->title,\n            'body' => $this->body,\n            'published_at' => $this->published_at,\n            'author' => new UserResource($this->author),\n        ];\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function toArray(Request $request): array\n{\n    return [\n        'id' => $this->id,\n        'name' => $this->name,\n    ];\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function index()\n{\n    return PostResource::collection(Post::with('author')->latest()->paginate(20));\n}\n\npublic function show(Post $post)\n{\n    return new PostResource($post->load('author'));\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "The Resource is now the single source of truth for the response shape. author is only included when it has been loaded, so relations are handled robustly too."
+        }
+      ]
+    },
+    {
+      "user": "they said the list doesnt need author so I dropped with('author') and now it runs 22 queries. why",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. $this->author lazy loads the moment you touch the property, so it goes back for the author once per post, 20 times. whenLoaded('author') drops the key from the output when the relation was not loaded. In other words, the query decides what goes out."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' \"s/new UserResource(\\$this->author)/new UserResource(\\$this->whenLoaded('author'))/\" app/Http/Resources/PostResource.php"
+        }
+      ]
+    },
+    {
+      "user": "ok now they want the name back on the list. sorry for the back and forth",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Only the list query changes: with('author') goes back in. The Resource stays on whenLoaded, so it is left alone, and the query count no longer grows with the number of posts."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' \"s/Post::latest()/Post::with('author')->latest()/\" app/Http/Controllers/Api/PostController.php"
+        }
+      ]
+    }
+  ]
+}

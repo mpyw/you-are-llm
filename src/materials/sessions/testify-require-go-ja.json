@@ -1,0 +1,45 @@
+{
+  "id": "testify-require-go-ja",
+  "title": "assert.NoError の後で nil 参照の panic",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "go",
+  "summary": "assert は失敗しても先へ進むので、後ろの行が頼る前提条件だけ require で止める。",
+  "files": [
+    {
+      "path": "internal/user/repo_test.go",
+      "content": "package user\n\nimport (\n  \"testing\"\n\n  \"github.com/stretchr/testify/assert\"\n)\n\nfunc TestFindByEmail(t *testing.T) {\n  repo := newTestRepo(t)\n\n  u, err := repo.FindByEmail(\"alice@example.com\")\n  assert.NoError(t, err)\n  assert.Equal(t, \"Alice\", u.Name)\n  assert.Equal(t, \"pro\", u.Plan)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "FindByEmail のテストが nil pointer dereference で panic する。しかも同じパッケージの他のテストの結果も出なくなる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。assert.NoError は失敗を記録するだけで、テストはそのまま先へ進みます。err が返ったとき u は nil なので、次の行の u.Name で panic し、テストバイナリごと落ちます。ほかのテストが走らないのはそのためです。前提条件は require にしましょう！require は失敗した時点で t.FailNow を呼び、そのテスト関数を抜けます。",
+          "reading": "するどいごしてきです。assert.NoError はしっぱいをきろくするだけで、てすとはそのままさきへすすみます。err がかえったとき u は nil なので、つぎのぎょうの u.Name で panic し、てすとばいなりごとおちます。ほかのてすとがはしらないのはそのためです。ぜんていじょうけんは require にしましょう！require はしっぱいしたじてんで t.FailNow をよび、そのてすとかんすうをぬけます。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "import (\n  \"testing\"\n\n  \"github.com/stretchr/testify/assert\"\n  \"github.com/stretchr/testify/require\"\n)\n\nfunc TestFindByEmail(t *testing.T) {\n  repo := newTestRepo(t)\n\n  u, err := repo.FindByEmail(\"alice@example.com\")\n  require.NoError(t, err)\n  require.NotNil(t, u)\n  assert.Equal(t, \"Alice\", u.Name)\n  assert.Equal(t, \"pro\", u.Plan)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "じゃあ全部 require にしとけばいい？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、全部にはしません。ポイントは、後ろの行がその結果に頼っているかどうかです。Name と Plan の比較は互いに独立しているので、assert のままなら両方の食い違いが一度に見えます。同じ形の箇所はこれで探せます。",
+          "reading": "けつろんからいうと、ぜんぶにはしません。ぽいんとは、うしろのぎょうがそのけっかにたよっているかどうかです。Name と Plan のひかくはたがいにどくりつしているので、assert のままならりょうほうのくいちがいがいちどにみえます。おなじかたちのかしょはこれでさがせます。"
+        },
+        {
+          "kind": "command",
+          "body": "grep -rn -A1 'assert.NoError' --include='*_test.go' ."
+        }
+      ]
+    }
+  ]
+}

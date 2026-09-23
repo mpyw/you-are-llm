@@ -1,0 +1,60 @@
+{
+  "id": "curl-slist-headers-c-ja",
+  "title": "libcurl のリクエストにヘッダを足す",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "c",
+  "summary": "curl_slist_append で積んだヘッダを CURLOPT_HTTPHEADER で渡し、解放を perform のあとに回す。",
+  "files": [
+    {
+      "path": "src/net/post.c",
+      "content": "#include <stdio.h>\n#include <curl/curl.h>\n\nint post_json(const char *url, const char *body, const char *token) {\n  CURL *curl = curl_easy_init();\n  if (curl == NULL) return -1;\n  curl_easy_setopt(curl, CURLOPT_URL, url);\n  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);\n  CURLcode rc = curl_easy_perform(curl);\n  curl_easy_cleanup(curl);\n  return rc == CURLE_OK ? 0 : -1;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "post_json、サーバに 415 返される。Content-Type: application/json 付けて。あと token 引数まだ使ってないから Authorization: Bearer で送りたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。CURLOPT_POSTFIELDS だけだと、libcurl は Content-Type を application/x-www-form-urlencoded にします。独自ヘッダは curl_slist_append で 1 行ずつリストに積み、CURLOPT_HTTPHEADER で渡します。curl_slist_append は文字列を複製するので、auth はスタック上のバッファで構いません。setopt に渡したあとはリストを使わないので、その場で curl_slist_free_all で解放します。",
+          "reading": "しょうちしました。CURLOPT_POSTFIELDS だけだと、libcurl は Content-Type を application/x-www-form-urlencoded にします。どくじへっだは curl_slist_append で 1 ぎょうずつりすとにつみ、CURLOPT_HTTPHEADER でわたします。curl_slist_append はもじれつをふくせいするので、auth はすたっくじょうのばっふぁでかまいません。setopt にわたしたあとはりすとをつかわないので、そのばで curl_slist_free_all でかいほうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "int post_json(const char *url, const char *body, const char *token) {\n  char auth[512];\n  snprintf(auth, sizeof auth, \"Authorization: Bearer %s\", token);\n  CURL *curl = curl_easy_init();\n  if (curl == NULL) return -1;\n  struct curl_slist *headers = NULL;\n  headers = curl_slist_append(headers, \"Content-Type: application/json\");\n  headers = curl_slist_append(headers, auth);\n  curl_easy_setopt(curl, CURLOPT_URL, url);\n  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);\n  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);\n  curl_slist_free_all(headers);\n  CURLcode rc = curl_easy_perform(curl);\n  curl_easy_cleanup(curl);\n  return rc == CURLE_OK ? 0 : -1;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ヘッダ付いてないっぽい。ASan かけたら heap-use-after-free って言われた",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの説明は正しくありませんでした。libcurl が複製するのは各行の文字列だけで、CURLOPT_HTTPHEADER に渡したリストそのものは複製しません。ハンドルはポインタを覚えているだけなので、curl_easy_perform の中で解放済みのリストを読んでいました。解放は perform とハンドルの後始末のあとに移します。改めて確認したところ、もう 1 つ穴がありました。curl_slist_append はメモリ不足のとき NULL を返し、元のリストはそのまま残ります。headers にそのまま代入すると、それまでの行が漏れます。失敗したら解放する小さなヘルパを挟んで、防御的に書きます。",
+          "reading": "もうしわけありません。さきほどのせつめいはただしくありませんでした。libcurl がふくせいするのはかくぎょうのもじれつだけで、CURLOPT_HTTPHEADER にわたしたりすとそのものはふくせいしません。はんどるはぽいんたをおぼえているだけなので、curl_easy_perform のなかでかいほうずみのりすとをよんでいました。かいほうは perform とはんどるのあとしまつのあとにうつします。あらためてかくにんしたところ、もう 1 つあながありました。curl_slist_append はめもりぶそくのとき NULL をかえし、もとのりすとはそのままのこります。headers にそのままだいにゅうすると、それまでのぎょうがもれます。しっぱいしたらかいほうするちいさなへるぱをはさんで、ぼうぎょてきにかきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "static struct curl_slist *append(struct curl_slist *list, const char *line) {\n  struct curl_slist *next = curl_slist_append(list, line);\n  if (next == NULL) curl_slist_free_all(list);\n  return next;\n}\n\nint post_json(const char *url, const char *body, const char *token) {\n  char auth[512];\n  snprintf(auth, sizeof auth, \"Authorization: Bearer %s\", token);\n  CURL *curl = curl_easy_init();\n  if (curl == NULL) return -1;\n  struct curl_slist *headers = append(NULL, \"Content-Type: application/json\");\n  if (headers != NULL) headers = append(headers, auth);\n  if (headers == NULL) {\n    curl_easy_cleanup(curl);\n    return -1;\n  }\n  curl_easy_setopt(curl, CURLOPT_URL, url);\n  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);\n  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);\n  CURLcode rc = curl_easy_perform(curl);\n  curl_easy_cleanup(curl);\n  curl_slist_free_all(headers);\n  return rc == CURLE_OK ? 0 : -1;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、ごめんこの API Bearer じゃなかった。X-Api-Key ヘッダにキーそのまま入れるやつ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ポイントは、変わるのはヘッダの 1 行だけという点です。書式文字列だけを置き換えるので、リストの組み立てと解放の順序は今のままであることを保証します。",
+          "reading": "ぽいんとは、かわるのはへっだの 1 ぎょうだけというてんです。しょしきもじれつだけをおきかえるので、りすとのくみたてとかいほうのじゅんじょはいまのままであることをほしょうします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/Authorization: Bearer %s/X-Api-Key: %s/' src/net/post.c"
+        }
+      ]
+    }
+  ]
+}

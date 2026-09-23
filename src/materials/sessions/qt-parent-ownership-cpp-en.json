@@ -1,0 +1,48 @@
+{
+  "id": "qt-parent-ownership-cpp-en",
+  "title": "It only crashes when the app closes",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "cpp",
+  "summary": "A stack QLabel handed to a parent is freed twice, and a dialog without a parent leaks. Let Qt's parent ownership do the work.",
+  "files": [
+    {
+      "path": "src/main.cpp",
+      "content": "#include <QApplication>\n#include <QLabel>\n#include <QStatusBar>\n\n#include \"mainwindow.h\"\n\nint main(int argc, char *argv[])\n{\n    QApplication app(argc, argv);\n\n    QLabel status(QStringLiteral(\"Ready\"));\n    MainWindow window;\n    window.statusBar()->addWidget(&status);\n    window.show();\n\n    return app.exec();\n}\n"
+    },
+    {
+      "path": "src/ui/mainwindow.cpp",
+      "content": "#include \"mainwindow.h\"\n\n#include \"settingsdialog.h\"\n\nvoid MainWindow::openSettings()\n{\n    auto *dialog = new SettingsDialog;\n    dialog->show();\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "crashes only on quit. says pointer being freed was not allocated. look at main.cpp",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Got it. The crash comes from handing a QLabel on the stack to the parent-child tree. addWidget reparents the label to the status bar, so the window owns it from then on. When main returns, window is destroyed first because it was declared later, and it deletes status as one of its children. But status is a stack variable, so that delete frees memory that was never allocated. Create it with new and hand it to the parent, and the status bar deletes it exactly once."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "int main(int argc, char *argv[])\n{\n    QApplication app(argc, argv);\n\n    MainWindow window;\n    auto *status = new QLabel(QStringLiteral(\"Ready\"));\n    window.statusBar()->addWidget(status);\n    window.show();\n\n    return app.exec();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "fixed. while we're here, memory seems to grow every time I open settings. same kind of thing?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! Same family, opposite direction. The dialog has no parent, so nobody deletes it when it closes, and every open leaves one more SettingsDialog behind. Give it this as the parent and set Qt::WA_DeleteOnClose so it deletes itself when closed. Note: a parent alone is not enough, because the dialogs would still pile up until MainWindow goes away."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "void MainWindow::openSettings()\n{\n    auto *dialog = new SettingsDialog(this);\n    dialog->setAttribute(Qt::WA_DeleteOnClose);\n    dialog->show();\n}\n"
+        }
+      ]
+    }
+  ]
+}

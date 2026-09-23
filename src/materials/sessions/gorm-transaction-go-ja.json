@@ -1,0 +1,60 @@
+{
+  "id": "gorm-transaction-go-ja",
+  "title": "Transaction の中で外側の db を使っていた",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "go",
+  "summary": "コールバック内で外側の db を使っていてロールバックされなかったのを tx に直し、数量対応で tx.RowsAffected を読んでしまった分を res に戻す。",
+  "files": [
+    {
+      "path": "internal/order/place.go",
+      "content": "package order\n\nimport (\n  \"context\"\n  \"errors\"\n\n  \"gorm.io/gorm\"\n)\n\nvar ErrOutOfStock = errors.New(\"out of stock\")\n\ntype Order struct {\n  ID     uint\n  UserID uint\n  ItemID uint\n}\n\ntype Stock struct {\n  ItemID   uint `gorm:\"primaryKey\"`\n  Quantity int\n}\n\nfunc Place(ctx context.Context, db *gorm.DB, userID, itemID uint) error {\n  return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {\n    if err := db.Create(&Order{UserID: userID, ItemID: itemID}).Error; err != nil {\n      return err\n    }\n    res := db.Model(&Stock{}).\n      Where(\"item_id = ? AND quantity > 0\", itemID).\n      Update(\"quantity\", gorm.Expr(\"quantity - 1\"))\n    if res.Error != nil {\n      return res.Error\n    }\n    if res.RowsAffected == 0 {\n      return ErrOutOfStock\n    }\n    return nil\n  })\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "在庫切れのとき ErrOutOfStock は返ってるのに注文レコードだけ残ってる。Transaction で囲ってるのになんで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "良い質問ですね。コールバックの中で使っている db は、トランザクションとは無関係な外側の *gorm.DB です。Create も Update もプールの別の接続で自動コミットされるので、ErrOutOfStock を返してロールバックされるのは、何も実行していない tx のほうだけです。ついでに言うと、内側の db には WithContext も掛かっていません。tx に揃えれば両方直ります。",
+          "reading": "よいしつもんですね。こーるばっくのなかでつかっている db は、とらんざくしょんとはむかんけいなそとがわの *gorm.DB です。Create も Update もぷーるのべつのせつぞくでじどうこみっとされるので、ErrOutOfStock をかえしてろーるばっくされるのは、なにもじっこうしていない tx のほうだけです。ついでにいうと、うちがわの db には WithContext もかかっていません。tx にそろえればりょうほうなおります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/db\\.Create(/tx.Create(/; s/db\\.Model(/tx.Model(/' internal/order/place.go"
+        }
+      ]
+    },
+    {
+      "user": "直った。あと数量指定できるようにして。qty で。注文にも数量保存しといて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。Order に Quantity を足し、在庫は quantity >= qty の行だけを qty ぶん減らします。条件の確認と減算を 1 本の UPDATE でアトミックに行うので、同時に注文が来ても在庫がマイナスにならないことを保証します。ついでに res 変数を無くして、Error をその場で見る形に整理しました。",
+          "reading": "かしこまりました。Order に Quantity をたし、ざいこは quantity >= qty のぎょうだけを qty ぶんへらします。じょうけんのかくにんとげんさんを 1 ぽんの UPDATE であとみっくにおこなうので、どうじにちゅうもんがきてもざいこがまいなすにならないことをほしょうします。ついでに res へんすうをなくして、Error をそのばでみるかたちにせいりしました。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "type Order struct {\n  ID       uint\n  UserID   uint\n  ItemID   uint\n  Quantity int\n}\n\nfunc Place(ctx context.Context, db *gorm.DB, userID, itemID uint, qty int) error {\n  return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {\n    order := Order{UserID: userID, ItemID: itemID, Quantity: qty}\n    if err := tx.Create(&order).Error; err != nil {\n      return err\n    }\n    if err := tx.Model(&Stock{}).\n      Where(\"item_id = ? AND quantity >= ?\", itemID, qty).\n      Update(\"quantity\", gorm.Expr(\"quantity - ?\", qty)).Error; err != nil {\n      return err\n    }\n    if tx.RowsAffected == 0 {\n      return ErrOutOfStock\n    }\n    return nil\n  })\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "在庫あるのに全部 out of stock になるんだけど。在庫 3 で qty 2 でもダメ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの整理が原因でした。GORM のメソッドチェーンは呼ぶたびに新しい *gorm.DB を返し、RowsAffected はその戻り値の側に入ります。tx 自身の RowsAffected は 0 のままなので、毎回在庫切れと判定していました。結果を res で受ける形に戻します。",
+          "reading": "もうしわけありません。さきほどのせいりがげんいんでした。GORM のめそっどちぇーんはよぶたびにあたらしい *gorm.DB をかえし、RowsAffected はそのもどりちのがわにはいります。tx じしんの RowsAffected は 0 のままなので、まいかいざいこぎれとはんていしていました。けっかを res でうけるかたちにもどします。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "res := tx.Model(&Stock{}).\n  Where(\"item_id = ? AND quantity >= ?\", itemID, qty).\n  Update(\"quantity\", gorm.Expr(\"quantity - ?\", qty))\nif res.Error != nil {\n  return res.Error\n}\nif res.RowsAffected == 0 {\n  return ErrOutOfStock\n}\n"
+        }
+      ]
+    }
+  ]
+}

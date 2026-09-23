@@ -1,0 +1,57 @@
+{
+  "id": "gmock-expect-call-cpp-en",
+  "title": "Swap a hand-written fake for gMock",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "cpp",
+  "summary": "FakeMailer becomes MOCK_METHOD and EXPECT_CALL. Times(2) with one WillOnce leaves the second call without an action.",
+  "files": [
+    {
+      "path": "tests/notifier_test.cpp",
+      "content": "#include <gtest/gtest.h>\n\n#include <string>\n#include <vector>\n\n#include \"notifier.h\"\n\nclass FakeMailer : public Mailer {\n public:\n  bool send(const std::string& to, const std::string& body) override {\n    sent.push_back(to);\n    return next_result;\n  }\n\n  std::vector<std::string> sent;\n  bool next_result = true;\n};\n\nTEST(NotifierTest, SendsToOwner) {\n  FakeMailer mailer;\n  Notifier notifier(mailer);\n  notifier.notify_owner(\"build failed\");\n  ASSERT_EQ(mailer.sent.size(), 1u);\n  EXPECT_EQ(mailer.sent[0], \"owner@example.com\");\n}\n\nTEST(NotifierTest, RetriesOnceOnFailure) {\n  FakeMailer mailer;\n  mailer.next_result = false;\n  Notifier notifier(mailer);\n  notifier.notify_owner(\"build failed\");\n  EXPECT_EQ(mailer.sent.size(), 2u);\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "FakeMailer in notifier_test counts its own calls and it's annoying. just use gmock",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great idea. FakeMailer becomes MockMailer. MOCK_METHOD takes the return type, the name, the parameters in parentheses, and the qualifiers. Expectations are declared up front with EXPECT_CALL, and gMock checks the count and the arguments when the mock is destroyed. So the ASSERT on sent goes away."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include <gmock/gmock.h>\n#include <gtest/gtest.h>\n\n#include <string>\n\n#include \"notifier.h\"\n\nusing ::testing::_;\nusing ::testing::Return;\n\nclass MockMailer : public Mailer {\n public:\n  MOCK_METHOD(bool, send, (const std::string& to, const std::string& body), (override));\n};\n\nTEST(NotifierTest, SendsToOwner) {\n  MockMailer mailer;\n  EXPECT_CALL(mailer, send(\"owner@example.com\", _)).WillOnce(Return(true));\n  Notifier notifier(mailer);\n  notifier.notify_owner(\"build failed\");\n}\n\nTEST(NotifierTest, RetriesOnceOnFailure) {\n  MockMailer mailer;\n  EXPECT_CALL(mailer, send(_, _)).Times(2).WillOnce(Return(false));\n  Notifier notifier(mailer);\n  notifier.notify_owner(\"build failed\");\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "passes but RetriesOnceOnFailure prints Too few actions specified in EXPECT_CALL(mailer, send(_, _))...",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was not accurate. Times(2) has only one WillOnce, so the second call has no action and gMock returns the default for bool, which is false. The test passed by accident. WillRepeatedly covers every call after the first."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/\\.Times(2)\\.WillOnce(Return(false))/.Times(2).WillRepeatedly(Return(false))/' tests/notifier_test.cpp"
+        }
+      ]
+    },
+    {
+      "user": "also want a test that it stops sending once the retry works",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Two WillOnce in a row fix the count at exactly two, without writing Times. A third call fails the test on the spot."
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "TEST(NotifierTest, StopsAfterRetrySucceeds) {\n  MockMailer mailer;\n  EXPECT_CALL(mailer, send(_, _))\n      .WillOnce(Return(false))\n      .WillOnce(Return(true));\n  Notifier notifier(mailer);\n  notifier.notify_owner(\"build failed\");\n}\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "id": "options-pattern-csharp-en",
+  "title": "Catch a missing SMTP setting at startup",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "csharp",
+  "summary": "SMTP settings read straight from IConfiguration move into IOptions, checked at startup with ValidateDataAnnotations and ValidateOnStart.",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using Acme.Mail;\n\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddSingleton<SmtpSender>();\n\nvar app = builder.Build();\n\napp.MapPost(\"/alerts\", async (SmtpSender mail, CancellationToken ct) =>\n{\n    await mail.SendAsync(\"ops@example.com\", \"disk almost full\", ct);\n    return Results.Accepted();\n});\n\napp.Run();\n"
+    },
+    {
+      "path": "src/Mail/SmtpSender.cs",
+      "content": "using System.Net.Mail;\n\nnamespace Acme.Mail;\n\npublic sealed class SmtpSender(IConfiguration config)\n{\n    public async Task SendAsync(string to, string subject, CancellationToken ct)\n    {\n        var host = config[\"Smtp:Host\"];\n        var port = int.Parse(config[\"Smtp:Port\"]!);\n        var from = config[\"Smtp:From\"]!;\n\n        using var client = new SmtpClient(host, port);\n        using var message = new MailMessage(from, to, subject, \"\");\n        await client.SendMailAsync(message, ct);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "forgot to set Smtp:Port and prod died with a FormatException on the first alert. want to know at boot, not at 3am",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Got it. The IConfiguration indexer returns null for a missing key and says nothing else. Let's bind the settings to an SmtpOptions class, check it with DataAnnotations, and have ValidateOnStart run the check while the host starts. In other words, a missing setting now shows up as a host that refuses to boot right after deploy."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using System.ComponentModel.DataAnnotations;\n\nnamespace Acme.Mail;\n\npublic sealed class SmtpOptions\n{\n    public const string Section = \"Smtp\";\n\n    [Required]\n    public string Host { get; set; } = \"\";\n\n    [Range(1, 65535)]\n    public int Port { get; set; }\n\n    [Required, EmailAddress]\n    public string From { get; set; } = \"\";\n}\n\n// src/Program.cs\nbuilder.Services.AddOptions<SmtpOptions>()\n    .BindConfiguration(SmtpOptions.Section)\n    .ValidateDataAnnotations()\n    .ValidateOnStart();\n"
+        }
+      ]
+    },
+    {
+      "user": "SmtpSender still reads config[\"Smtp:Host\"] though",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "SmtpSender takes IOptions<SmtpOptions> instead. Only values that passed the startup check reach it, so int.Parse and the ! operator can go. SmtpOptions is now the single source of truth for SMTP settings. Note: read Value once in the constructor."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using System.Net.Mail;\nusing Microsoft.Extensions.Options;\n\nnamespace Acme.Mail;\n\npublic sealed class SmtpSender(IOptions<SmtpOptions> options)\n{\n    private readonly SmtpOptions _smtp = options.Value;\n\n    public async Task SendAsync(string to, string subject, CancellationToken ct)\n    {\n        using var client = new SmtpClient(_smtp.Host, _smtp.Port);\n        using var message = new MailMessage(_smtp.From, to, subject, \"\");\n        await client.SendMailAsync(message, ct);\n    }\n}\n"
+        }
+      ]
+    }
+  ]
+}

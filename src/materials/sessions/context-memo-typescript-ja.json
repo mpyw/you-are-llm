@@ -1,0 +1,73 @@
+{
+  "id": "context-memo-typescript-ja",
+  "title": "Context の value を描画のたびに作り直さない",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "typescript",
+  "summary": "memo した ProductCard が検索のたびに再描画される原因を value に見つけ、Context を中身と操作に分ける。",
+  "files": [
+    {
+      "path": "src/cart/CartProvider.tsx",
+      "content": "import { createContext, useContext, useState, type ReactNode } from 'react'\n\nexport type Item = { id: string; name: string; price: number }\n\ntype CartContextValue = {\n  items: Item[]\n  addItem: (item: Item) => void\n  removeItem: (id: string) => void\n}\n\nconst CartContext = createContext<CartContextValue | null>(null)\n\nexport function CartProvider({ children }: { children: ReactNode }) {\n  const [items, setItems] = useState<Item[]>([])\n\n  const addItem = (item: Item) => setItems([...items, item])\n  const removeItem = (id: string) => setItems(items.filter((i) => i.id !== id))\n\n  return (\n    <CartContext value={{ items, addItem, removeItem }}>\n      {children}\n    </CartContext>\n  )\n}\n\nexport function useCart() {\n  const cart = useContext(CartContext)\n  if (cart === null) throw new Error('useCart needs a CartProvider')\n  return cart\n}\n"
+    },
+    {
+      "path": "src/components/ProductCard.tsx",
+      "content": "import { memo } from 'react'\nimport { useCart, type Item } from '../cart/CartProvider'\n\nexport const ProductCard = memo(function ProductCard({ item }: { item: Item }) {\n  const { addItem } = useCart()\n  return (\n    <li>\n      {item.name}\n      <button onClick={() => addItem(item)}>Add</button>\n    </li>\n  )\n})\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "ProductCard に memo 付けたのに、検索欄で 1 文字打つたびに全部再描画されてる。Profiler で見た。CartProvider は Shop の中",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。Shop が query で再描画されると、中の CartProvider も描画し直され、value に毎回新しいオブジェクトが渡ります。Context は value を Object.is で比べるので、中身が同じでも別物と見なし、useCart を呼ぶ消費者はすべて再描画されます。memo は props しか比べません。言い換えると、Context 経由の再描画は memo を素通りします。useCallback と useMemo で参照を固定します。",
+          "reading": "するどいごしてきです。Shop が query でさいびょうがされると、なかの CartProvider もびょうがしなおされ、value にまいかいあたらしいおぶじぇくとがわたります。Context は value を Object.is でくらべるので、なかみがおなじでもべつものとみなし、useCart をよぶしょうひしゃはすべてさいびょうがされます。memo は props しかくらべません。いいかえると、Context けいゆのさいびょうがは memo をすどおりします。useCallback と useMemo でさんしょうをこていします。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'\n\nexport type Item = { id: string; name: string; price: number }\n\ntype CartContextValue = {\n  items: Item[]\n  addItem: (item: Item) => void\n  removeItem: (id: string) => void\n}\n\nconst CartContext = createContext<CartContextValue | null>(null)\n\nexport function CartProvider({ children }: { children: ReactNode }) {\n  const [items, setItems] = useState<Item[]>([])\n\n  const addItem = useCallback((item: Item) => setItems([...items, item]), [items])\n  const removeItem = useCallback(\n    (id: string) => setItems(items.filter((i) => i.id !== id)),\n    [items],\n  )\n\n  const value = useMemo(\n    () => ({ items, addItem, removeItem }),\n    [items, addItem, removeItem],\n  )\n\n  return <CartContext value={value}>{children}</CartContext>\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "検索は直った。けど今度はカートに 1 個入れると全カード再描画。100 枚あるから重い",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "前言を撤回します。useMemo で足りると言いましたが、value に items が入っている限り、items が変わるたびに全消費者が再描画されます。しかも addItem が items に依存していたので、追加のたびに作り直されていました。ポイントは、Context を items と操作に分けることです。操作を setItems の関数型更新で書けば items を読まないので、useMemo の依存は空で済み、参照は一度も変わりません。",
+          "reading": "ぜんげんをてっかいします。useMemo でたりるといいましたが、value に items がはいっているかぎり、items がかわるたびにぜんしょうひしゃがさいびょうがされます。しかも addItem が items にいぞんしていたので、ついかのたびにつくりなおされていました。ぽいんとは、Context を items とそうさにわけることです。そうさを setItems のかんすうがたこうしんでかけば items をよまないので、useMemo のいぞんはからですみ、さんしょうはいちどもかわりません。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'\n\nexport type Item = { id: string; name: string; price: number }\n\ntype CartActions = {\n  addItem: (item: Item) => void\n  removeItem: (id: string) => void\n}\n\nconst ItemsContext = createContext<Item[] | null>(null)\nconst ActionsContext = createContext<CartActions | null>(null)\n\nexport function CartProvider({ children }: { children: ReactNode }) {\n  const [items, setItems] = useState<Item[]>([])\n\n  const actions = useMemo<CartActions>(\n    () => ({\n      addItem: (item) => setItems((prev) => [...prev, item]),\n      removeItem: (id) => setItems((prev) => prev.filter((i) => i.id !== id)),\n    }),\n    [],\n  )\n\n  return (\n    <ActionsContext value={actions}>\n      <ItemsContext value={items}>{children}</ItemsContext>\n    </ActionsContext>\n  )\n}\n\nexport function useCartItems() {\n  const items = useContext(ItemsContext)\n  if (items === null) throw new Error('useCartItems needs a CartProvider')\n  return items\n}\n\nexport function useCartActions() {\n  const actions = useContext(ActionsContext)\n  if (actions === null) throw new Error('useCartActions needs a CartProvider')\n  return actions\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "ProductCard は操作側だけを読むように変えます。件数バッジのように items を表示する側は useCartItems を使うことをお勧めします。",
+          "reading": "ProductCard はそうさがわだけをよむようにかえます。けんすうばっじのように items をひょうじするがわは useCartItems をつかうことをおすすめします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/useCart/useCartActions/g' src/components/ProductCard.tsx"
+        }
+      ]
+    },
+    {
+      "user": "addItem って名前、API と揃えて addToCart にしといて。両方のファイル",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。addItem はこの 2 ファイルにしか出てこないので、まとめて sed を当てます。removeItem には一致しないので、そのまま残ります。",
+          "reading": "しょうちしました。addItem はこの 2 ふぁいるにしかでてこないので、まとめて sed をあてます。removeItem にはいっちしないので、そのままのこります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/addItem/addToCart/g' src/cart/CartProvider.tsx src/components/ProductCard.tsx"
+        }
+      ]
+    }
+  ]
+}

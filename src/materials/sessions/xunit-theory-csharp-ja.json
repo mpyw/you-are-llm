@@ -1,0 +1,68 @@
+{
+  "id": "xunit-theory-csharp-ja",
+  "title": "コピペされた Fact を Theory にまとめる",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "csharp",
+  "summary": "境界値ごとにコピペされた [Fact] を [Theory] にまとめる。decimal は属性に書けないので TheoryData と MemberData で渡す。",
+  "files": [
+    {
+      "path": "src/Pricing/DiscountPolicy.cs",
+      "content": "namespace Acme.Pricing;\n\npublic static class DiscountPolicy\n{\n    public static decimal For(decimal subtotal) => subtotal switch\n    {\n        >= 5000m => subtotal * 0.1m,\n        >= 1000m => subtotal * 0.05m,\n        _ => 0m,\n    };\n}\n"
+    },
+    {
+      "path": "tests/Acme.Tests/DiscountPolicyTests.cs",
+      "content": "using Acme.Pricing;\nusing Xunit;\n\nnamespace Acme.Tests;\n\npublic class DiscountPolicyTests\n{\n    [Fact]\n    public void NoDiscountBelowOneThousand()\n    {\n        Assert.Equal(0m, DiscountPolicy.For(999m));\n    }\n\n    [Fact]\n    public void FivePercentFromOneThousand()\n    {\n        Assert.Equal(50m, DiscountPolicy.For(1000m));\n    }\n\n    [Fact]\n    public void FivePercentJustBelowFiveThousand()\n    {\n        Assert.Equal(249.95m, DiscountPolicy.For(4999m));\n    }\n\n    [Fact]\n    public void TenPercentFromFiveThousand()\n    {\n        Assert.Equal(500m, DiscountPolicy.For(5000m));\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "DiscountPolicyTests、コピペで増殖してて見てられない。まとめて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい着眼点です。4 つのテストは入力と期待値が違うだけなので、[Theory] にして [InlineData] で並べるのがベストプラクティスです。テスト名の代わりにデータの行がケースを表すので、境界値を足すのも 1 行で済みます。",
+          "reading": "すばらしいちゃくがんてんです。4 つのてすとはにゅうりょくときたいちがちがうだけなので、[Theory] にして [InlineData] でならべるのがべすとぷらくてぃすです。てすとめいのかわりにでーたのぎょうがけーすをあらわすので、きょうかいちをたすのも 1 ぎょうですみます。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public class DiscountPolicyTests\n{\n    [Theory]\n    [InlineData(999m, 0m)]\n    [InlineData(1000m, 50m)]\n    [InlineData(4999m, 249.95m)]\n    [InlineData(5000m, 500m)]\n    public void DiscountBySubtotal(decimal subtotal, decimal expected)\n    {\n        Assert.Equal(expected, DiscountPolicy.For(subtotal));\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ビルド通らない。CS0182 って出てる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません、私の誤りでした。属性の引数に書けるのは int や double、string などの定数に限られ、decimal は含まれません。999m と書いた時点で CS0182 になります。decimal のまま渡すには TheoryData<decimal, decimal> を静的プロパティで用意し、[MemberData] から参照します。データ側の型がずれると、コンパイル時に気づけます。",
+          "reading": "もうしわけありません、わたしのあやまりでした。ぞくせいのひきすうにかけるのは int や double、string などのていすうにかぎられ、decimal はふくまれません。999m とかいたじてんで CS0182 になります。decimal のままわたすには TheoryData<decimal, decimal> をせいてきぷろぱてぃでよういし、[MemberData] からさんしょうします。でーたがわのかたがずれると、こんぱいるじにきづけます。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public class DiscountPolicyTests\n{\n    public static TheoryData<decimal, decimal> Cases => new()\n    {\n        { 999m, 0m },\n        { 1000m, 50m },\n        { 4999m, 249.95m },\n        { 5000m, 500m },\n    };\n\n    [Theory]\n    [MemberData(nameof(Cases))]\n    public void DiscountBySubtotal(decimal subtotal, decimal expected)\n    {\n        Assert.Equal(expected, DiscountPolicy.For(subtotal));\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、10% の境目 来月から 3000 に下がるんだった。テストもそれで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。境目は DiscountPolicy とテストデータの 2 か所にあります。片方だけ変えるとテストが落ちるので、sed で両方を揃えます。まとめると、4999 と 5000 の行が 2999 と 3000 に変わります。",
+          "reading": "かしこまりました。さかいめは DiscountPolicy とてすとでーたの 2 かしょにあります。かたほうだけかえるとてすとがおちるので、sed でりょうほうをそろえます。まとめると、4999 と 5000 のぎょうが 2999 と 3000 にかわります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/>= 5000m/>= 3000m/' src/Pricing/DiscountPolicy.cs"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/{ 4999m, 249\\.95m }/{ 2999m, 149.95m }/' -e 's/{ 5000m, 500m }/{ 3000m, 300m }/' tests/Acme.Tests/DiscountPolicyTests.cs"
+        }
+      ]
+    }
+  ]
+}

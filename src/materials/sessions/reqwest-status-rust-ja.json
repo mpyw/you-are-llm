@@ -1,0 +1,60 @@
+{
+  "id": "reqwest-status-rust-ja",
+  "title": "reqwest で 500 が Ok になるのを止める",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "rust",
+  "summary": "send の後に error_for_status を挟み、connect_timeout だけでは止まらないハングを timeout で切る。",
+  "files": [
+    {
+      "path": "src/client.rs",
+      "content": "use serde::Serialize;\n\n#[derive(Debug, Serialize)]\npub struct Invoice {\n    pub customer_id: u64,\n    pub amount: i64,\n}\n\npub fn build_client() -> reqwest::Client {\n    reqwest::Client::new()\n}\n\npub async fn send_invoice(client: &reqwest::Client, invoice: &Invoice) -> reqwest::Result<()> {\n    client\n        .post(\"https://billing.internal/api/invoices\")\n        .json(invoice)\n        .send()\n        .await?;\n    Ok(())\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "請求書送るやつ、向こうが 500 返してるのに成功ログ出てた。あとたまに返ってこなくて固まる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。reqwest の send は、通信そのものが失敗したときにしか Err を返しません。404 や 500 も「応答が届いた」ので、ハッピーパスと同じ Ok です。error_for_status を挟むと 4xx と 5xx が Err に変わります。固まる件は connect_timeout を設定して、応答しないサーバを 5 秒で打ち切ります。build_client は Result を返すようになるので、呼び出し側に ? を足してください。",
+          "reading": "するどいごしてきです。reqwest の send は、つうしんそのものがしっぱいしたときにしか Err をかえしません。404 や 500 も「おうとうがとどいた」ので、はっぴーぱすとおなじ Ok です。error_for_status をはさむと 4xx と 5xx が Err にかわります。かたまるけんは connect_timeout をせっていして、おうとうしないさーばを 5 びょうでうちきります。build_client は Result をかえすようになるので、よびだしがわに ? をたしてください。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::time::Duration;\n\nuse serde::Serialize;\n\n#[derive(Debug, Serialize)]\npub struct Invoice {\n    pub customer_id: u64,\n    pub amount: i64,\n}\n\npub fn build_client() -> reqwest::Result<reqwest::Client> {\n    reqwest::Client::builder()\n        .connect_timeout(Duration::from_secs(5))\n        .build()\n}\n\npub async fn send_invoice(client: &reqwest::Client, invoice: &Invoice) -> reqwest::Result<()> {\n    client\n        .post(\"https://billing.internal/api/invoices\")\n        .json(invoice)\n        .send()\n        .await?\n        .error_for_status()?;\n    Ok(())\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "500 は Err になった。固まるほうは直ってない。つながった後に向こうが黙るパターンっぽい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの説明は正確ではありませんでした。connect_timeout が見るのは接続を張るまでで、接続後にサーバが黙ると何秒でも待ち続けます。reqwest の Client は既定では全体のタイムアウトを持たないので、timeout で接続の開始から本文の読み終わりまでを 10 秒に制限します。接続の 5 秒は残し、両方を設定することで、黙ったサーバでタスクが止まらないことを保証します。",
+          "reading": "もうしわけありません。さきほどのせつめいはせいかくではありませんでした。connect_timeout がみるのはせつぞくをはるまでで、せつぞくごにさーばがだまるとなんびょうでもまちつづけます。reqwest の Client はきていではぜんたいのたいむあうとをもたないので、timeout でせつぞくのかいしからほんぶんのよみおわりまでを 10 びょうにせいげんします。せつぞくの 5 びょうはのこし、りょうほうをせっていすることで、だまったさーばでたすくがとまらないことをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "pub fn build_client() -> reqwest::Result<reqwest::Client> {\n    reqwest::Client::builder()\n        .connect_timeout(Duration::from_secs(5))\n        .timeout(Duration::from_secs(10))\n        .build()\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "おけ。あ、月末バッチだと 10 秒じゃ間に合わないって経理から。30 秒にして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。全体のタイムアウトだけ延ばします。Note: connect_timeout は 5 秒のままなので、落ちているサーバには引き続きすぐ気づけます。",
+          "reading": "しょうちしました。ぜんたいのたいむあうとだけのばします。Note: connect_timeout は 5 びょうのままなので、おちているさーばにはひきつづきすぐきづけます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/timeout(Duration::from_secs(10))/timeout(Duration::from_secs(30))/' src/client.rs"
+        }
+      ]
+    }
+  ]
+}

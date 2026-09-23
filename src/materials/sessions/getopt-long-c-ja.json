@@ -1,0 +1,45 @@
+{
+  "id": "getopt-long-c-ja",
+  "title": "argv の手解析を getopt_long に替える",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "c",
+  "summary": "strcmp で argv を見ていたループを getopt_long と struct option に置き換える。",
+  "files": [
+    {
+      "path": "src/cli/main.c",
+      "content": "#include <stdio.h>\n#include <string.h>\n\nint run(const char *output, int verbose);\n\nint main(int argc, char **argv) {\n  int verbose = 0;\n  const char *output = \"out.txt\";\n  for (int i = 1; i < argc; i++) {\n    if (strcmp(argv[i], \"--verbose\") == 0 || strcmp(argv[i], \"-v\") == 0) {\n      verbose = 1;\n    } else if (strcmp(argv[i], \"--output\") == 0 || strcmp(argv[i], \"-o\") == 0) {\n      output = argv[++i];\n    }\n  }\n  return run(output, verbose);\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "argv を strcmp でぐるぐる見てるんだけど、-o を最後に付けると落ちる。-vo out.txt みたいなのも通したい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。-o が最後にあると argv[++i] が argv[argc]、つまり NULL を読み、run の中で落ちます。手書きの strcmp のボイラープレートをやめて getopt_long に任せます。短いオプションは \"vo:\" の文字列で、長いオプションは struct option の配列で宣言し、コロンが引数を取る印です。-vo out.txt のようなまとめ書きや --output=out.txt も解釈され、引数が足りなければ getopt_long が ? を返すことを保証します。なお getopt_long は POSIX ではありませんが、glibc と macOS の libc の両方にあります。",
+          "reading": "しょうちしました。-o がさいごにあると argv[++i] が argv[argc]、つまり NULL をよみ、run のなかでおちます。てがきの strcmp のぼいらーぷれーとをやめて getopt_long にまかせます。みじかいおぷしょんは \"vo:\" のもじれつで、ながいおぷしょんは struct option のはいれつでせんげんし、ころんがひきすうをとるしるしです。-vo out.txt のようなまとめがきや --output=out.txt もかいしゃくされ、ひきすうがたりなければ getopt_long が ? をかえすことをほしょうします。なお getopt_long は POSIX ではありませんが、glibc と macOS の libc のりょうほうにあります。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#include <getopt.h>\n#include <stdio.h>\n#include <stdlib.h>\n\nint run(const char *output, int verbose);\n\nstatic const struct option long_options[] = {\n  { \"verbose\", no_argument, NULL, 'v' },\n  { \"output\", required_argument, NULL, 'o' },\n  { NULL, 0, NULL, 0 },\n};\n\nint main(int argc, char **argv) {\n  int verbose = 0;\n  const char *output = \"out.txt\";\n  int c;\n  while ((c = getopt_long(argc, argv, \"vo:\", long_options, NULL)) != -1) {\n    switch (c) {\n    case 'v':\n      verbose = 1;\n      break;\n    case 'o':\n      output = optarg;\n      break;\n    default:\n      fprintf(stderr, \"usage: %s [-v] [-o file]\\n\", argv[0]);\n      return EXIT_FAILURE;\n    }\n  }\n  return run(output, verbose);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "-v 2回で詳しくしたい。-vv で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ポイントは、フラグを代入ではなく数えることです。-vv は getopt_long から 'v' が 2 回返るので、verbose は 2 になります。",
+          "reading": "ぽいんとは、ふらぐをだいにゅうではなくかぞえることです。-vv は getopt_long から 'v' が 2 かいかえるので、verbose は 2 になります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/verbose = 1;/verbose++;/' src/cli/main.c"
+        }
+      ]
+    }
+  ]
+}

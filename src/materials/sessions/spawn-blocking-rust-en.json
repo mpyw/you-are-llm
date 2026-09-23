@@ -1,0 +1,57 @@
+{
+  "id": "spawn-blocking-rust-en",
+  "title": "bcrypt is starving the runtime",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "rust",
+  "summary": "Move bcrypt out of an async handler into spawn_blocking, and hit E0373 from a missing move.",
+  "files": [
+    {
+      "path": "src/handlers.rs",
+      "content": "use axum::{http::StatusCode, Json};\nuse serde::Deserialize;\n\nuse crate::db;\n\n#[derive(Deserialize)]\npub struct SignUp {\n    pub email: String,\n    pub password: String,\n}\n\npub async fn sign_up(Json(body): Json<SignUp>) -> Result<StatusCode, StatusCode> {\n    let hash = bcrypt::hash(&body.password, 12).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;\n    db::save_user(&body.email, &hash)\n        .await\n        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;\n    Ok(StatusCode::CREATED)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "when signups get busy even /health stops responding. the db looks idle though",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: it is bcrypt::hash. A cost 12 hash holds the CPU for a few hundred milliseconds and never reaches an await, so every other task on the same worker thread just stops. The best practice is to hand it to the blocking pool with tokio::task::spawn_blocking. Awaiting that gives a Result inside a Result, JoinError outside and BcryptError inside, hence the two map_err calls."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "pub async fn sign_up(Json(body): Json<SignUp>) -> Result<StatusCode, StatusCode> {\n    let hash = tokio::task::spawn_blocking(|| bcrypt::hash(&body.password, 12))\n        .await\n        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?\n        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;\n    db::save_user(&body.email, &hash)\n        .await\n        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;\n    Ok(StatusCode::CREATED)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "cargo build says E0373. closure may outlive the current function, but it borrows `body.password`",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, I left the move off that closure. spawn_blocking runs it on another thread, so it requires 'static. Borrowing would let it keep pointing at body.password after the handler has returned, which is what the compiler stops. Adding move is fine here: since Rust 2021 a closure captures individual fields, so only body.password is moved and body.email is still usable below."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/spawn_blocking(|| /spawn_blocking(move || /' src/handlers.rs"
+        }
+      ]
+    },
+    {
+      "user": "ok it builds. login does verify, thats just as heavy right? do that one too. oh and 401 if the user doesnt exist",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great point. bcrypt::verify rehashes with the cost stored in the hash, so it is exactly as heavy. Same shape: spawn_blocking, with hash moved into the closure as well. db::find_hash is assumed to return an Option<String>, and ok_or turns a missing user into 401."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "#[derive(Deserialize)]\npub struct Login {\n    pub email: String,\n    pub password: String,\n}\n\npub async fn login(Json(body): Json<Login>) -> Result<StatusCode, StatusCode> {\n    let hash = db::find_hash(&body.email)\n        .await\n        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?\n        .ok_or(StatusCode::UNAUTHORIZED)?;\n    let matched = tokio::task::spawn_blocking(move || bcrypt::verify(&body.password, &hash))\n        .await\n        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?\n        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;\n    if matched {\n        Ok(StatusCode::NO_CONTENT)\n    } else {\n        Err(StatusCode::UNAUTHORIZED)\n    }\n}\n"
+        }
+      ]
+    }
+  ]
+}

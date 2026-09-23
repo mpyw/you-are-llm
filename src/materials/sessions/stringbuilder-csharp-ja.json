@@ -2,7 +2,7 @@
   "id": "stringbuilder-csharp-ja",
   "title": "30 秒かかる CSV 出力を StringBuilder に直す",
   "language": "ja",
-  "difficulty": "expert",
+  "difficulty": "hard",
   "codeLanguage": "csharp",
   "summary": "ループ内の文字列連結を StringBuilder に置き換え、区切り文字のエスケープと書式まで直す。",
   "files": [

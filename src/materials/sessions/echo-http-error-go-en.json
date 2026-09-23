@@ -1,0 +1,65 @@
+{
+  "id": "echo-http-error-go-en",
+  "title": "One place for Echo error responses",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "go",
+  "summary": "Move per handler c.JSON calls to echo.NewHTTPError and a custom HTTPErrorHandler, then stop sending he.Error() to the client.",
+  "files": [
+    {
+      "path": "internal/handler/user.go",
+      "content": "package handler\n\nimport (\n  \"errors\"\n  \"net/http\"\n\n  \"github.com/labstack/echo/v4\"\n)\n\ntype UserHandler struct {\n  users UserStore\n}\n\nfunc (h *UserHandler) Show(c echo.Context) error {\n  u, err := h.users.Find(c.Request().Context(), c.Param(\"id\"))\n  if errors.Is(err, ErrNotFound) {\n    return c.JSON(http.StatusNotFound, map[string]string{\"error\": \"user not found\"})\n  }\n  if err != nil {\n    return c.JSON(http.StatusInternalServerError, map[string]string{\"error\": err.Error()})\n  }\n  return c.JSON(http.StatusOK, u)\n}\n\nfunc (h *UserHandler) Create(c echo.Context) error {\n  var req CreateUserRequest\n  if err := c.Bind(&req); err != nil {\n    return c.JSON(http.StatusBadRequest, map[string]string{\"message\": err.Error()})\n  }\n  u, err := h.users.Create(c.Request().Context(), req.Name)\n  if err != nil {\n    return c.JSON(http.StatusInternalServerError, map[string]string{\"msg\": \"failed\"})\n  }\n  return c.JSON(http.StatusCreated, u)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "error json is different in every handler. error, message, msg. frontend is complaining. make it one thing",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! In Echo the handler just returns the error, and e.HTTPErrorHandler decides what the response looks like, in one place. When you want a status, return echo.NewHTTPError. The error from c.Bind is already a 400 *echo.HTTPError, so returning it as is is enough."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func (h *UserHandler) Show(c echo.Context) error {\n  u, err := h.users.Find(c.Request().Context(), c.Param(\"id\"))\n  if errors.Is(err, ErrNotFound) {\n    return echo.NewHTTPError(http.StatusNotFound, \"user not found\")\n  }\n  if err != nil {\n    return err\n  }\n  return c.JSON(http.StatusOK, u)\n}\n\nfunc (h *UserHandler) Create(c echo.Context) error {\n  var req CreateUserRequest\n  if err := c.Bind(&req); err != nil {\n    return err\n  }\n  u, err := h.users.Create(c.Request().Context(), req.Name)\n  if err != nil {\n    return err\n  }\n  return c.JSON(http.StatusCreated, u)\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "Here's the error handler. Put it in internal/handler/errors.go and set e.HTTPErrorHandler = handler.ErrorHandler in main. Anything that is not an HTTPError becomes a 500 and its text goes only to the log, so a database error never reaches the client."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "package handler\n\nimport (\n  \"errors\"\n  \"net/http\"\n\n  \"github.com/labstack/echo/v4\"\n)\n\nfunc ErrorHandler(err error, c echo.Context) {\n  if c.Response().Committed {\n    return\n  }\n  var he *echo.HTTPError\n  if !errors.As(err, &he) {\n    c.Logger().Error(err)\n    he = echo.NewHTTPError(http.StatusInternalServerError, \"internal server error\")\n  }\n  if err := c.JSON(he.Code, map[string]any{\"error\": he.Error()}); err != nil {\n    c.Logger().Error(err)\n  }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "404 now says {\"error\":\"code=404, message=user not found\"}. dont want code= in there, and on 400 there's internal= with the raw error in it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. Error() on *echo.HTTPError is a log string that joins code= and message=, and adds internal= when SetInternal was called. The error from c.Bind is exactly that case. The response should carry Message and nothing else."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/he.Error()/he.Message/' internal/handler/errors.go"
+        }
+      ]
+    },
+    {
+      "user": "actually make the key message. frontend guy prefers it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "The key lives on one line of the error handler, so changing it there changes every handler. ErrorHandler is now the single source of truth for the error shape."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/\"error\": he.Message/\"message\": he.Message/' internal/handler/errors.go"
+        }
+      ]
+    }
+  ]
+}

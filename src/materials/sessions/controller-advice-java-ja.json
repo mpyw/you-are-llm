@@ -1,0 +1,80 @@
+{
+  "id": "controller-advice-java-ja",
+  "title": "コントローラの try/catch を @RestControllerAdvice にまとめる",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "java",
+  "summary": "例外処理を ProblemDetail に揃えたら、継承元のハンドラとぶつかって起動しなくなった。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/order/OrderController.java",
+      "content": "package com.example.order;\n\nimport jakarta.validation.Valid;\nimport java.util.Map;\nimport org.springframework.http.HttpStatus;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.web.bind.annotation.GetMapping;\nimport org.springframework.web.bind.annotation.PathVariable;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RequestMapping;\nimport org.springframework.web.bind.annotation.RestController;\n\n@RestController\n@RequestMapping(\"/orders\")\npublic class OrderController {\n    private final OrderService orderService;\n\n    public OrderController(OrderService orderService) {\n        this.orderService = orderService;\n    }\n\n    @GetMapping(\"/{id}\")\n    public ResponseEntity<?> show(@PathVariable long id) {\n        try {\n            return ResponseEntity.ok(orderService.find(id));\n        } catch (OrderNotFoundException e) {\n            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(\"error\", e.getMessage()));\n        }\n    }\n\n    @PostMapping\n    public ResponseEntity<?> place(@Valid @RequestBody OrderRequest request) {\n        try {\n            return ResponseEntity.status(HttpStatus.CREATED).body(orderService.place(request));\n        } catch (OutOfStockException e) {\n            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(\"message\", e.getMessage()));\n        }\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "OrderController、メソッドごとに try/catch コピペしててしんどい。エラーの JSON も error だったり message だったりバラバラだし",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい着眼点です。例外から応答への変換を @RestControllerAdvice に集め、本文は Spring 6 の ProblemDetail に揃えましょう！ProblemDetail は RFC 9457 の形なので、type、title、status、detail の並びがどのエンドポイントでも同じになります。コントローラ側は正常系だけを書けば済みます。",
+          "reading": "すばらしいちゃくがんてんです。れいがいからおうとうへのへんかんを @RestControllerAdvice にあつめ、ほんぶんは Spring 6 の ProblemDetail にそろえましょう！ProblemDetail は RFC 9457 のかたちなので、type、title、status、detail のならびがどのエンドポイントでもおなじになります。コントローラがわはせいじょうけいだけをかけばすみます。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.order;\n\nimport org.springframework.http.HttpStatus;\nimport org.springframework.http.ProblemDetail;\nimport org.springframework.web.bind.annotation.ExceptionHandler;\nimport org.springframework.web.bind.annotation.RestControllerAdvice;\n\n@RestControllerAdvice\npublic class ApiExceptionHandler {\n    @ExceptionHandler(OrderNotFoundException.class)\n    public ProblemDetail handleNotFound(OrderNotFoundException e) {\n        return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.getMessage());\n    }\n\n    @ExceptionHandler(OutOfStockException.class)\n    public ProblemDetail handleOutOfStock(OutOfStockException e) {\n        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());\n        problem.setTitle(\"Out of stock\");\n        return problem;\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@GetMapping(\"/{id}\")\npublic OrderResponse show(@PathVariable long id) {\n    return orderService.find(id);\n}\n\n@PostMapping\n@ResponseStatus(HttpStatus.CREATED)\npublic OrderResponse place(@Valid @RequestBody OrderRequest request) {\n    return orderService.place(request);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "いい感じ。あ、フロントの人が在庫切れは 409 じゃなくて 422 がいいって",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "変換が 1 か所に集まったので、ステータスを 1 つ変えるだけです。",
+          "reading": "へんかんが 1 かしょにあつまったので、ステータスを 1 つかえるだけです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/HttpStatus\\.CONFLICT/HttpStatus.UNPROCESSABLE_ENTITY/' src/main/java/com/example/order/ApiExceptionHandler.java"
+        }
+      ]
+    },
+    {
+      "user": "あと @Valid で弾かれたときの 400 だけ、まだ timestamp とか入った昔の JSON で返ってくる。これも揃えたい。どのフィールドがダメだったかも出して",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。ResponseEntityExceptionHandler を継承し、MethodArgumentNotValidException 用の @ExceptionHandler を足します。フィールドごとのエラーは、ProblemDetail の拡張プロパティ errors に入れます。これで Spring MVC の標準例外も含めて、すべてのエラーが同じ形になることを保証します。",
+          "reading": "しょうちしました。ResponseEntityExceptionHandler をけいしょうし、MethodArgumentNotValidException ようの @ExceptionHandler をたします。フィールドごとのエラーは、ProblemDetail のかくちょうプロパティ errors にいれます。これで Spring MVC のひょうじゅんれいがいもふくめて、すべてのエラーがおなじかたちになることをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import org.springframework.web.bind.MethodArgumentNotValidException;\nimport org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;\n\n@RestControllerAdvice\npublic class ApiExceptionHandler extends ResponseEntityExceptionHandler {\n    @ExceptionHandler(MethodArgumentNotValidException.class)\n    public ProblemDetail handleInvalid(MethodArgumentNotValidException e) {\n        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, \"Validation failed\");\n        problem.setProperty(\"errors\", e.getBindingResult().getFieldErrors().stream()\n            .map(error -> error.getField() + \": \" + error.getDefaultMessage())\n            .toList());\n        return problem;\n    }\n"
+        }
+      ]
+    },
+    {
+      "user": "起動しなくなった。Ambiguous @ExceptionHandler method mapped for MethodArgumentNotValidException だって",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの実装は正しくありませんでした。ResponseEntityExceptionHandler は自分の @ExceptionHandler で MethodArgumentNotValidException をすでに受けているので、子クラスで同じ例外を宣言すると、どちらを呼ぶか決められず起動時に落ちます。言い換えると、継承したなら @ExceptionHandler ではなく、用意されたフックの handleMethodArgumentNotValid をオーバーライドします。handleInvalid は消して、こちらに置き換えてください。ex.getBody() は最初から 400 の ProblemDetail なので、errors を足すだけで済みます。",
+          "reading": "もうしわけありません。さきほどのじっそうはただしくありませんでした。ResponseEntityExceptionHandler はじぶんの @ExceptionHandler で MethodArgumentNotValidException をすでにうけているので、こクラスでおなじれいがいをせんげんすると、どちらをよぶかきめられずきどうじにおちます。いいかえると、けいしょうしたなら @ExceptionHandler ではなく、よういされたフックの handleMethodArgumentNotValid をオーバーライドします。handleInvalid はけして、こちらにおきかえてください。ex.getBody() はさいしょから 400 の ProblemDetail なので、errors をたすだけですみます。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import org.springframework.http.HttpHeaders;\nimport org.springframework.http.HttpStatusCode;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.web.context.request.WebRequest;\n\n@Override\nprotected ResponseEntity<Object> handleMethodArgumentNotValid(\n        MethodArgumentNotValidException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {\n    ProblemDetail problem = ex.getBody();\n    problem.setProperty(\"errors\", ex.getBindingResult().getFieldErrors().stream()\n        .map(error -> error.getField() + \": \" + error.getDefaultMessage())\n        .toList());\n    return handleExceptionInternal(ex, problem, headers, status, request);\n}\n"
+        }
+      ]
+    }
+  ]
+}

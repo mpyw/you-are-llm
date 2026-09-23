@@ -1,0 +1,44 @@
+{
+  "id": "response-model-python-en",
+  "title": "Hide password_hash with response_model",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "python",
+  "summary": "Stop FastAPI from returning password_hash by splitting out an output model and passing it as response_model.",
+  "files": [
+    {
+      "path": "app/main.py",
+      "content": "from fastapi import FastAPI, HTTPException\nfrom pydantic import BaseModel\n\napp = FastAPI()\n\n\nclass User(BaseModel):\n    id: int\n    email: str\n    name: str\n    password_hash: str\n\n\nUSERS = {\n    1: User(id=1, email=\"mpyw@example.com\", name=\"mpyw\", password_hash=\"$2b$12$abc\"),\n}\n\n\n@app.get(\"/users/{user_id}\")\ndef read_user(user_id: int):\n    user = USERS.get(user_id)\n    if user is None:\n        raise HTTPException(status_code=404)\n    return user\n\n\n@app.get(\"/users\")\ndef list_users():\n    return list(USERS.values())\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "GET /users/1 returns password_hash lol. get rid of it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! The best practice is to keep the model you return separate from the model you store. UserOut holds only the fields that may leave the server, and UserInDB inherits from it and adds password_hash. Passing UserOut as response_model makes FastAPI filter the return value down to that shape before it becomes JSON."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "class UserOut(BaseModel):\n    id: int\n    email: str\n    name: str\n\n\nclass UserInDB(UserOut):\n    password_hash: str\n\n\nUSERS = {\n    1: UserInDB(id=1, email=\"mpyw@example.com\", name=\"mpyw\", password_hash=\"$2b$12$abc\"),\n}\n\n\n@app.get(\"/users/{user_id}\", response_model=UserOut)\ndef read_user(user_id: int):\n    user = USERS.get(user_id)\n    if user is None:\n        raise HTTPException(status_code=404)\n    return user\n"
+        }
+      ]
+    },
+    {
+      "user": "detail is fine now. the /users list still leaks it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Good catch, the list endpoint had the same hole. Passing list[UserOut] applies the same filter to every element. This guarantees password_hash never leaves either endpoint."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "@app.get(\"/users\", response_model=list[UserOut])\ndef list_users():\n    return list(USERS.values())\n"
+        }
+      ]
+    }
+  ]
+}

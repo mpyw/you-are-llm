@@ -2,7 +2,7 @@
   "id": "depends-yield-python-en",
   "title": "Yield a Session from Depends and close it",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "python",
   "summary": "Fix an exhausted QueuePool with a yield dependency, move commit and rollback into it, then stop swallowing the exception.",
   "files": [

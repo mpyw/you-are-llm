@@ -1,0 +1,63 @@
+{
+  "id": "background-tasks-python-ja",
+  "title": "メール送信を BackgroundTasks に回す",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "python",
+  "summary": "サインアップがメール送信を待って 3 秒かかる。BackgroundTasks に渡し、呼び出してから渡すミスを直し、管理者通知も足す。",
+  "files": [
+    {
+      "path": "app/main.py",
+      "content": "from fastapi import FastAPI\nfrom pydantic import BaseModel\n\nfrom app.mail import send_welcome_email\nfrom app.users import create_user\n\napp = FastAPI()\n\n\nclass SignupIn(BaseModel):\n    email: str\n    name: str\n\n\n@app.post(\"/signup\", status_code=201)\ndef signup(body: SignupIn):\n    user_id = create_user(body.email, body.name)\n    send_welcome_email(body.email, body.name)\n    return {\"id\": user_id}\n"
+    },
+    {
+      "path": "app/mail.py",
+      "content": "import smtplib\nfrom email.message import EmailMessage\n\n\ndef _send(to: str, subject: str, body: str) -> None:\n    message = EmailMessage()\n    message[\"From\"] = \"no-reply@example.com\"\n    message[\"To\"] = to\n    message[\"Subject\"] = subject\n    message.set_content(body)\n    with smtplib.SMTP(\"smtp.example.com\", 587) as smtp:\n        smtp.starttls()\n        smtp.send_message(message)\n\n\ndef send_welcome_email(to: str, name: str) -> None:\n    _send(to, \"Welcome\", f\"Hi {name}, thanks for signing up.\")\n\n\ndef notify_admin(email: str) -> None:\n    _send(\"admin@example.com\", \"New signup\", f\"{email} just signed up.\")\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "signup の API、レスポンス返るまで 3 秒くらいかかる。計測したらほぼメール送信だった",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、SMTP の往復をリクエストの中で待っているのが原因です。FastAPI では BackgroundTasks を引数に受け取り、add_task に登録した処理はレスポンスを返した後に実行されます。send_welcome_email は同期関数なので、スレッドプールで動きイベントループも塞ぎません。",
+          "reading": "けつろんからいうと、SMTP のおうふくをりくえすとのなかでまっているのがげんいんです。FastAPI では BackgroundTasks をひきすうにうけとり、add_task にとうろくしたしょりはれすぽんすをかえしたあとにじっこうされます。send_welcome_email はどうきかんすうなので、すれっどぷーるでうごきいべんとるーぷもふさぎません。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from fastapi import BackgroundTasks, FastAPI\nfrom pydantic import BaseModel\n\nfrom app.mail import send_welcome_email\nfrom app.users import create_user\n\napp = FastAPI()\n\n\nclass SignupIn(BaseModel):\n    email: str\n    name: str\n\n\n@app.post(\"/signup\", status_code=201)\ndef signup(body: SignupIn, background_tasks: BackgroundTasks):\n    user_id = create_user(body.email, body.name)\n    background_tasks.add_task(send_welcome_email(body.email, body.name))\n    return {\"id\": user_id}\n"
+        }
+      ]
+    },
+    {
+      "user": "デプロイしたけど相変わらず 3 秒。しかもログに TypeError: the first argument must be callable って出てる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどのコードは send_welcome_email をその場で呼び出し、戻り値の None を add_task に渡していました。メールはリクエストの中で送られ、後から None を実行しようとして落ちています。言い換えると、add_task には関数そのものと引数を分けて渡します。",
+          "reading": "もうしわけありません。さきほどのこーどは send_welcome_email をそのばでよびだし、もどりちの None を add_task にわたしていました。めーるはりくえすとのなかでおくられ、あとから None をじっこうしようとしておちています。いいかえると、add_task にはかんすうそのものとひきすうをわけてわたします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/add_task(send_welcome_email(body.email, body.name))/add_task(send_welcome_email, body.email, body.name)/' app/main.py"
+        }
+      ]
+    },
+    {
+      "user": "直った。あ、ついでに管理者にも登録通知飛ばしたいって言われた。mail.py に notify_admin はもうある",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、import に notify_admin を足し、add_task の行の下に同じ深さで 1 行挿入します。Python ではインデントが構文の一部なので、行頭の空白を \\1 で捕まえて使い回す点に注意することが重要です。タスクは登録した順に 1 つずつ実行されます。",
+          "reading": "Now、import に notify_admin をたし、add_task のぎょうのしたにおなじふかさで 1 ぎょうそうにゅうします。Python ではいんでんとがこうぶんのいちぶなので、ぎょうとうのくうはくを \\1 でつかまえてつかいまわすてんにちゅういすることがじゅうようです。たすくはとうろくしたじゅんに 1 つずつじっこうされます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/import send_welcome_email$/import notify_admin, send_welcome_email/' -e 's/^\\( *\\)background_tasks.add_task(send_welcome_email, .*$/&\\n\\1background_tasks.add_task(notify_admin, body.email)/' app/main.py"
+        }
+      ]
+    }
+  ]
+}

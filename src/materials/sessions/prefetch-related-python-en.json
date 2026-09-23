@@ -2,7 +2,7 @@
   "id": "prefetch-related-python-en",
   "title": "Crush a Django N+1 with select_related and Prefetch",
   "language": "en",
-  "difficulty": "expert",
+  "difficulty": "hard",
   "codeLanguage": "python",
   "summary": "Take 201 queries down to 2, bring the N+1 back with filter, fix it with Prefetch, then add a review count.",
   "files": [

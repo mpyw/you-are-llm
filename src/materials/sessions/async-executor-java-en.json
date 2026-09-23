@@ -1,0 +1,95 @@
+{
+  "id": "async-executor-java-en",
+  "title": "@Async that does nothing, then an exception that never arrives",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "java",
+  "summary": "@EnableAsync and a self call get fixed, a bounded executor goes in, and then a try/catch tries to catch what another thread threw.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/signup/Application.java",
+      "content": "package com.example.signup;\n\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\n\n@SpringBootApplication\npublic class Application {\n    public static void main(String[] args) {\n        SpringApplication.run(Application.class, args);\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/signup/SignupService.java",
+      "content": "package com.example.signup;\n\nimport org.springframework.scheduling.annotation.Async;\nimport org.springframework.stereotype.Service;\n\n@Service\npublic class SignupService {\n    private final UserRepository userRepository;\n    private final MailGateway mailGateway;\n\n    public SignupService(UserRepository userRepository, MailGateway mailGateway) {\n        this.userRepository = userRepository;\n        this.mailGateway = mailGateway;\n    }\n\n    public User signup(SignupRequest request) {\n        User user = userRepository.save(User.from(request));\n        sendWelcomeMail(user);\n        return user;\n    }\n\n    @Async\n    public void sendWelcomeMail(User user) {\n        mailGateway.send(user.getEmail(), \"welcome\");\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "put @Async on the welcome mail in signup and the response still takes 3 seconds",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: two separate causes. There is no @EnableAsync anywhere, and without it @Async is an annotation nobody reads. And signup calls sendWelcomeMail through this, in the same class. @Async works by a proxy intercepting the call and handing it to another thread, so a call from inside the class never reaches it. The mail moves into its own bean, WelcomeMailer, and SignupService calls that."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import org.springframework.scheduling.annotation.EnableAsync;\n\n@EnableAsync\n@SpringBootApplication\npublic class Application {\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.signup;\n\nimport org.springframework.scheduling.annotation.Async;\nimport org.springframework.stereotype.Component;\n\n@Component\npublic class WelcomeMailer {\n    private final MailGateway mailGateway;\n\n    public WelcomeMailer(MailGateway mailGateway) {\n        this.mailGateway = mailGateway;\n    }\n\n    @Async\n    public void send(User user) {\n        mailGateway.send(user.getEmail(), \"welcome\");\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "public User signup(SignupRequest request) {\n    User user = userRepository.save(User.from(request));\n    welcomeMailer.send(user);\n    return user;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "fast now. campaign next week, signups will spike. what does the default pool even look like",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! Boot's default is applicationTaskExecutor: 8 core threads and an unbounded queue. Threads only grow past 8 once the queue is full, which never happens, so a spike piles mails up in memory and whatever is still queued at shutdown is lost. Here's a dedicated mailExecutor with a bounded queue. When it fills, CallerRunsPolicy makes the calling thread send the mail itself, so you get a slower response instead of a dropped mail."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.signup;\n\nimport java.util.concurrent.ThreadPoolExecutor;\nimport org.springframework.context.annotation.Bean;\nimport org.springframework.context.annotation.Configuration;\nimport org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;\n\n@Configuration\npublic class AsyncConfig {\n    @Bean\n    public ThreadPoolTaskExecutor mailExecutor() {\n        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();\n        executor.setCorePoolSize(4);\n        executor.setMaxPoolSize(8);\n        executor.setQueueCapacity(500);\n        executor.setThreadNamePrefix(\"mail-\");\n        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());\n        executor.setWaitForTasksToCompleteOnShutdown(true);\n        executor.setAwaitTerminationSeconds(30);\n        return executor;\n    }\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/@Async$/@Async(\"mailExecutor\")/' src/main/java/com/example/signup/WelcomeMailer.java"
+        }
+      ]
+    },
+    {
+      "user": "ok. also the day the mail server was down every signup succeeded and nobody got a mail. want failures in failed_mails so we can resend",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. signup wraps the send call in a try/catch and saves a FailedMail when MailException comes out. This guarantees every failed send gets recorded."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "public User signup(SignupRequest request) {\n    User user = userRepository.save(User.from(request));\n    try {\n        welcomeMailer.send(user);\n    } catch (MailException e) {\n        failedMailRepository.save(new FailedMail(user.getId(), e.getMessage()));\n    }\n    return user;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "stopped the mail server to test. failed_mails still empty. log does say Unexpected exception occurred invoking async method",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. That try/catch can never catch anything. send returns as soon as the proxy hands the work to another thread, so by the time the exception happens the try block is long gone. An exception from a void @Async method goes to the AsyncUncaughtExceptionHandler, and the default one logs the line you saw and stops there. Returning CompletableFuture<Void> puts the exception into the future instead, and signup picks it up with exceptionally. Caveat: if nobody ever looks at that future, you lose even the one log line."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Async(\"mailExecutor\")\npublic CompletableFuture<Void> send(User user) {\n    mailGateway.send(user.getEmail(), \"welcome\");\n    return CompletableFuture.completedFuture(null);\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "public User signup(SignupRequest request) {\n    User user = userRepository.save(User.from(request));\n    welcomeMailer.send(user).exceptionally(ex -> {\n        failedMailRepository.save(new FailedMail(user.getId(), ex.getMessage()));\n        return null;\n    });\n    return user;\n}\n"
+        }
+      ]
+    }
+  ]
+}

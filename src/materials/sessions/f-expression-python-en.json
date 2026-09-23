@@ -1,0 +1,75 @@
+{
+  "id": "f-expression-python-en",
+  "title": "Fix drifting Django stock with F and select_for_update",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "python",
+  "summary": "Concurrent orders lose stock updates. Push the decrement into UPDATE with F, fix the missing refresh_from_db, make the update conditional, then guard one per customer with select_for_update.",
+  "files": [
+    {
+      "path": "shop/models.py",
+      "content": "from django.conf import settings\nfrom django.db import models\n\n\nclass Product(models.Model):\n    name = models.CharField(max_length=200)\n    stock = models.PositiveIntegerField()\n\n\nclass Order(models.Model):\n    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)\n    product = models.ForeignKey(Product, on_delete=models.PROTECT)\n    created_at = models.DateTimeField(auto_now_add=True)\n"
+    },
+    {
+      "path": "shop/views.py",
+      "content": "from django.http import JsonResponse\nfrom django.shortcuts import get_object_or_404\nfrom django.views.decorators.http import require_POST\n\nfrom .models import Product\n\n\n@require_POST\ndef order(request, product_id):\n    product = get_object_or_404(Product, pk=product_id)\n    if product.stock < 1:\n        return JsonResponse({\"error\": \"out of stock\"}, status=409)\n    product.stock -= 1\n    product.save()\n    return JsonResponse({\"stock\": product.stock})\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "we sold 100 units in the sale but stock only went from 100 to 37. every request returned 200",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! This is a classic lost update. Two requests read the same stock, each subtracts 1, and each writes its own result back, so one of the decrements disappears. Assigning F(\"stock\") - 1 skips the arithmetic in Python and has the database run stock = stock - 1 inside the UPDATE. That makes the decrement atomic."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from django.db.models import F\nfrom django.http import JsonResponse\nfrom django.shortcuts import get_object_or_404\nfrom django.views.decorators.http import require_POST\n\nfrom .models import Product\n\n\n@require_POST\ndef order(request, product_id):\n    product = get_object_or_404(Product, pk=product_id)\n    if product.stock < 1:\n        return JsonResponse({\"error\": \"out of stock\"}, status=409)\n    product.stock = F(\"stock\") - 1\n    product.save(update_fields=[\"stock\"])\n    return JsonResponse({\"stock\": product.stock})\n"
+        }
+      ]
+    },
+    {
+      "user": "now it's a 500. TypeError: Object of type CombinedExpression is not JSON serializable. and the stock still went down",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, I missed that. After assigning an F expression, product.stock stays an expression object, and save() does not swap it for the new number. The UPDATE itself was already committed in autocommit mode, which is why the stock dropped while the response failed. A refresh_from_db right after the save reads stock back."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^\\( *\\)product.save(update_fields=\\[\"stock\"\\])$/&\\n\\1product.refresh_from_db(fields=[\"stock\"])/' shop/views.py"
+        }
+      ]
+    },
+    {
+      "user": "ok. but when stock is 1 and two orders land at once, one of them 500s with IntegrityError, something about a check constraint",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "On closer inspection, my earlier fix still had a race. The if product.stock < 1 check reads a stale value, and the CHECK constraint of PositiveIntegerField was the only thing stopping a negative stock. Moving the check into the WHERE of the UPDATE makes checking and decrementing one statement. update() returns the number of rows it changed, so 0 means either out of stock or no such product."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from django.db.models import F\nfrom django.http import JsonResponse\nfrom django.shortcuts import get_object_or_404\nfrom django.views.decorators.http import require_POST\n\nfrom .models import Product\n\n\n@require_POST\ndef order(request, product_id):\n    updated = Product.objects.filter(pk=product_id, stock__gte=1).update(\n        stock=F(\"stock\") - 1\n    )\n    if not updated:\n        get_object_or_404(Product, pk=product_id)\n        return JsonResponse({\"error\": \"out of stock\"}, status=409)\n    product = Product.objects.get(pk=product_id)\n    return JsonResponse({\"stock\": product.stock})\n"
+        }
+      ]
+    },
+    {
+      "user": "actually we want to record it in Order too. and max 1 per person, scalpers. login required",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. Whether this user has already bought it lives in another table, so it cannot go into the WHERE of the UPDATE. Inside transaction.atomic, select_for_update locks the product row before any of the checks. Orders for the same product wait for the lock and go one at a time, so plain subtraction is enough here. Note: I would also add a UniqueConstraint on user and product in Order as a backstop."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from django.contrib.auth.decorators import login_required\nfrom django.db import transaction\nfrom django.http import JsonResponse\nfrom django.shortcuts import get_object_or_404\nfrom django.views.decorators.http import require_POST\n\nfrom .models import Order, Product\n\n\n@require_POST\n@login_required\ndef order(request, product_id):\n    with transaction.atomic():\n        product = get_object_or_404(\n            Product.objects.select_for_update(), pk=product_id\n        )\n        if Order.objects.filter(user=request.user, product=product).exists():\n            return JsonResponse({\"error\": \"already ordered\"}, status=409)\n        if product.stock < 1:\n            return JsonResponse({\"error\": \"out of stock\"}, status=409)\n        product.stock -= 1\n        product.save(update_fields=[\"stock\"])\n        Order.objects.create(user=request.user, product=product)\n    return JsonResponse({\"stock\": product.stock})\n"
+        }
+      ]
+    }
+  ]
+}

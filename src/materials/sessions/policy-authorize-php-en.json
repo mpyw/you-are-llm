@@ -1,0 +1,82 @@
+{
+  "id": "policy-authorize-php-en",
+  "title": "Move the ownership check into PostPolicy",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "Pull the duplicated 403 check out of update and destroy into a policy, and trip over the empty base controller of Laravel 11 and later.",
+  "files": [
+    {
+      "path": "app/Http/Controllers/PostController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse App\\Http\\Requests\\UpdatePostRequest;\nuse App\\Models\\Post;\nuse Illuminate\\Http\\Request;\n\nclass PostController extends Controller\n{\n    public function update(UpdatePostRequest $request, Post $post)\n    {\n        if ($request->user()->id !== $post->user_id && ! $request->user()->is_admin) {\n            abort(403);\n        }\n\n        $post->update($request->validated());\n\n        return redirect()->route('posts.show', $post);\n    }\n\n    public function destroy(Request $request, Post $post)\n    {\n        if ($request->user()->id !== $post->user_id && ! $request->user()->is_admin) {\n            abort(403);\n        }\n\n        $post->delete();\n\n        return redirect()->route('posts.index');\n    }\n}\n"
+    },
+    {
+      "path": "app/Http/Controllers/Controller.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nabstract class Controller\n{\n    //\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "update and destroy in PostController have the same if + abort(403). move it into a policy. laravel 12",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! Let's put the decision in PostPolicy, a single source of truth for who may touch a post. Laravel discovers a policy in app/Policies by the model name, so nothing needs registering."
+        },
+        {
+          "kind": "command",
+          "body": "php artisan make:policy PostPolicy --model=Post"
+        },
+        {
+          "kind": "text",
+          "body": "The stub comes with seven methods, viewAny through forceDelete. Only two are needed. Note: the controller action is destroy, but the policy ability is delete."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "class PostPolicy\n{\n    public function update(User $user, Post $post): bool\n    {\n        return $user->id === $post->user_id || $user->is_admin;\n    }\n\n    public function delete(User $user, Post $post): bool\n    {\n        return $user->id === $post->user_id || $user->is_admin;\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function update(UpdatePostRequest $request, Post $post)\n{\n    $this->authorize('update', $post);\n\n    $post->update($request->validated());\n\n    return redirect()->route('posts.show', $post);\n}\n\npublic function destroy(Post $post)\n{\n    $this->authorize('delete', $post);\n\n    $post->delete();\n\n    return redirect()->route('posts.index');\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "Call to undefined method App\\Http\\Controllers\\PostController::authorize()",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. Since Laravel 11 the base Controller in a new app is an empty abstract class, and the AuthorizesRequests trait that provides authorize() is not on it. I wrote it the Laravel 10 way."
+        },
+        {
+          "kind": "text",
+          "body": "There are two fixes. Call Gate::authorize() instead, or put the trait back on the base class. The second keeps every controller written the same way, so I recommend it."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse Illuminate\\Foundation\\Auth\\Access\\AuthorizesRequests;\n\nabstract class Controller\n{\n    use AuthorizesRequests;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "also admins shouldn't be able to delete other people's posts. we had an incident. editing stays as is",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Only delete loses the is_admin check. update is untouched, so admins can still edit anyone's post."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/function delete/,/}/s/ || \\$user->is_admin//' app/Policies/PostPolicy.php"
+        },
+        {
+          "kind": "command",
+          "body": "grep -n \"is_admin\" app/Policies/PostPolicy.php"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "id": "jansson-decref-c-en",
+  "title": "Get jansson reference counts right",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "c",
+  "summary": "Stop json_object_set from leaking values, using json_object_set_new and json_decref.",
+  "files": [
+    {
+      "path": "src/api/payload.c",
+      "content": "#include <stdlib.h>\n#include <jansson.h>\n\nchar *build_user(const char *name, int age) {\n  json_t *root = json_object();\n  json_object_set(root, \"name\", json_string(name));\n  json_object_set(root, \"age\", json_integer(age));\n  char *out = json_dumps(root, JSON_COMPACT);\n  return out;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "valgrind shows a ton of definitely lost in build_user. am i using jansson wrong?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! json_string and json_integer return a fresh value with a reference count of 1. json_object_set then adds a reference of its own, so the caller's reference is never given back. When a value is created only to be inserted, json_object_set_new is the one to use, because it takes over that reference. root itself also needs a json_decref at the end, or the whole tree leaks. Note: the string from json_dumps belongs to the caller, who frees it with free."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "char *build_user(const char *name, int age) {\n  json_t *root = json_object();\n  json_object_set_new(root, \"name\", json_string(name));\n  json_object_set_new(root, \"age\", json_integer(age));\n  char *out = json_dumps(root, JSON_COMPACT);\n  json_decref(root);\n  return out;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "add a tags array too. frontend wants the same tags under meta as well",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. One tags array, hung under both root and meta. Both inserts take a value that was just created, so both use set_new. In other words, the caller is left with no reference to release."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "char *build_user(const char *name, int age) {\n  json_t *root = json_object();\n  json_object_set_new(root, \"name\", json_string(name));\n  json_object_set_new(root, \"age\", json_integer(age));\n\n  json_t *tags = json_array();\n  json_array_append_new(tags, json_string(\"member\"));\n  json_object_set_new(root, \"tags\", tags);\n\n  json_t *meta = json_object();\n  json_object_set_new(meta, \"tags\", tags);\n  json_object_set_new(root, \"meta\", meta);\n\n  char *out = json_dumps(root, JSON_COMPACT);\n  json_decref(root);\n  return out;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ASan says heap-use-after-free, at json_decref(root)",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. set_new hands over one reference, and tags only had one, so it was handed over twice. When root is freed, the first json_decref on tags destroys it and the second touches freed memory. The second insert should be json_object_set, which adds a reference of its own. tags then sits at a count of 2 and json_decref(root) releases both."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/json_object_set_new(meta, \"tags\", tags)/json_object_set(meta, \"tags\", tags)/' src/api/payload.c"
+        }
+      ]
+    }
+  ]
+}

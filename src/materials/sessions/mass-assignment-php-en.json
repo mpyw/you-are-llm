@@ -1,0 +1,53 @@
+{
+  "id": "mass-assignment-php-en",
+  "title": "Stop the register endpoint from making admins",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "php",
+  "summary": "Registration passes $request->all() straight to create(), so is_admin goes through. Close it with $fillable and validated input.",
+  "files": [
+    {
+      "path": "app/Http/Controllers/Auth/RegisterController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers\\Auth;\n\nuse App\\Http\\Controllers\\Controller;\nuse App\\Models\\User;\nuse Illuminate\\Http\\Request;\n\nclass RegisterController extends Controller\n{\n    public function store(Request $request)\n    {\n        $user = User::create($request->all());\n\n        return response()->json($user, 201);\n    }\n}\n"
+    },
+    {
+      "path": "app/Models/User.php",
+      "content": "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Foundation\\Auth\\User as Authenticatable;\n\nclass User extends Authenticatable\n{\n    protected $guarded = [];\n\n    protected $hidden = ['password', 'remember_token'];\n\n    protected function casts(): array\n    {\n        return [\n            'is_admin' => 'boolean',\n            'password' => 'hashed',\n        ];\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "someone reported they posted is_admin=1 to the register api and got an admin account. seriously??",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch! Two things line up here. $request->all() passes every field that was sent, and $guarded = [] on User accepts every one of them. In other words, anyone who adds is_admin to the request is an admin. $fillable decides which columns are accepted, and the controller only passes what survived validation."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "protected $fillable = ['name', 'email', 'password'];\n"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function store(Request $request)\n{\n    $validated = $request->validate([\n        'name' => ['required', 'string', 'max:255'],\n        'email' => ['required', 'email', 'unique:users'],\n        'password' => ['required', 'string', 'min:8'],\n    ]);\n\n    $user = User::create($validated);\n\n    return response()->json($user, 201);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "wait the admin panel has a toggle for is_admin. does that break now",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Yes, as it stands it stops working. is_admin is not in $fillable, so create() and update() drop it silently without an error. The key point: use forceFill() only on the route that admins alone can reach, and name the column there. The route's authorization is what keeps ordinary input away from it."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function update(Request $request, User $user)\n{\n    $user->forceFill([\n        'is_admin' => $request->boolean('is_admin'),\n    ])->save();\n\n    return back();\n}\n"
+        }
+      ]
+    }
+  ]
+}

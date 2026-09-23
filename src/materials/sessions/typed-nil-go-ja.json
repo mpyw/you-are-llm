@@ -2,7 +2,7 @@
   "id": "typed-nil-go-ja",
   "title": "nil を返したのに err != nil が真になる",
   "language": "ja",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "go",
   "summary": "インターフェースに入った typed nil を、対症療法ではなくシグネチャの変更で断つ。",
   "files": [

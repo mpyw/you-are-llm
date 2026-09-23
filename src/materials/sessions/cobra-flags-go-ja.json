@@ -1,0 +1,64 @@
+{
+  "id": "cobra-flags-go-ja",
+  "title": "サブコマンドで --config が unknown flag になる",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "go",
+  "summary": "ルートの Flags を PersistentFlags に直し、必須指定は MarkPersistentFlagRequired でないと効かないと認める。",
+  "files": [
+    {
+      "path": "cmd/root.go",
+      "content": "package cmd\n\nimport (\n  \"fmt\"\n\n  \"github.com/spf13/cobra\"\n)\n\nvar (\n  configPath string\n  dryRun     bool\n)\n\nvar rootCmd = &cobra.Command{\n  Use:   \"deployctl\",\n  Short: \"Deploy services from a config file\",\n}\n\nvar applyCmd = &cobra.Command{\n  Use:   \"apply\",\n  Short: \"Apply the config\",\n  RunE: func(cmd *cobra.Command, args []string) error {\n    fmt.Printf(\"apply %s (dry run: %v)\\n\", configPath, dryRun)\n    return nil\n  },\n}\n\nfunc init() {\n  rootCmd.Flags().StringVarP(&configPath, \"config\", \"c\", \"deploy.yaml\", \"path to the config file\")\n  applyCmd.Flags().BoolVar(&dryRun, \"dry-run\", false, \"print the plan without applying it\")\n  rootCmd.AddCommand(applyCmd)\n}\n\nfunc Execute() error {\n  return rootCmd.Execute()\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "deployctl apply --config prod.yaml が unknown flag: --config って言われる。ルートに定義してあるのに",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "よく気づかれました。rootCmd.Flags() に定義したフラグは、ルートコマンド自身でしか受け付けません。サブコマンドに引き継がせるには PersistentFlags() に定義します。言い換えると、Flags はそのコマンド専用、PersistentFlags は配下のサブコマンドすべてに効くフラグです。",
+          "reading": "よくきづかれました。rootCmd.Flags() にていぎしたふらぐは、るーとこまんどじしんでしかうけつけません。さぶこまんどにひきつがせるには PersistentFlags() にていぎします。いいかえると、Flags はそのこまんどせんよう、PersistentFlags ははいかのさぶこまんどすべてにきくふらぐです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/rootCmd\\.Flags()/rootCmd.PersistentFlags()/' cmd/root.go"
+        }
+      ]
+    },
+    {
+      "user": "動いた。あと config は必須にしたい。デフォルトの deploy.yaml のせいで本番に dev の設定が飛んだことある",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。デフォルト値を空にして、MarkFlagRequired で必須にします。これで --config なしの実行は cobra が弾くことを保証します。",
+          "reading": "しょうちしました。でふぉるとちをからにして、MarkFlagRequired でひっすにします。これで --config なしのじっこうは cobra がはじくことをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func init() {\n  rootCmd.PersistentFlags().StringVarP(&configPath, \"config\", \"c\", \"\", \"path to the config file (required)\")\n  rootCmd.MarkFlagRequired(\"config\")\n  applyCmd.Flags().BoolVar(&dryRun, \"dry-run\", false, \"print the plan without applying it\")\n  rootCmd.AddCommand(applyCmd)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "付けたけど --config なしで普通に通る。configPath 空のまま apply 走った",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの MarkFlagRequired は効いていませんでした。rootCmd.MarkFlagRequired は Flags() からフラグを探しますが、PersistentFlags に定義したフラグは実行時まで Flags() に合流しません。そのため no such flag のエラーが返り、戻り値を捨てていたので誰も気づきませんでした。MarkPersistentFlagRequired に替え、エラーは cobra.CheckErr で起動時に落とします。",
+          "reading": "もうしわけありません。さきほどの MarkFlagRequired はきいていませんでした。rootCmd.MarkFlagRequired は Flags() からふらぐをさがしますが、PersistentFlags にていぎしたふらぐはじっこうじまで Flags() にごうりゅうしません。そのため no such flag のえらーがかえり、もどりちをすてていたのでだれもきづきませんでした。MarkPersistentFlagRequired にかえ、えらーは cobra.CheckErr できどうじにおとします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/rootCmd\\.MarkFlagRequired(\"config\")/cobra.CheckErr(rootCmd.MarkPersistentFlagRequired(\"config\"))/' cmd/root.go"
+        },
+        {
+          "kind": "text",
+          "body": "Note: ルートで必須にしたので、今後 version のようなサブコマンドを足すときも --config が要ります。",
+          "reading": "Note: るーとでひっすにしたので、こんご version のようなさぶこまんどをたすときも --config がいります。"
+        }
+      ]
+    }
+  ]
+}

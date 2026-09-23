@@ -1,0 +1,56 @@
+{
+  "id": "pthread-once-c-en",
+  "title": "Replace hand rolled double checked locking with pthread_once",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "c",
+  "summary": "Double checked locking that reads outside the lock breaks on ARM, and volatile does not fix it. pthread_once does.",
+  "files": [
+    {
+      "path": "src/config/config.c",
+      "content": "#include <pthread.h>\n#include <stdlib.h>\n\nstruct config {\n  int max_conn;\n  char *root;\n};\n\nstruct config *load_config(void);\n\nstatic struct config *instance = NULL;\nstatic pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;\n\nstruct config *config_get(void) {\n  if (instance == NULL) {\n    pthread_mutex_lock(&lock);\n    if (instance == NULL) {\n      instance = load_config();\n    }\n    pthread_mutex_unlock(&lock);\n  }\n  return instance;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "moved to ARM servers and right after startup config_get()->max_conn is sometimes 0. never seen it on x86. and it IS locked",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch! The outer if reads instance outside the lock. In an optimized build the compiler may keep that read in a register and reuse it, so the thread never sees the write from another thread. Making instance volatile forces a fresh load from memory every time, and the double check then works as expected."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^static struct config \\*instance/static struct config *volatile instance/' src/config/config.c"
+        }
+      ]
+    },
+    {
+      "user": "added volatile, still reproduces. also doesnt volatile guarantee literally nothing between threads?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "You are right, and I retract that. volatile only stops the compiler from dropping reads and writes. It says nothing about the order in which another core sees them. ARM orders memory more loosely than x86, so the write to instance can become visible before the max_conn that load_config wrote. That thread skips the lock at the outer if and reads a struct whose contents have not arrived yet. On top of that, the unlocked read races with the write, which is undefined behavior in C on its own. Instead of rolling our own, pthread_once does it: once it returns, every write the init function made is visible."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#include <pthread.h>\n#include <stdlib.h>\n\nstruct config {\n  int max_conn;\n  char *root;\n};\n\nstruct config *load_config(void);\n\nstatic struct config *instance = NULL;\nstatic pthread_once_t once = PTHREAD_ONCE_INIT;\n\nstatic void init_config(void) {\n  instance = load_config();\n}\n\nstruct config *config_get(void) {\n  pthread_once(&once, init_config);\n  return instance;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "what if load_config returns NULL? does the next call retry? id rather it just dies at startup",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "It does not retry. pthread_once counts the call as done once init_config returns, so a NULL stays NULL for good. Retrying would mean going back to a plain mutex, but carrying on without a config is worse than stopping. TL;DR: abort on the first call."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/  instance = load_config();/  if ((instance = load_config()) == NULL) abort();/' src/config/config.c"
+        }
+      ]
+    }
+  ]
+}

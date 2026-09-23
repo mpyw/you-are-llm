@@ -1,0 +1,48 @@
+{
+  "id": "clap-derive-rust-en",
+  "title": "Replace hand-rolled argument parsing with clap derive",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "rust",
+  "summary": "Drop the env::args indexing for a #[derive(Parser)] struct, then add an optional output path.",
+  "files": [
+    {
+      "path": "src/main.rs",
+      "content": "use std::env;\nuse std::process;\n\nfn main() {\n    let args: Vec<String> = env::args().collect();\n    if args.len() < 2 {\n        eprintln!(\"usage: resize <input> [--width N]\");\n        process::exit(2);\n    }\n    let input = &args[1];\n    let mut width = 800;\n    if args.len() > 3 && args[2] == \"--width\" {\n        width = args[3].parse().unwrap();\n    }\n    resize(input, width);\n}\n\nfn resize(input: &str, width: u32) {\n    println!(\"resizing {input} to {width}px\");\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "this cli parses args[1] by hand and its painful. switch to clap? want --help",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's move to clap's derive API. The arguments become a struct, the index juggling goes away, and clap generates --help and --version for you. Doc comments turn into the help text."
+        },
+        {
+          "kind": "command",
+          "body": "cargo add clap --features derive"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use clap::Parser;\n\n/// Resize an image to a given width\n#[derive(Parser)]\n#[command(version, about)]\nstruct Args {\n    /// Image to resize\n    input: String,\n\n    /// Target width in pixels\n    #[arg(short, long, default_value_t = 800)]\n    width: u32,\n}\n\nfn main() {\n    let args = Args::parse();\n    resize(&args.input, args.width);\n}\n\nfn resize(input: &str, width: u32) {\n    println!(\"resizing {input} to {width}px\");\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "nice. also let me pick an output file. stdout if not given",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Making it Option<PathBuf> gives you None when the flag is missing. There is no default_value_t on it, so resize decides what None means. It accepts both -o and --output."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::path::{Path, PathBuf};\n\nuse clap::Parser;\n\n/// Resize an image to a given width\n#[derive(Parser)]\n#[command(version, about)]\nstruct Args {\n    /// Image to resize\n    input: String,\n\n    /// Target width in pixels\n    #[arg(short, long, default_value_t = 800)]\n    width: u32,\n\n    /// Write here instead of stdout\n    #[arg(short, long)]\n    output: Option<PathBuf>,\n}\n\nfn main() {\n    let args = Args::parse();\n    resize(&args.input, args.width, args.output.as_deref());\n}\n\nfn resize(input: &str, width: u32, output: Option<&Path>) {\n    match output {\n        Some(path) => println!(\"resizing {input} to {width}px into {}\", path.display()),\n        None => println!(\"resizing {input} to {width}px to stdout\"),\n    }\n}\n"
+        }
+      ]
+    }
+  ]
+}

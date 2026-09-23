@@ -1,0 +1,43 @@
+{
+  "id": "getopt-long-c-en",
+  "title": "Swap hand-rolled argv parsing for getopt_long",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "c",
+  "summary": "Replace a strcmp loop over argv with getopt_long and a struct option table.",
+  "files": [
+    {
+      "path": "src/cli/main.c",
+      "content": "#include <stdio.h>\n#include <string.h>\n\nint run(const char *output, int verbose);\n\nint main(int argc, char **argv) {\n  int verbose = 0;\n  const char *output = \"out.txt\";\n  for (int i = 1; i < argc; i++) {\n    if (strcmp(argv[i], \"--verbose\") == 0 || strcmp(argv[i], \"-v\") == 0) {\n      verbose = 1;\n    } else if (strcmp(argv[i], \"--output\") == 0 || strcmp(argv[i], \"-o\") == 0) {\n      output = argv[++i];\n    }\n  }\n  return run(output, verbose);\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "i'm walking argv with strcmp and it crashes if -o is the last arg. also want -vo out.txt to work",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch. When -o comes last, argv[++i] is argv[argc], which is NULL, and run falls over on it. Let's drop the hand-rolled strcmp chain and let getopt_long do the parsing. Short options go in the \"vo:\" string and long ones in a struct option table, where the colon marks an option that takes an argument. Bundled flags like -vo out.txt and the --output=out.txt form both work, and a missing argument comes back as '?'. Note: getopt_long is not POSIX, but both glibc and the macOS libc ship it."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "#include <getopt.h>\n#include <stdio.h>\n#include <stdlib.h>\n\nint run(const char *output, int verbose);\n\nstatic const struct option long_options[] = {\n  { \"verbose\", no_argument, NULL, 'v' },\n  { \"output\", required_argument, NULL, 'o' },\n  { NULL, 0, NULL, 0 },\n};\n\nint main(int argc, char **argv) {\n  int verbose = 0;\n  const char *output = \"out.txt\";\n  int c;\n  while ((c = getopt_long(argc, argv, \"vo:\", long_options, NULL)) != -1) {\n    switch (c) {\n    case 'v':\n      verbose = 1;\n      break;\n    case 'o':\n      output = optarg;\n      break;\n    default:\n      fprintf(stderr, \"usage: %s [-v] [-o file]\\n\", argv[0]);\n      return EXIT_FAILURE;\n    }\n  }\n  return run(output, verbose);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "want more detail with -v twice. like -vv",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "The trick is to count the flag instead of setting it. For -vv, getopt_long hands back 'v' twice, so verbose ends up at 2."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/verbose = 1;/verbose++;/' src/cli/main.c"
+        }
+      ]
+    }
+  ]
+}

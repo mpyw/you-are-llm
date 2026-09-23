@@ -1,0 +1,44 @@
+{
+  "id": "serde-tagged-enum-rust-en",
+  "title": "Read type-tagged JSON into a serde enum",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "rust",
+  "summary": "Replace a hand-written match over Value with an internally tagged enum using tag = \"type\".",
+  "files": [
+    {
+      "path": "src/events.rs",
+      "content": "use serde_json::Value;\n\n#[derive(Debug)]\npub enum Event {\n    Click { x: i32, y: i32 },\n    Scroll { delta: i32 },\n}\n\npub fn parse(raw: &str) -> Option<Event> {\n    let value: Value = serde_json::from_str(raw).ok()?;\n    match value.get(\"type\")?.as_str()? {\n        \"click\" => Some(Event::Click {\n            x: value.get(\"x\")?.as_i64()? as i32,\n            y: value.get(\"y\")?.as_i64()? as i32,\n        }),\n        \"scroll\" => Some(Event::Scroll {\n            delta: value.get(\"delta\")?.as_i64()? as i32,\n        }),\n        _ => None,\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "the event json from the frontend, stuff like {\"type\": \"click\", \"x\": 1, \"y\": 2}. im branching on Value by hand and all i get back is None, no idea what was wrong. can this be less bad",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! Adding #[serde(tag = \"type\")] makes it an internally tagged enum. serde picks the variant from the value of type and fills that variant from the remaining fields. rename_all = \"snake_case\" is what maps Click to click. A failure now comes back as an Error with a reason, like missing field `delta`, so the whole hand-written Option chain goes away."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use serde::Deserialize;\n\n#[derive(Debug, Deserialize)]\n#[serde(tag = \"type\", rename_all = \"snake_case\")]\npub enum Event {\n    Click { x: i32, y: i32 },\n    Scroll { delta: i32 },\n}\n\npub fn parse(raw: &str) -> serde_json::Result<Event> {\n    serde_json::from_str(raw)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "nice. oh forgot key_press also comes in. and if some unknown type shows up i want to ignore it, not error. the app keeps adding new ones",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: to catch an unknown type, put #[serde(other)] on a unit variant with no fields. In an internally tagged enum, any extra fields that came with it are simply discarded. KeyPress becomes key_press under snake_case, so the name already matches."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "#[derive(Debug, Deserialize)]\n#[serde(tag = \"type\", rename_all = \"snake_case\")]\npub enum Event {\n    Click { x: i32, y: i32 },\n    Scroll { delta: i32 },\n    KeyPress { key: String },\n    #[serde(other)]\n    Unknown,\n}\n"
+        }
+      ]
+    }
+  ]
+}

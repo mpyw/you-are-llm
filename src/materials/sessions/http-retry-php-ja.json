@@ -1,0 +1,64 @@
+{
+  "id": "http-retry-php-ja",
+  "title": "為替 API の呼び出しに timeout と retry を足す",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "既定の 30 秒で固まり 500 でも例外にならない Http 呼び出しに、timeout と retry と throw を足す。",
+  "files": [
+    {
+      "path": "app/Services/ExchangeRateClient.php",
+      "content": "<?php\n\nnamespace App\\Services;\n\nuse Illuminate\\Http\\Client\\ConnectionException;\nuse Illuminate\\Support\\Facades\\Http;\n\nclass ExchangeRateClient\n{\n    public function rates(string $base): array\n    {\n        try {\n            $response = Http::get('https://api.example.com/v1/rates', ['base' => $base]);\n        } catch (ConnectionException $e) {\n            return [];\n        }\n\n        return $response->json('rates');\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "為替 API が死んでるとダッシュボードが 30 秒くらい固まって、最後 TypeError で落ちる。タイムアウトとリトライ入れといて。あ、ダメな時は空配列返してくれればいい、画面側でなんとかする",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしいご報告です。原因は 2 つあります。Http ファサードの既定のタイムアウトは 30 秒です。さらに、500 が返っても例外にはならず、json('rates') が null になって、戻り値の型の array に弾かれています。",
+          "reading": "すばらしいごほうこくです。げんいんは 2 つあります。Http ファサードのきていのタイムアウトは 30 びょうです。さらに、500 がかえってもれいがいにはならず、json('rates') が null になって、もどりちのかたの array にはじかれています。"
+        },
+        {
+          "kind": "text",
+          "body": "ポイントは 3 つです。timeout で 3 秒に切り、retry で 1 秒おきに 3 回まで試し、throw で失敗を RequestException にします。接続エラーと一緒に catch して空配列を返すので、呼び出し側には常に配列が届くことを保証します。",
+          "reading": "ポイントは 3 つです。timeout で 3 びょうにきり、retry で 1 びょうおきに 3 かいまでためし、throw でしっぱいを RequestException にします。せつぞくエラーといっしょに catch してからはいれつをかえすので、よびだしがわにはつねにはいれつがとどくことをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Illuminate\\Http\\Client\\RequestException;\n\npublic function rates(string $base): array\n{\n    try {\n        return Http::timeout(3)\n            ->retry(3, 1)\n            ->throw()\n            ->get('https://api.example.com/v1/rates', ['base' => $base])\n            ->json('rates', []);\n    } catch (ConnectionException|RequestException $e) {\n        report($e);\n\n        return [];\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ログ見たら 3 回とも同じ秒に並んでるんだけど。1 秒待ってなくない？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの説明は正確ではありませんでした。retry の第 2 引数はミリ秒で、秒で数える timeout とは単位が違います。1 と書いたので、1 ミリ秒しか待っていませんでした。",
+          "reading": "もうしわけありません。さきほどのせつめいはせいかくではありませんでした。retry のだい 2 ひきすうはミリびょうで、びょうでかぞえる timeout とはたんいがちがいます。1 とかいたので、1 ミリびょうしかまっていませんでした。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/retry(3, 1)/retry(3, 1000)/' app/Services/ExchangeRateClient.php"
+        }
+      ]
+    },
+    {
+      "user": "あと 404 でも 3 回叩いてるよね？それ何回やっても 404 だから即あきらめてほしい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ご指摘のとおりです。retry の第 3 引数に、再試行するかを決めるコールバックを渡します。ここに届くのは、接続できなかったときの ConnectionException か、応答が失敗だったときの RequestException です。言い換えると、前者と 5xx だけ再試行し、404 などの 4xx はその場で投げます。投げた例外は今の catch が拾うので、空配列になるのは変わりません。",
+          "reading": "ごしてきのとおりです。retry のだい 3 ひきすうに、さいしこうするかをきめるコールバックをわたします。ここにとどくのは、せつぞくできなかったときの ConnectionException か、おうとうがしっぱいだったときの RequestException です。いいかえると、ぜんしゃと 5xx だけさいしこうし、404 などの 4xx はそのばでなげます。なげたれいがいはいまの catch がひろうので、からはいれつになるのはかわりません。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/->retry(3, 1000)/->retry(3, 1000, fn ($e) => $e instanceof ConnectionException || $e->response->serverError())/' app/Services/ExchangeRateClient.php"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "id": "use-reducer-typescript-ja",
+  "title": "絡まった useState を useReducer にまとめる",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "typescript",
+  "summary": "submitting と error が同時に立つフォームを、判別可能ユニオンの state と action に寄せる。",
+  "files": [
+    {
+      "path": "src/components/SignupForm.tsx",
+      "content": "import { useState, type FormEvent } from 'react'\nimport { signup } from '../api/signup'\n\nexport function SignupForm() {\n  const [email, setEmail] = useState('')\n  const [submitting, setSubmitting] = useState(false)\n  const [error, setError] = useState<string | null>(null)\n  const [done, setDone] = useState(false)\n\n  async function handleSubmit(e: FormEvent<HTMLFormElement>) {\n    e.preventDefault()\n    setSubmitting(true)\n    try {\n      await signup(email)\n      setDone(true)\n    } catch {\n      setError('Signup failed')\n    }\n    setSubmitting(false)\n  }\n\n  if (done) return <p>Check your inbox.</p>\n\n  return (\n    <form onSubmit={handleSubmit}>\n      <input value={email} onChange={(e) => setEmail(e.target.value)} />\n      <button disabled={submitting}>Sign up</button>\n      {error && <p role=\"alert\">{error}</p>}\n    </form>\n  )\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "SignupForm、1 回失敗してから再送信すると、エラー出たまま送信中になる。state 4 つもあってもう追えない。まとめたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "良い質問です。直接の原因は、error を戻す setError(null) がどこにもないことです。ただ、4 つの useState は互いに独立しているので、次にどれかを戻し忘れても型は何も言いません。状態を判別可能ユニオンにして、遷移を reducer の 1 か所に集めます。送信中と失敗が同時に立つ状態は、そもそも書けなくなります。",
+          "reading": "よいしつもんです。ちょくせつのげんいんは、error をもどす setError(null) がどこにもないことです。ただ、4 つの useState はたがいにどくりつしているので、つぎにどれかをもどしわすれてもかたはなにもいいません。じょうたいをはんべつかのうゆにおんにして、せんいを reducer の 1 かしょにあつめます。そうしんちゅうとしっぱいがどうじにたつじょうたいは、そもそもかけなくなります。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { useReducer, useState, type FormEvent } from 'react'\nimport { signup } from '../api/signup'\n\ntype State =\n  | { status: 'idle' }\n  | { status: 'submitting' }\n  | { status: 'failed'; error: string }\n  | { status: 'done' }\n\ntype Action =\n  | { type: 'submit' }\n  | { type: 'fail'; error: string }\n  | { type: 'succeed' }\n\nfunction reducer(state: State, action: Action): State {\n  switch (action.type) {\n    case 'submit':\n      if (state.status === 'submitting') return state\n      return { status: 'submitting' }\n    case 'fail':\n      return { status: 'failed', error: action.error }\n    case 'succeed':\n      return { status: 'done' }\n  }\n}\n\nexport function SignupForm() {\n  const [email, setEmail] = useState('')\n  const [state, dispatch] = useReducer(reducer, { status: 'idle' })\n\n  async function handleSubmit(e: FormEvent<HTMLFormElement>) {\n    e.preventDefault()\n    dispatch({ type: 'submit' })\n    try {\n      await signup(email)\n      dispatch({ type: 'succeed' })\n    } catch {\n      dispatch({ type: 'fail', error: 'Signup failed' })\n    }\n  }\n\n  if (state.status === 'done') return <p>Check your inbox.</p>\n\n  return (\n    <form onSubmit={handleSubmit}>\n      <input value={email} onChange={(e) => setEmail(e.target.value)} />\n      <button disabled={state.status === 'submitting'}>Sign up</button>\n      {state.error && <p role=\"alert\">{state.error}</p>}\n    </form>\n  )\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "tsc 通らない。Property 'error' does not exist on type ... だって",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどのコードは型が通りませんでした。error は failed のときにしか存在しないので、ユニオンのままの state からは読めません。先に status を比べて絞り込めば、その分岐の中では error が string として見えます。これが判別可能ユニオンを活用した書き方です。",
+          "reading": "もうしわけありません。さきほどのこーどはかたがとおりませんでした。error は failed のときにしかそんざいしないので、ゆにおんのままの state からはよめません。さきに status をくらべてしぼりこめば、そのぶんきのなかでは error が string としてみえます。これがはんべつかのうゆにおんをかつようしたかきかたです。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "{state.status === 'failed' && <p role=\"alert\">{state.error}</p>}\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、done って名前やめて。集計側が submitted で取ってるから揃えたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、'done' を 'submitted' に置き換えます。クォート込みで当てるので、ほかの識別子には触れません。比較は型が網羅的に見てくれるので、置き換え漏れがあれば tsc が教えてくれます。",
+          "reading": "Now、'done' を 'submitted' におきかえます。くぉーとこみであてるので、ほかのしきべつしにはふれません。ひかくはかたがもうらてきにみてくれるので、おきかえもれがあれば tsc がおしえてくれます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' \"s/'done'/'submitted'/g\" src/components/SignupForm.tsx"
+        }
+      ]
+    }
+  ]
+}

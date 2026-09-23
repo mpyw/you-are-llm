@@ -1,0 +1,60 @@
+{
+  "id": "http-retry-php-en",
+  "title": "Add timeout and retry to the exchange rate call",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "An Http call that hangs for the default 30 seconds and ignores a 500 gets timeout, retry and throw.",
+  "files": [
+    {
+      "path": "app/Services/ExchangeRateClient.php",
+      "content": "<?php\n\nnamespace App\\Services;\n\nuse Illuminate\\Http\\Client\\ConnectionException;\nuse Illuminate\\Support\\Facades\\Http;\n\nclass ExchangeRateClient\n{\n    public function rates(string $base): array\n    {\n        try {\n            $response = Http::get('https://api.example.com/v1/rates', ['base' => $base]);\n        } catch (ConnectionException $e) {\n            return [];\n        }\n\n        return $response->json('rates');\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "when the rates api is down the dashboard hangs ~30s then dies with a TypeError. add timeout + retry. if it's down just return an empty array, the view deals with it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch! Two things are going on. The Http facade waits 30 seconds by default. And a 500 is not an exception, so json('rates') comes back null and the array return type rejects it."
+        },
+        {
+          "kind": "text",
+          "body": "Here's the fix. timeout cuts the wait to 3 seconds, retry makes 3 attempts with 1 second in between, and throw turns a failed response into a RequestException. That and a connection error are both caught, so the caller always gets an array."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "use Illuminate\\Http\\Client\\RequestException;\n\npublic function rates(string $base): array\n{\n    try {\n        return Http::timeout(3)\n            ->retry(3, 1)\n            ->throw()\n            ->get('https://api.example.com/v1/rates', ['base' => $base])\n            ->json('rates', []);\n    } catch (ConnectionException|RequestException $e) {\n        report($e);\n\n        return [];\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "logs show all 3 attempts in the same second. that's not 1 second apart",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. The second argument to retry is in milliseconds, unlike timeout, which counts seconds. I wrote 1, so it waited 1 millisecond."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/retry(3, 1)/retry(3, 1000)/' app/Services/ExchangeRateClient.php"
+        }
+      ]
+    },
+    {
+      "user": "also it hits a 404 three times? a 404 won't fix itself, just give up",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Right. retry takes a third argument, a callback that decides whether to try again. It receives a ConnectionException when there was no connection, or a RequestException when the response failed. So retry the first kind and any 5xx, and throw a 4xx straight away. The existing catch still picks it up, so the result is the same empty array."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/->retry(3, 1000)/->retry(3, 1000, fn ($e) => $e instanceof ConnectionException || $e->response->serverError())/' app/Services/ExchangeRateClient.php"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "id": "configuration-properties-java-en",
+  "title": "Gather scattered @Value into @ConfigurationProperties",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "java",
+  "summary": "Two classes disagreed on the default mail.port, and the record that fixed it stopped a missing host from failing startup.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/mail/MailService.java",
+      "content": "package com.example.mail;\n\nimport org.springframework.beans.factory.annotation.Value;\nimport org.springframework.stereotype.Service;\n\n@Service\npublic class MailService {\n    @Value(\"${mail.host}\")\n    private String host;\n\n    @Value(\"${mail.port:587}\")\n    private int port;\n\n    @Value(\"${mail.from}\")\n    private String from;\n\n    public void send(String to, String subject, String body) {\n        SmtpClient.connect(host, port).send(from, to, subject, body);\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/mail/DigestJob.java",
+      "content": "package com.example.mail;\n\nimport org.springframework.beans.factory.annotation.Value;\nimport org.springframework.scheduling.annotation.Scheduled;\nimport org.springframework.stereotype.Component;\n\n@Component\npublic class DigestJob {\n    @Value(\"${mail.host}\")\n    private String host;\n\n    @Value(\"${mail.port:25}\")\n    private int port;\n\n    @Value(\"${mail.from}\")\n    private String from;\n\n    @Scheduled(cron = \"0 0 8 * * *\")\n    public void run() {\n        SmtpClient client = SmtpClient.connect(host, port);\n        DigestQueue.drain().forEach(digest -> client.send(from, digest.to(), \"Daily digest\", digest.body()));\n    }\n}\n"
+    },
+    {
+      "path": "src/main/resources/application.yml",
+      "content": "mail:\n  host: smtp.example.com\n  from: noreply@example.com\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "mail.* @Value is all over the place. MailService defaults port to 587 and DigestJob defaults it to 25 lol. want one place",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the plan: one record bound with @ConfigurationProperties becomes the single source of truth for mail.*, so two defaults cannot drift apart again. In Boot 3 a record with a single constructor binds through it without @ConstructorBinding. @ConfigurationPropertiesScan on the application class registers it."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.mail;\n\nimport org.springframework.boot.context.properties.ConfigurationProperties;\nimport org.springframework.boot.context.properties.bind.DefaultValue;\n\n@ConfigurationProperties(prefix = \"mail\")\npublic record MailProperties(String host, @DefaultValue(\"587\") int port, String from) {\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@SpringBootApplication\n@ConfigurationPropertiesScan\npublic class Application {\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Service\npublic class MailService {\n    private final MailProperties mail;\n\n    public MailService(MailProperties mail) {\n        this.mail = mail;\n    }\n\n    public void send(String to, String subject, String body) {\n        SmtpClient.connect(mail.host(), mail.port()).send(mail.from(), to, subject, body);\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "did DigestJob too. but staging was missing mail.host and it booted fine, then blew up on first send. it used to refuse to start??",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Good catch, I missed that. @Value fails at startup when a placeholder cannot be resolved, but binding to a record just leaves a missing key as null. With @Validated and @NotBlank the record is checked at startup and a missing value stops the boot. Note: this needs spring-boot-starter-validation on the classpath."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import jakarta.validation.constraints.NotBlank;\nimport org.springframework.validation.annotation.Validated;\n\n@Validated\n@ConfigurationProperties(prefix = \"mail\")\npublic record MailProperties(@NotBlank String host, @DefaultValue(\"587\") int port, @NotBlank String from) {\n}\n"
+        }
+      ]
+    }
+  ]
+}

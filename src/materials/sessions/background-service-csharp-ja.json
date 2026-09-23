@@ -1,0 +1,64 @@
+{
+  "id": "background-service-csharp-ja",
+  "title": "OutboxRelay がホストを止める",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "csharp",
+  "summary": "最初の await に届かない ExecuteAsync が起動を塞ぎ、投げた例外がホストごと落とす。PeriodicTimer に替え、周回ごとに例外を受け止め、停止時のキャンセルはエラーにしない。",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using Acme.Outbox;\nusing Acme.Workers;\n\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddSingleton<IOutboxStore, SqlOutboxStore>();\nbuilder.Services.AddSingleton<IMessageBus, RabbitMessageBus>();\nbuilder.Services.AddHostedService<OutboxRelay>();\n\nvar app = builder.Build();\n\napp.MapGet(\"/healthz\", () => Results.Ok());\n\napp.Run();\n"
+    },
+    {
+      "path": "src/Workers/OutboxRelay.cs",
+      "content": "using Acme.Outbox;\n\nnamespace Acme.Workers;\n\npublic sealed class OutboxRelay(IOutboxStore outbox, IMessageBus bus, ILogger<OutboxRelay> logger)\n    : BackgroundService\n{\n    protected override async Task ExecuteAsync(CancellationToken stoppingToken)\n    {\n        while (true)\n        {\n            foreach (var message in outbox.Pending(100))\n            {\n                await bus.PublishAsync(message);\n                outbox.MarkSent(message.Id);\n            }\n            Thread.Sleep(5000);\n        }\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "ローカルで起動しなくなった。Application started まで行かない。OutboxRelay を外すと起動する。ステージングは普通に動いてる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。ステージングで動くのは、未送信のメッセージが残っているからです。.NET 9 までの ExecuteAsync は最初の await に届くまで、ホストの起動処理と同じスレッドで同期的に走ります。ローカルでは Pending が空なので await が一度も来ず、Thread.Sleep で回り続け、StartAsync が返りません。PeriodicTimer に替えると最初の周回から待ちが入り、stoppingToken も同時に効くようになります。",
+          "reading": "するどいごしてきです。ステージングでうごくのは、みそうしんのメッセージがのこっているからです。.NET 9 までの ExecuteAsync はさいしょの await にとどくまで、ホストのきどうしょりとおなじスレッドでどうきてきにはしります。ローカルでは Pending がからなので await がいちどもこず、Thread.Sleep でまわりつづけ、StartAsync がかえりません。PeriodicTimer にかえるとさいしょのしゅうかいからまちがはいり、stoppingToken もどうじにきくようになります。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "protected override async Task ExecuteAsync(CancellationToken stoppingToken)\n{\n    using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));\n    while (await timer.WaitForNextTickAsync(stoppingToken))\n    {\n        foreach (var message in outbox.Pending(100))\n        {\n            await bus.PublishAsync(message, stoppingToken);\n            outbox.MarkSent(message.Id);\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "起動は直った。今度は RabbitMQ 落としたら API ごと死んだ。BackgroundServiceExceptionBehavior を Ignore にすればいい？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": ".NET 6 以降、ExecuteAsync から漏れた例外は既定の StopHost によってホスト全体を止めます。Ignore にするとホストは生き残りますが、OutboxRelay だけが黙って止まり、ヘルスチェックは 200 を返し続けます。これは防御的に見えて、実際には障害を隠します。周回ごとに try で受け止めてログに残し、次の周回で再試行するのがベストプラクティスです。",
+          "reading": ".NET 6 いこう、ExecuteAsync からもれたれいがいはきていの StopHost によってホストぜんたいをとめます。Ignore にするとホストはいきのこりますが、OutboxRelay だけがだまってとまり、ヘルスチェックは 200 をかえしつづけます。これはぼうぎょてきにみえて、じっさいにはしょうがいをかくします。しゅうかいごとに try でうけとめてログにのこし、つぎのしゅうかいでさいしこうするのがベストプラクティスです。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "protected override async Task ExecuteAsync(CancellationToken stoppingToken)\n{\n    using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));\n    while (await timer.WaitForNextTickAsync(stoppingToken))\n    {\n        try\n        {\n            foreach (var message in outbox.Pending(100))\n            {\n                await bus.PublishAsync(message, stoppingToken);\n                outbox.MarkSent(message.Id);\n            }\n        }\n        catch (Exception ex)\n        {\n            logger.LogError(ex, \"Outbox relay failed, retrying on the next tick\");\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "デプロイのたびに Outbox relay failed が TaskCanceledException 付きで出るようになった。アラート鳴るからやめて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません、見落としていました。停止時には PublishAsync が stoppingToken のキャンセルで OperationCanceledException を投げ、それを catch が障害として記録していました。例外フィルタで停止中のキャンセルだけを素通りさせます。言い換えると、ExecuteAsync からキャンセルとして抜ければ、ホストはそれをエラーとして扱いません。以上で、デプロイのたびのアラートは止まります。",
+          "reading": "もうしわけありません、みおとしていました。ていしじには PublishAsync が stoppingToken のキャンセルで OperationCanceledException をなげ、それを catch がしょうがいとしてきろくしていました。れいがいフィルタでていしちゅうのキャンセルだけをすどおりさせます。いいかえると、ExecuteAsync からキャンセルとしてぬければ、ホストはそれをエラーとしてあつかいません。いじょうで、デプロイのたびのアラートはとまります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/catch (Exception ex)$/catch (Exception ex) when (!stoppingToken.IsCancellationRequested)/' src/Workers/OutboxRelay.cs"
+        }
+      ]
+    }
+  ]
+}

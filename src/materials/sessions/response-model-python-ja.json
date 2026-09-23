@@ -1,0 +1,46 @@
+{
+  "id": "response-model-python-ja",
+  "title": "response_model で password_hash を隠す",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "python",
+  "summary": "FastAPI が返すユーザーから password_hash を落とす。出力用のモデルを分けて response_model に渡す。",
+  "files": [
+    {
+      "path": "app/main.py",
+      "content": "from fastapi import FastAPI, HTTPException\nfrom pydantic import BaseModel\n\napp = FastAPI()\n\n\nclass User(BaseModel):\n    id: int\n    email: str\n    name: str\n    password_hash: str\n\n\nUSERS = {\n    1: User(id=1, email=\"mpyw@example.com\", name=\"mpyw\", password_hash=\"$2b$12$abc\"),\n}\n\n\n@app.get(\"/users/{user_id}\")\ndef read_user(user_id: int):\n    user = USERS.get(user_id)\n    if user is None:\n        raise HTTPException(status_code=404)\n    return user\n\n\n@app.get(\"/users\")\ndef list_users():\n    return list(USERS.values())\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "GET /users/1 叩いたら password_hash まで返ってきてて草。消して",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。返すモデルと保存するモデルを分けるのがベストプラクティスです。UserOut には外に出してよい項目だけを置き、password_hash は継承した UserInDB 側に足します。response_model に UserOut を渡すと、FastAPI が戻り値をその形に絞ってから JSON にします。",
+          "reading": "しょうちしました。かえすもでるとほぞんするもでるをわけるのがべすとぷらくてぃすです。UserOut にはそとにだしてよいこうもくだけをおき、password_hash はけいしょうした UserInDB がわにたします。response_model に UserOut をわたすと、FastAPI がもどりちをそのかたちにしぼってから JSON にします。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "class UserOut(BaseModel):\n    id: int\n    email: str\n    name: str\n\n\nclass UserInDB(UserOut):\n    password_hash: str\n\n\nUSERS = {\n    1: UserInDB(id=1, email=\"mpyw@example.com\", name=\"mpyw\", password_hash=\"$2b$12$abc\"),\n}\n\n\n@app.get(\"/users/{user_id}\", response_model=UserOut)\ndef read_user(user_id: int):\n    user = USERS.get(user_id)\n    if user is None:\n        raise HTTPException(status_code=404)\n    return user\n"
+        }
+      ]
+    },
+    {
+      "user": "詳細は消えた。けど /users の一覧のほうはまだ出てる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ご指摘のとおりです。一覧も同じ穴が開いていました。list[UserOut] を渡せば、要素ごとに同じ絞り込みがかかります。これで、どちらのエンドポイントからも password_hash が出ないことを保証します。",
+          "reading": "ごしてきのとおりです。いちらんもおなじあながあいていました。list[UserOut] をわたせば、ようそごとにおなじしぼりこみがかかります。これで、どちらのえんどぽいんとからも password_hash がでないことをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "@app.get(\"/users\", response_model=list[UserOut])\ndef list_users():\n    return list(USERS.values())\n"
+        }
+      ]
+    }
+  ]
+}

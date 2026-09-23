@@ -1,0 +1,44 @@
+{
+  "id": "middleware-order-csharp-en",
+  "title": "Fix the middleware order that skips authentication",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "csharp",
+  "summary": "UseAuthorization runs before UseAuthentication, so a valid token still gets 401. Swap them, then make authentication the default with a fallback policy.",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using System.Security.Claims;\nusing Microsoft.AspNetCore.Authentication.JwtBearer;\n\nvar builder = WebApplication.CreateBuilder(args);\n\nbuilder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)\n    .AddJwtBearer();\nbuilder.Services.AddAuthorization();\n\nvar app = builder.Build();\n\napp.UseHttpsRedirection();\napp.UseAuthorization();\napp.UseAuthentication();\n\napp.MapGet(\"/me\", (ClaimsPrincipal user) => user.Identity?.Name)\n    .RequireAuthorization();\n\napp.MapGet(\"/health\", () => \"ok\");\n\napp.Run();\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "sending a JWT and /me still says 401. token looks fine on jwt.io",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Got it. The cause is middleware order. The pipeline runs in the order you wrote it, so UseAuthorization goes first while HttpContext.User is still anonymous. Authorization sees an unauthenticated user, answers 401, and the request never reaches UseAuthentication. The key point: authentication decides who you are, then authorization decides whether you get in."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "app.UseHttpsRedirection();\napp.UseAuthentication();\napp.UseAuthorization();\n"
+        }
+      ]
+    },
+    {
+      "user": "works. also i'll forget RequireAuthorization on every new endpoint. can everything need login by default? except health, the monitor hits it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Yes. Replace AddAuthorization with AddAuthorizationBuilder and set a fallback policy that requires an authenticated user. It applies to every endpoint that says nothing, so a forgotten attribute fails closed rather than open. /health opts out explicitly with AllowAnonymous."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using Microsoft.AspNetCore.Authorization;\n\nbuilder.Services.AddAuthorizationBuilder()\n    .SetFallbackPolicy(new AuthorizationPolicyBuilder()\n        .RequireAuthenticatedUser()\n        .Build());\n\napp.MapGet(\"/me\", (ClaimsPrincipal user) => user.Identity?.Name);\n\napp.MapGet(\"/health\", () => \"ok\").AllowAnonymous();\n"
+        }
+      ]
+    }
+  ]
+}

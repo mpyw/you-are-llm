@@ -1,0 +1,55 @@
+{
+  "id": "mass-assignment-php-ja",
+  "title": "登録 API で管理者になれる穴を塞ぐ",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "php",
+  "summary": "$request->all() をそのまま create() して is_admin まで通る登録を、$fillable と検証済みの値で塞ぐ。",
+  "files": [
+    {
+      "path": "app/Http/Controllers/Auth/RegisterController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers\\Auth;\n\nuse App\\Http\\Controllers\\Controller;\nuse App\\Models\\User;\nuse Illuminate\\Http\\Request;\n\nclass RegisterController extends Controller\n{\n    public function store(Request $request)\n    {\n        $user = User::create($request->all());\n\n        return response()->json($user, 201);\n    }\n}\n"
+    },
+    {
+      "path": "app/Models/User.php",
+      "content": "<?php\n\nnamespace App\\Models;\n\nuse Illuminate\\Foundation\\Auth\\User as Authenticatable;\n\nclass User extends Authenticatable\n{\n    protected $guarded = [];\n\n    protected $hidden = ['password', 'remember_token'];\n\n    protected function casts(): array\n    {\n        return [\n            'is_admin' => 'boolean',\n            'password' => 'hashed',\n        ];\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "登録APIに is_admin=1 付けて投げたら管理者アカウントできたって報告きた。まじか",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい発見です。原因は 2 つ重なっています。$request->all() が送られた項目をすべて渡し、User の $guarded = [] がそれをすべて受け入れています。言い換えると、リクエストに is_admin と書けば誰でも管理者になれます。$fillable で受け付ける列を決め、コントローラでは検証を通った値だけを渡します。",
+          "reading": "すばらしいはっけんです。げんいんは 2 つかさなっています。$request->all() がおくられたこうもくをすべてわたし、User の $guarded = [] がそれをすべてうけいれています。いいかえると、リクエストに is_admin とかけばだれでもかんりしゃになれます。$fillable でうけつけるれつをきめ、コントローラではけんしょうをとおったあたいだけをわたします。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "protected $fillable = ['name', 'email', 'password'];\n"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function store(Request $request)\n{\n    $validated = $request->validate([\n        'name' => ['required', 'string', 'max:255'],\n        'email' => ['required', 'email', 'unique:users'],\n        'password' => ['required', 'string', 'min:8'],\n    ]);\n\n    $user = User::create($validated);\n\n    return response()->json($user, 201);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、でも管理画面で is_admin 付け外しするとこあるんだけど、あれ死ぬ？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "はい、そのままだと効かなくなります。$fillable にない is_admin は、create() でも update() でもエラーにならず黙って捨てられます。ポイントは、管理者だけが通る経路でだけ forceFill() を使い、書き込む列を明示することです。ルートの認可が、一般ユーザーの入力がここに届かないことを保証します。",
+          "reading": "はい、そのままだときかなくなります。$fillable にない is_admin は、create() でも update() でもエラーにならずだまってすてられます。ポイントは、かんりしゃだけがとおるけいろでだけ forceFill() をつかい、かきこむれつをめいじすることです。ルートのにんかが、いっぱんユーザーのにゅうりょくがここにとどかないことをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function update(Request $request, User $user)\n{\n    $user->forceFill([\n        'is_admin' => $request->boolean('is_admin'),\n    ])->save();\n\n    return back();\n}\n"
+        }
+      ]
+    }
+  ]
+}

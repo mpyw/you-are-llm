@@ -1,0 +1,63 @@
+{
+  "id": "pytest-parametrize-python-ja",
+  "title": "コピペされたテストを parametrize と fixture にまとめる",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "python",
+  "summary": "422 を見るだけのテストを 1 本にまとめ、共有した dict を書き換えて別のテストを壊し、直してからケースを足す。",
+  "files": [
+    {
+      "path": "tests/test_items.py",
+      "content": "from fastapi.testclient import TestClient\n\nfrom app.main import app\n\n\ndef test_create_item_empty_name():\n    client = TestClient(app)\n    response = client.post(\"/items\", json={\"name\": \"\", \"price\": 100})\n    assert response.status_code == 422\n\n\ndef test_create_item_negative_price():\n    client = TestClient(app)\n    response = client.post(\"/items\", json={\"name\": \"pen\", \"price\": -1})\n    assert response.status_code == 422\n\n\ndef test_create_item_price_not_int():\n    client = TestClient(app)\n    response = client.post(\"/items\", json={\"name\": \"pen\", \"price\": \"abc\"})\n    assert response.status_code == 422\n\n\ndef test_create_item_ok():\n    client = TestClient(app)\n    response = client.post(\"/items\", json={\"name\": \"pen\", \"price\": 100})\n    assert response.status_code == 201\n"
+    },
+    {
+      "path": "app/main.py",
+      "content": "from fastapi import FastAPI\nfrom pydantic import BaseModel, Field\n\napp = FastAPI()\n\n\nclass ItemIn(BaseModel):\n    name: str = Field(min_length=1)\n    price: int = Field(gt=0)\n\n\n@app.post(\"/items\", status_code=201)\ndef create_item(body: ItemIn):\n    return {\"name\": body.name, \"price\": body.price}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "tests/test_items.py、ほぼ同じテストがコピペで並んでて見てらんない。parametrize でまとめといて。TestClient 毎回作ってるのも fixture で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい着眼点です。違うのは送る値だけなので、正常な payload を VALID として 1 つ置き、壊すフィールドと値を parametrize で渡します。TestClient は yield する fixture にすれば、with ブロックで lifespan も正しく回ります。ボイラープレートが消え、ケースの追加は 1 行で済みます。",
+          "reading": "すばらしいちゃくがんてんです。ちがうのはおくるあたいだけなので、せいじょうな payload を VALID として 1 つおき、こわすふぃーるどとあたいを parametrize でわたします。TestClient は yield する fixture にすれば、with ぶろっくで lifespan もただしくまわります。ぼいらーぷれーとがきえ、けーすのついかは 1 ぎょうですみます。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "import pytest\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nVALID = {\"name\": \"pen\", \"price\": 100}\n\n\n@pytest.fixture\ndef client():\n    with TestClient(app) as client:\n        yield client\n\n\n@pytest.mark.parametrize(\n    (\"field\", \"value\"),\n    [\n        (\"name\", \"\"),\n        (\"price\", -1),\n        (\"price\", \"abc\"),\n    ],\n)\ndef test_create_item_rejects(client, field, value):\n    payload = VALID\n    payload[field] = value\n    response = client.post(\"/items\", json=payload)\n    assert response.status_code == 422\n\n\ndef test_create_item_ok(client):\n    response = client.post(\"/items\", json=VALID)\n    assert response.status_code == 201\n"
+        }
+      ]
+    },
+    {
+      "user": "まとめたら test_create_item_ok だけ落ちる。422 返ってる。それ単体で回すと通るんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません、先ほどのコードが原因です。payload = VALID はコピーではなく同じ dict への参照なので、各ケースがモジュールの VALID を書き換えていました。最後のケースで price が \"abc\" になったまま test_create_item_ok が走っていたわけです。言い換えると、テストの実行順に依存していました。展開して新しい dict を作り、代入の行は消します。",
+          "reading": "もうしわけありません、さきほどのこーどがげんいんです。payload = VALID はこぴーではなくおなじ dict へのさんしょうなので、かくけーすがもじゅーるの VALID をかきかえていました。さいごのけーすで price が \"abc\" になったまま test_create_item_ok がはしっていたわけです。いいかえると、てすとのじっこうじゅんにいぞんしていました。てんかいしてあたらしい dict をつくり、だいにゅうのぎょうはけします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/payload = VALID$/payload = {**VALID, field: value}/' -e '/payload\\[field\\] = value/d' tests/test_items.py"
+        }
+      ]
+    },
+    {
+      "user": "直った。あと 0 円も弾いてるはずだからケースに入れといて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "gt=0 なので 0 は 422 になるはずです。-1 の行の下に足します。リストの中なのでずれても動きますが、行頭の空白をグループで捕まえて深さを揃えます。これで境界値も網羅的に押さえられます。",
+          "reading": "gt=0 なので 0 は 422 になるはずです。-1 のぎょうのしたにたします。りすとのなかなのでずれてもうごきますが、ぎょうとうのくうはくをぐるーぷでつかまえてふかさをそろえます。これできょうかいちももうらてきにおさえられます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^\\( *\\)(\"price\", -1),$/&\\n\\1(\"price\", 0),/' tests/test_items.py"
+        }
+      ]
+    }
+  ]
+}

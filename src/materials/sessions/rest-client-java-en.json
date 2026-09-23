@@ -1,0 +1,79 @@
+{
+  "id": "rest-client-java-en",
+  "title": "Replace RestTemplate with RestClient",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "java",
+  "summary": "An onStatus handler that does nothing was meant to turn 404 into Optional.empty, and read the error body as a Stock with zero left.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/inventory/InventoryClient.java",
+      "content": "package com.example.inventory;\n\nimport org.springframework.boot.web.client.RestTemplateBuilder;\nimport org.springframework.stereotype.Component;\nimport org.springframework.web.client.HttpServerErrorException;\nimport org.springframework.web.client.RestTemplate;\n\n@Component\npublic class InventoryClient {\n    private final RestTemplate restTemplate;\n\n    public InventoryClient(RestTemplateBuilder builder) {\n        this.restTemplate = builder.rootUri(\"https://inventory.internal\").build();\n    }\n\n    public Stock fetch(String sku) {\n        try {\n            return restTemplate.getForObject(\"/stocks/{sku}\", Stock.class, sku);\n        } catch (HttpServerErrorException e) {\n            throw new InventoryUnavailableException(sku, e.getStatusCode());\n        }\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/inventory/Stock.java",
+      "content": "package com.example.inventory;\n\npublic record Stock(String sku, int quantity) {\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/inventory/InventoryUnavailableException.java",
+      "content": "package com.example.inventory;\n\nimport org.springframework.http.HttpStatusCode;\n\npublic class InventoryUnavailableException extends RuntimeException {\n    public InventoryUnavailableException(String sku, HttpStatusCode status) {\n        super(\"inventory returned \" + status + \" for \" + sku);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "RestTemplate is in maintenance mode apparently, move this to RestClient. boot 3.3. keep 5xx -> InventoryUnavailableException",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's do it. Since Boot 3.2 a RestClient.Builder is auto-configured, so the constructor takes that and inherits Boot's message converters for free. The 5xx translation moves out of the try/catch and into onStatus. Whatever the handler throws reaches the caller as it is."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "private final RestClient restClient;\n\npublic InventoryClient(RestClient.Builder builder) {\n    this.restClient = builder.baseUrl(\"https://inventory.internal\").build();\n}\n\npublic Stock fetch(String sku) {\n    return restClient.get()\n        .uri(\"/stocks/{sku}\", sku)\n        .retrieve()\n        .onStatus(HttpStatusCode::is5xxServerError, (request, response) -> {\n            throw new InventoryUnavailableException(sku, response.getStatusCode());\n        })\n        .body(Stock.class);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "also unknown SKUs come back 404. want Optional.empty for that, not an exception",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great requirement! An onStatus for 404 that does nothing means the response is no longer treated as an error, and body returns null, so wrapping it in Optional.ofNullable turns 404 into Optional.empty."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "public Optional<Stock> fetch(String sku) {\n    return Optional.ofNullable(restClient.get()\n        .uri(\"/stocks/{sku}\", sku)\n        .retrieve()\n        .onStatus(HttpStatusCode::is5xxServerError, (request, response) -> {\n            throw new InventoryUnavailableException(sku, response.getStatusCode());\n        })\n        .onStatus(status -> status.value() == 404, (request, response) -> {})\n        .body(Stock.class));\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "no empty. I get a Stock with sku null and quantity 0, product page says sold out",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. When an onStatus handler returns without throwing, RestClient counts the error as handled and goes on to read the 404 body as a Stock. The error JSON has no sku and no quantity, so you got null and 0. In other words, 404 was being reported as a successful zero. The fix leaves 404 to the default handler, which throws HttpClientErrorException.NotFound, and catches that."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "public Optional<Stock> fetch(String sku) {\n    try {\n        return Optional.ofNullable(restClient.get()\n            .uri(\"/stocks/{sku}\", sku)\n            .retrieve()\n            .onStatus(HttpStatusCode::is5xxServerError, (request, response) -> {\n                throw new InventoryUnavailableException(sku, response.getStatusCode());\n            })\n            .body(Stock.class));\n    } catch (HttpClientErrorException.NotFound e) {\n        return Optional.empty();\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "inventory team says discontinued SKUs return 410. empty for those too",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. The catch becomes a multi-catch that also takes HttpClientErrorException.Gone. Both are sibling subclasses of HttpClientErrorException, so they can share one catch."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/catch (HttpClientErrorException\\.NotFound e)/catch (HttpClientErrorException.NotFound | HttpClientErrorException.Gone e)/' src/main/java/com/example/inventory/InventoryClient.java"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "id": "debounce-hook-typescript-en",
+  "title": "Debounce the search box with a useDebounce hook",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "typescript",
+  "summary": "Every keystroke hits the API. Move the delay into a custom hook and clear the timeout in cleanup.",
+  "files": [
+    {
+      "path": "src/components/UserSearch.tsx",
+      "content": "import { useEffect, useState } from 'react'\n\ntype User = { id: string; name: string }\n\nexport function UserSearch() {\n  const [query, setQuery] = useState('')\n  const [users, setUsers] = useState<User[]>([])\n\n  useEffect(() => {\n    if (query === '') return\n    fetch(`/api/users?q=${encodeURIComponent(query)}`)\n      .then((res) => res.json())\n      .then((data: User[]) => setUsers(data))\n  }, [query])\n\n  return (\n    <div>\n      <input value={query} onChange={(e) => setQuery(e.target.value)} />\n      <ul>\n        {users.map((user) => (\n          <li key={user.id}>{user.name}</li>\n        ))}\n      </ul>\n    </div>\n  )\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "search box hits the api on every keystroke. logs are a mess. throttle it or something",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the standard fix. A useDebounce hook returns the new value only once it has stopped changing for a while. The set is delayed with setTimeout, so no request goes out while you are still typing."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { useEffect, useState } from 'react'\n\nexport function useDebounce<T>(value: T, delay: number): T {\n  const [debounced, setDebounced] = useState(value)\n\n  useEffect(() => {\n    setTimeout(() => setDebounced(value), delay)\n  }, [value, delay])\n\n  return debounced\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "const debouncedQuery = useDebounce(query, 300)\n\nuseEffect(() => {\n  if (debouncedQuery === '') return\n  fetch(`/api/users?q=${encodeURIComponent(debouncedQuery)}`)\n    .then((res) => res.json())\n    .then((data: User[]) => setUsers(data))\n}, [debouncedQuery])\n"
+        }
+      ]
+    },
+    {
+      "user": "no change? typed react and got 5 requests 300ms later",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. The effect never returned a cleanup. One setTimeout piles up per keystroke, nothing clears them, and they fire in order 300ms later. In other words it delays the requests but does not drop any. Return clearTimeout from the effect and each change cancels the previous timer, so only the last one survives."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "useEffect(() => {\n  const id = setTimeout(() => setDebounced(value), delay)\n  return () => clearTimeout(id)\n}, [value, delay])\n"
+        }
+      ]
+    },
+    {
+      "user": "ok. oh they say 300 still feels fast, make it 500. and 1 char gives way too many results, start at 2",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. It is two spots, the delay and the minimum length, so sed will do. The hook already lists delay as a dependency, so a new value works as expected."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/useDebounce(query, 300)/useDebounce(query, 500)/' -e \"s/if (debouncedQuery === '') return/if (debouncedQuery.length < 2) return/\" src/components/UserSearch.tsx"
+        }
+      ]
+    }
+  ]
+}

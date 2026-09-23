@@ -1,0 +1,61 @@
+{
+  "id": "tokio-select-rust-en",
+  "title": "Wait on a periodic flush and shutdown with tokio::select!",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "rust",
+  "summary": "Select over an interval and a oneshot, then replace the cancel-unsafe read_line with next_line on Lines.",
+  "files": [
+    {
+      "path": "src/worker.rs",
+      "content": "use tokio::io::{AsyncBufReadExt, BufReader};\nuse tokio::net::TcpStream;\n\npub async fn run(stream: TcpStream) -> std::io::Result<()> {\n    let mut reader = BufReader::new(stream);\n    let mut batch = Vec::new();\n    loop {\n        let mut line = String::new();\n        if reader.read_line(&mut line).await? == 0 {\n            break;\n        }\n        batch.push(line);\n        if batch.len() >= 100 {\n            flush(&mut batch).await;\n        }\n    }\n    flush(&mut batch).await;\n    Ok(())\n}\n\nasync fn flush(batch: &mut Vec<String>) {\n    println!(\"flushing {} lines\", batch.len());\n    batch.clear();\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "this only flushes after 100 lines so at night stuff sits there for minutes. flush every 5s too. also ill send shutdown over a oneshot when stopping, flush whats left and exit when it comes",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the plan: tokio::select! waits on the next line, a tick and shutdown at the same time. Note: a sleep created inside the loop is rebuilt every time a line arrives, so it never fires while lines keep coming within 5 seconds. The interval is created once outside the loop and the loop awaits tick on it. Its first tick completes immediately, so flush now does nothing on an empty batch. MissedTickBehavior::Delay stops ticks from firing in a burst after a slow flush."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::time::Duration;\n\nuse tokio::io::{AsyncBufReadExt, BufReader};\nuse tokio::net::TcpStream;\nuse tokio::sync::oneshot;\nuse tokio::time::{self, MissedTickBehavior};\n\npub async fn run(stream: TcpStream, mut shutdown: oneshot::Receiver<()>) -> std::io::Result<()> {\n    let mut reader = BufReader::new(stream);\n    let mut batch = Vec::new();\n    let mut ticker = time::interval(Duration::from_secs(5));\n    ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);\n    loop {\n        let mut line = String::new();\n        tokio::select! {\n            read = reader.read_line(&mut line) => {\n                if read? == 0 {\n                    break;\n                }\n                batch.push(line);\n                if batch.len() >= 100 {\n                    flush(&mut batch).await;\n                }\n            }\n            _ = ticker.tick() => flush(&mut batch).await,\n            _ = &mut shutdown => break,\n        }\n    }\n    flush(&mut batch).await;\n    Ok(())\n}\n\nasync fn flush(batch: &mut Vec<String>) {\n    if batch.is_empty() {\n        return;\n    }\n    println!(\"flushing {} lines\", batch.len());\n    batch.clear();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "works but sometimes lines show up downstream with the start cut off. seems to line up with the tick",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "I need to correct myself. read_line is not cancel safe. When the tick completes first, select! drops the half-finished read_line future. The bytes it already took out of the BufReader are lost there, and the next read_line starts in the middle of a line. Moving line out of the loop does not help, because its contents after a cancel are not guaranteed."
+        },
+        {
+          "kind": "text",
+          "body": "next_line on the Lines returned by lines() is cancel safe. A partial line stays inside Lines and comes back complete on the next call. next_line also strips the trailing newline, which matters if downstream expects it."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::time::Duration;\n\nuse tokio::io::{AsyncBufReadExt, BufReader};\nuse tokio::net::TcpStream;\nuse tokio::sync::oneshot;\nuse tokio::time::{self, MissedTickBehavior};\n\npub async fn run(stream: TcpStream, mut shutdown: oneshot::Receiver<()>) -> std::io::Result<()> {\n    let mut lines = BufReader::new(stream).lines();\n    let mut batch = Vec::new();\n    let mut ticker = time::interval(Duration::from_secs(5));\n    ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);\n    loop {\n        tokio::select! {\n            line = lines.next_line() => {\n                let Some(line) = line? else { break };\n                batch.push(line);\n                if batch.len() >= 100 {\n                    flush(&mut batch).await;\n                }\n            }\n            _ = ticker.tick() => flush(&mut batch).await,\n            _ = &mut shutdown => break,\n        }\n    }\n    flush(&mut batch).await;\n    Ok(())\n}\n\nasync fn flush(batch: &mut Vec<String>) {\n    if batch.is_empty() {\n        return;\n    }\n    println!(\"flushing {} lines\", batch.len());\n    batch.clear();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "fixed. also they say 5s floods downstream, make it 30",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Understood. Only the interval period changes. The flush at 100 lines stays, so behavior during busy hours is the same."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/from_secs(5)/from_secs(30)/' src/worker.rs"
+        }
+      ]
+    }
+  ]
+}

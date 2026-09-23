@@ -1,0 +1,54 @@
+{
+  "id": "route-model-binding-php-ja",
+  "title": "find と abort(404) をルートモデルバインディングにする",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "php",
+  "summary": "手で引いていた Post を暗黙のバインディングに任せ、途中で URL を slug に変える。",
+  "files": [
+    {
+      "path": "routes/web.php",
+      "content": "<?php\n\nuse App\\Http\\Controllers\\PostController;\nuse Illuminate\\Support\\Facades\\Route;\n\nRoute::get('/posts/{id}', [PostController::class, 'show'])->name('posts.show');\n"
+    },
+    {
+      "path": "app/Http/Controllers/PostController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse App\\Models\\Post;\n\nclass PostController extends Controller\n{\n    public function show(int $id)\n    {\n        $post = Post::find($id);\n\n        if ($post === null) {\n            abort(404);\n        }\n\n        return view('posts.show', ['post' => $post]);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "PostController の show、find して null なら abort(404) ってやつ毎回書くのだるい。もっと Laravel っぽくならん？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。暗黙のルートモデルバインディングを活用します。ルートの {post} と引数の $post の名前を揃え、型を Post にすると、Laravel が主キーで引いて、見つからなければ 404 を返します。名前が食い違うと空の Post が黙って渡される点に注意することが重要です。",
+          "reading": "しょうちしました。あんもくのルートモデルバインディングをかつようします。ルートの {post} とひきすうの $post のなまえをそろえ、かたを Post にすると、Laravel がしゅキーでひいて、みつからなければ 404 をかえします。なまえがくいちがうとからの Post がだまってわたされるてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "Route::get('/posts/{post}', [PostController::class, 'show'])->name('posts.show');\n"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function show(Post $post)\n{\n    return view('posts.show', ['post' => $post]);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、URL は slug でいきたいんだった。/posts/hello-world みたいな",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ルート側で引く列を指定します。コントローラはそのままで、slug 列で検索されるようになります。同じ slug が 2 件あると先に見つかった方が返るので、unique インデックスを張っておくことをお勧めします。",
+          "reading": "ルートがわでひくれつをしていします。コントローラはそのままで、slug れつでけんさくされるようになります。おなじ slug が 2 けんあるとさきにみつかったほうがかえるので、unique インデックスをはっておくことをおすすめします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/{post}/{post:slug}/' routes/web.php"
+        }
+      ]
+    }
+  ]
+}

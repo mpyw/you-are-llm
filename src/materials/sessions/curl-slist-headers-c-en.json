@@ -1,0 +1,57 @@
+{
+  "id": "curl-slist-headers-c-en",
+  "title": "Add headers to a libcurl request",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "c",
+  "summary": "Pass headers built with curl_slist_append through CURLOPT_HTTPHEADER, and free them after perform.",
+  "files": [
+    {
+      "path": "src/net/post.c",
+      "content": "#include <stdio.h>\n#include <curl/curl.h>\n\nint post_json(const char *url, const char *body, const char *token) {\n  CURL *curl = curl_easy_init();\n  if (curl == NULL) return -1;\n  curl_easy_setopt(curl, CURLOPT_URL, url);\n  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);\n  CURLcode rc = curl_easy_perform(curl);\n  curl_easy_cleanup(curl);\n  return rc == CURLE_OK ? 0 : -1;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "post_json gets a 415 back. add Content-Type: application/json. also token isnt used yet, send it as Authorization: Bearer",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure! With only CURLOPT_POSTFIELDS set, libcurl sends Content-Type: application/x-www-form-urlencoded. Custom headers go into a list, one line per curl_slist_append call, and the list is handed over with CURLOPT_HTTPHEADER. curl_slist_append copies the string, so auth can live on the stack. Once setopt has the list we're done with it, so it's freed right there with curl_slist_free_all."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "int post_json(const char *url, const char *body, const char *token) {\n  char auth[512];\n  snprintf(auth, sizeof auth, \"Authorization: Bearer %s\", token);\n  CURL *curl = curl_easy_init();\n  if (curl == NULL) return -1;\n  struct curl_slist *headers = NULL;\n  headers = curl_slist_append(headers, \"Content-Type: application/json\");\n  headers = curl_slist_append(headers, auth);\n  curl_easy_setopt(curl, CURLOPT_URL, url);\n  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);\n  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);\n  curl_slist_free_all(headers);\n  CURLcode rc = curl_easy_perform(curl);\n  curl_easy_cleanup(curl);\n  return rc == CURLE_OK ? 0 : -1;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "headers dont seem to be sent. ASan says heap-use-after-free",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. libcurl copies each line of text, but it does not copy the list passed to CURLOPT_HTTPHEADER. The handle only keeps the pointer, so curl_easy_perform was walking a list that had already been freed. The free moves to after perform and cleanup. Looking again, there was a second hole: curl_slist_append returns NULL when it runs out of memory and leaves the old list alone, so assigning that straight to headers leaks every line added so far. A small helper frees the list on failure."
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "static struct curl_slist *append(struct curl_slist *list, const char *line) {\n  struct curl_slist *next = curl_slist_append(list, line);\n  if (next == NULL) curl_slist_free_all(list);\n  return next;\n}\n\nint post_json(const char *url, const char *body, const char *token) {\n  char auth[512];\n  snprintf(auth, sizeof auth, \"Authorization: Bearer %s\", token);\n  CURL *curl = curl_easy_init();\n  if (curl == NULL) return -1;\n  struct curl_slist *headers = append(NULL, \"Content-Type: application/json\");\n  if (headers != NULL) headers = append(headers, auth);\n  if (headers == NULL) {\n    curl_easy_cleanup(curl);\n    return -1;\n  }\n  curl_easy_setopt(curl, CURLOPT_URL, url);\n  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);\n  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);\n  CURLcode rc = curl_easy_perform(curl);\n  curl_easy_cleanup(curl);\n  curl_slist_free_all(headers);\n  return rc == CURLE_OK ? 0 : -1;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "oh wait sorry this API isnt Bearer. its an X-Api-Key header with the raw key",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Only one header line changes. Swapping the format string leaves how the list is built and freed exactly as it is now."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/Authorization: Bearer %s/X-Api-Key: %s/' src/net/post.c"
+        }
+      ]
+    }
+  ]
+}

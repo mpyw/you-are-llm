@@ -1,0 +1,44 @@
+{
+  "id": "controlled-input-typescript-en",
+  "title": "Make the input controlled so it takes keys",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "typescript",
+  "summary": "A search box with a value and no onChange ignores every key. Wire it up, and keep it controlled from the first render.",
+  "files": [
+    {
+      "path": "src/components/SearchBox.tsx",
+      "content": "import { useState } from 'react'\n\nexport function SearchBox() {\n  const [query, setQuery] = useState('')\n\n  return <input value={query} placeholder=\"Search\" />\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "search box ignores the keyboard. nothing shows up when i type",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Got it. An input with a value prop is pinned to that value by React. There is no onChange, so a key press never reaches query, and the next render puts the empty string back. Note: calling setQuery from onChange lets what you type flow into state."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "return (\n  <input\n    value={query}\n    onChange={(e) => setQuery(e.target.value)}\n    placeholder=\"Search\"\n  />\n)\n"
+        }
+      ]
+    },
+    {
+      "user": "ok works. also want the parent to pass a starting value. not always though",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great point about the optional case. Passing initialQuery straight to useState leaves value as undefined when it is omitted. React reads that as an uncontrolled input, so the first key press switches it to controlled and logs a warning. Falling back to an empty string with ?? keeps it controlled from the very first render."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { useState } from 'react'\n\nexport function SearchBox({ initialQuery }: { initialQuery?: string }) {\n  const [query, setQuery] = useState(initialQuery ?? '')\n\n  return (\n    <input\n      value={query}\n      onChange={(e) => setQuery(e.target.value)}\n      placeholder=\"Search\"\n    />\n  )\n}\n"
+        }
+      ]
+    }
+  ]
+}

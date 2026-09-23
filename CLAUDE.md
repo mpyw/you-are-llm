@@ -152,7 +152,7 @@ The length term counts symbol keystrokes only, and its exponent is well under on
 the score rather than driving it. What drives it is hardness per keystroke: the Shift share times
 the number of distinct symbol shapes.
 
-The result is the one that matches anyone who has typed both. The only Rust session below Hard is
-`serde-rename`, which is attributes on a struct and really is easy. No Java session lands above Hard.
-The only Expert+ session is the Rust `transaction` that takes a closure, which scores 41.9 against
-31.1 for the next one down.
+The result is the one that matches anyone who has typed both. Rust lands below Hard only three
+times, for `serde-rename`, `serde-tagged-enum` and `reqwest-status`, which are attributes on a type or
+one client call and really are easier. No Java session lands above Hard. The only Expert+ session is
+the Rust `transaction` that takes a closure, which scores 40.2 against 31.6 for the next one down.

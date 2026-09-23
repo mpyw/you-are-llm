@@ -1,0 +1,86 @@
+{
+  "id": "gorm-unscoped-go-ja",
+  "title": "ソフトデリートした行がユニーク制約と集計の邪魔をする",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "go",
+  "summary": "複合ユニークは NULL 同士で素通りすると認めて部分インデックスにし、集計と復活には Unscoped を使う。",
+  "files": [
+    {
+      "path": "internal/user/model.go",
+      "content": "package user\n\nimport \"gorm.io/gorm\"\n\ntype User struct {\n  ID        uint\n  Email     string         `gorm:\"uniqueIndex\"`\n  Plan      string\n  DeletedAt gorm.DeletedAt `gorm:\"index\"`\n}\n"
+    },
+    {
+      "path": "internal/user/report.go",
+      "content": "package user\n\nimport (\n  \"time\"\n\n  \"gorm.io/gorm\"\n)\n\nfunc CountChurned(db *gorm.DB, from, to time.Time) (int64, error) {\n  var n int64\n  err := db.Model(&User{}).\n    Where(\"deleted_at >= ? AND deleted_at < ?\", from, to).\n    Count(&n).Error\n  return n, err\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "退会した人が同じメールで登録し直すと duplicate key value violates unique constraint \"idx_users_email\" で落ちる。DB は PostgreSQL",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい質問です。gorm.DeletedAt があると、Delete は行を消さずに deleted_at を埋めるだけです。行は残るので、email のユニークインデックスは退会済みの行ともぶつかります。deleted_at もインデックスに含めて、email と deleted_at の組でユニークにします。AutoMigrate は古いインデックスを消さないので、idx_users_email は手で落とします。",
+          "reading": "すばらしいしつもんです。gorm.DeletedAt があると、Delete はぎょうをけさずに deleted_at をうめるだけです。ぎょうはのこるので、email のゆにーくいんでっくすはたいかいずみのぎょうともぶつかります。deleted_at もいんでっくすにふくめて、email と deleted_at のくみでゆにーくにします。AutoMigrate はふるいいんでっくすをけさないので、idx_users_email はてでおとします。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "type User struct {\n  ID        uint\n  Email     string         `gorm:\"uniqueIndex:idx_users_email_deleted\"`\n  Plan      string\n  DeletedAt gorm.DeletedAt `gorm:\"uniqueIndex:idx_users_email_deleted\"`\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "psql \"$DATABASE_URL\" -c 'DROP INDEX idx_users_email'"
+        }
+      ]
+    },
+    {
+      "user": "これ生きてるユーザー同士で同じメール通るんだけど。テストで 2 件入った",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ご指摘のとおりです。改めて確認したところ、先ほどの複合インデックスは正確ではありませんでした。PostgreSQL のユニーク制約は NULL 同士を別の値として扱うので、deleted_at が NULL の生きている行は email が同じでも衝突しません。守りたいのは生きている行だけなので、WHERE deleted_at IS NULL の部分インデックスにします。GORM のタグは where を受け付けます。",
+          "reading": "ごしてきのとおりです。あらためてかくにんしたところ、さきほどのふくごういんでっくすはせいかくではありませんでした。PostgreSQL のゆにーくせいやくは NULL どうしをべつのあたいとしてあつかうので、deleted_at が NULL のいきているぎょうは email がおなじでもしょうとつしません。まもりたいのはいきているぎょうだけなので、WHERE deleted_at IS NULL のぶぶんいんでっくすにします。GORM のたぐは where をうけつけます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e '/Email/s/uniqueIndex:idx_users_email_deleted/uniqueIndex:idx_users_email_live,where:deleted_at IS NULL/' -e '/DeletedAt/s/uniqueIndex:idx_users_email_deleted/index/' internal/user/model.go"
+        },
+        {
+          "kind": "command",
+          "body": "psql \"$DATABASE_URL\" -c 'DROP INDEX idx_users_email_deleted'"
+        }
+      ]
+    },
+    {
+      "user": "あと月次の退会者数レポートがずっと 0。先月けっこう退会あったはず",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、原因は GORM が DeletedAt を持つモデルのクエリに deleted_at IS NULL を自動で足していることです。deleted_at が範囲内という条件と同時に満たす行はないので、件数は必ず 0 になります。削除済みの行を数えるときは Unscoped でこの条件を外します。言い換えると、Unscoped は削除済みの行も見るという宣言です。",
+          "reading": "Now、げんいんは GORM が DeletedAt をもつもでるのくえりに deleted_at IS NULL をじどうでたしていることです。deleted_at がはんいないというじょうけんとどうじにみたすぎょうはないので、けんすうはかならず 0 になります。さくじょずみのぎょうをかぞえるときは Unscoped でこのじょうけんをはずします。いいかえると、Unscoped はさくじょずみのぎょうもみるというせんげんです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/err := db\\.Model/err := db.Unscoped().Model/' internal/user/report.go"
+        }
+      ]
+    },
+    {
+      "user": "やっぱ戻ってきた人は新規じゃなくて元のアカウント復活させたい。プランとかそのまま",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "ここでも Unscoped が要ります。検索だけでなく Update にも deleted_at IS NULL が足され、外さないと 0 件更新のまま黙って終わる点に注意することが重要です。退会を繰り返した人は削除済みの行が複数あり得るので、最後に退会した行を選びます。生きている行が既にあれば、部分インデックスが復活を弾きます。",
+          "reading": "ここでも Unscoped がいります。けんさくだけでなく Update にも deleted_at IS NULL がたされ、はずさないと 0 けんこうしんのままだまっておわるてんにちゅういすることがじゅうようです。たいかいをくりかえしたひとはさくじょずみのぎょうがふくすうありえるので、さいごにたいかいしたぎょうをえらびます。いきているぎょうがすでにあれば、ぶぶんいんでっくすがふっかつをはじきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func Restore(db *gorm.DB, email string) error {\n  var u User\n  err := db.Unscoped().\n    Where(\"email = ? AND deleted_at IS NOT NULL\", email).\n    Order(\"deleted_at DESC\").\n    First(&u).Error\n  if err != nil {\n    return err\n  }\n  return db.Unscoped().Model(&u).Update(\"deleted_at\", nil).Error\n}\n"
+        }
+      ]
+    }
+  ]
+}

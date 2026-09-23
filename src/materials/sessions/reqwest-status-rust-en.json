@@ -1,0 +1,57 @@
+{
+  "id": "reqwest-status-rust-en",
+  "title": "Stop reqwest from treating a 500 as Ok",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "rust",
+  "summary": "Put error_for_status after send, and cut the hang that connect_timeout alone does not stop with timeout.",
+  "files": [
+    {
+      "path": "src/client.rs",
+      "content": "use serde::Serialize;\n\n#[derive(Debug, Serialize)]\npub struct Invoice {\n    pub customer_id: u64,\n    pub amount: i64,\n}\n\npub fn build_client() -> reqwest::Client {\n    reqwest::Client::new()\n}\n\npub async fn send_invoice(client: &reqwest::Client, invoice: &Invoice) -> reqwest::Result<()> {\n    client\n        .post(\"https://billing.internal/api/invoices\")\n        .json(invoice)\n        .send()\n        .await?;\n    Ok(())\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "the invoice sender logs success even when billing returns 500. also it sometimes just hangs forever",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch. reqwest's send only returns Err when the transport itself fails. A 404 or a 500 is still a response that arrived, so it comes back as Ok. Adding error_for_status turns 4xx and 5xx into Err. For the hang, connect_timeout gives up on a server that does not answer within 5 seconds. build_client now returns a Result, so add a ? at the call site."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::time::Duration;\n\nuse serde::Serialize;\n\n#[derive(Debug, Serialize)]\npub struct Invoice {\n    pub customer_id: u64,\n    pub amount: i64,\n}\n\npub fn build_client() -> reqwest::Result<reqwest::Client> {\n    reqwest::Client::builder()\n        .connect_timeout(Duration::from_secs(5))\n        .build()\n}\n\npub async fn send_invoice(client: &reqwest::Client, invoice: &Invoice) -> reqwest::Result<()> {\n    client\n        .post(\"https://billing.internal/api/invoices\")\n        .json(invoice)\n        .send()\n        .await?\n        .error_for_status()?;\n    Ok(())\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "500 is an Err now. still hangs though. looks like it connects and then the server just goes quiet",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous explanation was incorrect. connect_timeout only covers establishing the connection. Once connected, a silent server can keep you waiting forever. A reqwest Client has no overall timeout by default, so timeout now limits everything from the start of connecting to the end of the body to 10 seconds. The 5 second connect limit stays, and with both in place a quiet server can no longer stall the task."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "pub fn build_client() -> reqwest::Result<reqwest::Client> {\n    reqwest::Client::builder()\n        .connect_timeout(Duration::from_secs(5))\n        .timeout(Duration::from_secs(10))\n        .build()\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ok. oh accounting says month-end batches dont fit in 10s. make it 30",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Understood. Only the overall timeout grows. connect_timeout stays at 5 seconds, so a server that is down still fails fast."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/timeout(Duration::from_secs(10))/timeout(Duration::from_secs(30))/' src/client.rs"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "id": "middleware-order-csharp-ja",
+  "title": "認証が効かないミドルウェアの順序を直す",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "csharp",
+  "summary": "UseAuthorization が UseAuthentication より先に並んでいて有効なトークンでも 401 になるのを、順序を入れ替えて直し、フォールバックポリシーで既定を要認証にする。",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using System.Security.Claims;\nusing Microsoft.AspNetCore.Authentication.JwtBearer;\n\nvar builder = WebApplication.CreateBuilder(args);\n\nbuilder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)\n    .AddJwtBearer();\nbuilder.Services.AddAuthorization();\n\nvar app = builder.Build();\n\napp.UseHttpsRedirection();\napp.UseAuthorization();\napp.UseAuthentication();\n\napp.MapGet(\"/me\", (ClaimsPrincipal user) => user.Identity?.Name)\n    .RequireAuthorization();\n\napp.MapGet(\"/health\", () => \"ok\");\n\napp.Run();\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "JWT ちゃんと付けてるのに /me が 401 になる。トークン自体は jwt.io で見たら問題なさそう",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。原因はミドルウェアの順序です。パイプラインは書いた順に実行されるので、今は UseAuthorization が先に走り、その時点の HttpContext.User はまだ匿名です。認可は未認証と判断して 401 を返し、UseAuthentication までは届きません。ポイントは、認証で「誰か」を決めてから認可で「通すか」を決めることです。",
+          "reading": "しょうちしました。げんいんはみどるうぇあのじゅんじょです。ぱいぷらいんはかいたじゅんにじっこうされるので、いまは UseAuthorization がさきにはしり、そのじてんの HttpContext.User はまだとくめいです。にんかはみにんしょうとはんだんして 401 をかえし、UseAuthentication まではとどきません。ぽいんとは、にんしょうで「だれか」をきめてからにんかで「とおすか」をきめることです。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "app.UseHttpsRedirection();\napp.UseAuthentication();\napp.UseAuthorization();\n"
+        }
+      ]
+    },
+    {
+      "user": "直った。あとさ、エンドポイント増えるたびに RequireAuthorization 付け忘れそうで怖い。全部デフォで要ログインにできる？ health は外から監視してるから除外で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "できます。AddAuthorization を AddAuthorizationBuilder に置き換え、認証済みユーザーを要求するポリシーをフォールバックに設定します。何も指定していないエンドポイントにも既定で適用されるので、言い換えると、付け忘れても閉じた側に倒れることを保証します。/health だけ AllowAnonymous で明示的に開けます。",
+          "reading": "できます。AddAuthorization を AddAuthorizationBuilder におきかえ、にんしょうずみゆーざーをようきゅうするぽりしーをふぉーるばっくにせっていします。なにもしていしていないえんどぽいんとにもきていでてきようされるので、いいかえると、つけわすれてもとじたがわにたおれることをほしょうします。/health だけ AllowAnonymous でめいじてきにあけます。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using Microsoft.AspNetCore.Authorization;\n\nbuilder.Services.AddAuthorizationBuilder()\n    .SetFallbackPolicy(new AuthorizationPolicyBuilder()\n        .RequireAuthenticatedUser()\n        .Build());\n\napp.MapGet(\"/me\", (ClaimsPrincipal user) => user.Identity?.Name);\n\napp.MapGet(\"/health\", () => \"ok\").AllowAnonymous();\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "id": "tokio-select-rust-ja",
+  "title": "tokio::select! で定期 flush とシャットダウンを待つ",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "rust",
+  "summary": "interval と oneshot を select! で待ち、キャンセル安全でない read_line を Lines の next_line に替える。",
+  "files": [
+    {
+      "path": "src/worker.rs",
+      "content": "use tokio::io::{AsyncBufReadExt, BufReader};\nuse tokio::net::TcpStream;\n\npub async fn run(stream: TcpStream) -> std::io::Result<()> {\n    let mut reader = BufReader::new(stream);\n    let mut batch = Vec::new();\n    loop {\n        let mut line = String::new();\n        if reader.read_line(&mut line).await? == 0 {\n            break;\n        }\n        batch.push(line);\n        if batch.len() >= 100 {\n            flush(&mut batch).await;\n        }\n    }\n    flush(&mut batch).await;\n    Ok(())\n}\n\nasync fn flush(batch: &mut Vec<String>) {\n    println!(\"flushing {} lines\", batch.len());\n    batch.clear();\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "これ 100 行溜まらないと flush しないから夜とか何分も溜まったまま。5 秒ごとにも flush して。あと止めるとき oneshot で shutdown 送るから、来たら残り flush して抜けて",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。tokio::select! で、行の読み込みと tick と shutdown の 3 つを同時に待ちます。Note: ループの中で sleep を作ると、行が届くたびにタイマーが作り直され、5 秒以内に次の行が来続ける間は一度も発火しません。interval はループの外で一度だけ作り、tick を毎回待つ形にします。最初の tick は即座に完了するので、flush は空なら何もしないようにしました。flush が長引いたときに tick がまとめて連発しないよう、MissedTickBehavior::Delay も付けます。",
+          "reading": "しょうちしました。tokio::select! で、ぎょうのよみこみと tick と shutdown の 3 つをどうじにまちます。Note: るーぷのなかで sleep をつくると、ぎょうがとどくたびにたいまーがつくりなおされ、5 びょういないにつぎのぎょうがきつづけるあいだはいちどもはっかしません。interval はるーぷのそとでいちどだけつくり、tick をまいかいまつかたちにします。さいしょの tick はそくざにかんりょうするので、flush はからならなにもしないようにしました。flush がながびいたときに tick がまとめてれんぱつしないよう、MissedTickBehavior::Delay もつけます。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::time::Duration;\n\nuse tokio::io::{AsyncBufReadExt, BufReader};\nuse tokio::net::TcpStream;\nuse tokio::sync::oneshot;\nuse tokio::time::{self, MissedTickBehavior};\n\npub async fn run(stream: TcpStream, mut shutdown: oneshot::Receiver<()>) -> std::io::Result<()> {\n    let mut reader = BufReader::new(stream);\n    let mut batch = Vec::new();\n    let mut ticker = time::interval(Duration::from_secs(5));\n    ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);\n    loop {\n        let mut line = String::new();\n        tokio::select! {\n            read = reader.read_line(&mut line) => {\n                if read? == 0 {\n                    break;\n                }\n                batch.push(line);\n                if batch.len() >= 100 {\n                    flush(&mut batch).await;\n                }\n            }\n            _ = ticker.tick() => flush(&mut batch).await,\n            _ = &mut shutdown => break,\n        }\n    }\n    flush(&mut batch).await;\n    Ok(())\n}\n\nasync fn flush(batch: &mut Vec<String>) {\n    if batch.is_empty() {\n        return;\n    }\n    println!(\"flushing {} lines\", batch.len());\n    batch.clear();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "動いてるけど、たまに頭が欠けた行が下流に届いてる。tick のタイミングっぽい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "重要な訂正があります。read_line はキャンセル安全ではありません。tick が先に完了すると、select! は読みかけの read_line の future を破棄します。BufReader から取り出し済みのバイトはそこで失われ、次の read_line は行の途中から読み始めます。言い換えると、tick が勝つたびに行の頭が消えます。line をループの外に出しても、中断後の中身は保証されないので解決になりません。",
+          "reading": "じゅうようなていせいがあります。read_line はきゃんせるあんぜんではありません。tick がさきにかんりょうすると、select! はよみかけの read_line の future をはきします。BufReader からとりだしずみのばいとはそこでうしなわれ、つぎの read_line はぎょうのとちゅうからよみはじめます。いいかえると、tick がかつたびにぎょうのあたまがきえます。line をるーぷのそとにだしても、ちゅうだんごのなかみはほしょうされないので、かいけつになりません。"
+        },
+        {
+          "kind": "text",
+          "body": "lines() が返す Lines の next_line はキャンセル安全です。読みかけの行は Lines の中に残り、次の呼び出しで続きから返ってきます。next_line は末尾の改行を取り除くので、下流が改行込みを期待しているなら、そこに注意することが重要です。",
+          "reading": "lines() がかえす Lines の next_line はきゃんせるあんぜんです。よみかけのぎょうは Lines のなかにのこり、つぎのよびだしでつづきからかえってきます。next_line はまつびのかいぎょうをとりのぞくので、かりゅうがかいぎょうこみをきたいしているなら、そこにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::time::Duration;\n\nuse tokio::io::{AsyncBufReadExt, BufReader};\nuse tokio::net::TcpStream;\nuse tokio::sync::oneshot;\nuse tokio::time::{self, MissedTickBehavior};\n\npub async fn run(stream: TcpStream, mut shutdown: oneshot::Receiver<()>) -> std::io::Result<()> {\n    let mut lines = BufReader::new(stream).lines();\n    let mut batch = Vec::new();\n    let mut ticker = time::interval(Duration::from_secs(5));\n    ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);\n    loop {\n        tokio::select! {\n            line = lines.next_line() => {\n                let Some(line) = line? else { break };\n                batch.push(line);\n                if batch.len() >= 100 {\n                    flush(&mut batch).await;\n                }\n            }\n            _ = ticker.tick() => flush(&mut batch).await,\n            _ = &mut shutdown => break,\n        }\n    }\n    flush(&mut batch).await;\n    Ok(())\n}\n\nasync fn flush(batch: &mut Vec<String>) {\n    if batch.is_empty() {\n        return;\n    }\n    println!(\"flushing {} lines\", batch.len());\n    batch.clear();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "直った。あと 5 秒だと下流が詰まるって言われたので 30 秒で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。interval の周期だけ書き換えます。100 行での flush はそのままなので、流量が多い時間帯の挙動は変わりません。",
+          "reading": "かしこまりました。interval のしゅうきだけかきかえます。100 ぎょうでの flush はそのままなので、りゅうりょうがおおいじかんたいのきょどうはかわりません。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/from_secs(5)/from_secs(30)/' src/worker.rs"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "id": "gmock-expect-call-cpp-ja",
+  "title": "手書きのフェイクを gMock にする",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "cpp",
+  "summary": "FakeMailer を MOCK_METHOD と EXPECT_CALL に置き換える。Times(2) に WillOnce が 1 つだと 2 回目の戻り値が決まらない。",
+  "files": [
+    {
+      "path": "tests/notifier_test.cpp",
+      "content": "#include <gtest/gtest.h>\n\n#include <string>\n#include <vector>\n\n#include \"notifier.h\"\n\nclass FakeMailer : public Mailer {\n public:\n  bool send(const std::string& to, const std::string& body) override {\n    sent.push_back(to);\n    return next_result;\n  }\n\n  std::vector<std::string> sent;\n  bool next_result = true;\n};\n\nTEST(NotifierTest, SendsToOwner) {\n  FakeMailer mailer;\n  Notifier notifier(mailer);\n  notifier.notify_owner(\"build failed\");\n  ASSERT_EQ(mailer.sent.size(), 1u);\n  EXPECT_EQ(mailer.sent[0], \"owner@example.com\");\n}\n\nTEST(NotifierTest, RetriesOnceOnFailure) {\n  FakeMailer mailer;\n  mailer.next_result = false;\n  Notifier notifier(mailer);\n  notifier.notify_owner(\"build failed\");\n  EXPECT_EQ(mailer.sent.size(), 2u);\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "notifier_test の FakeMailer、呼ばれた回数とか自前で数えててダルい。gmock でいい感じにして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい判断です。gMock を活用して、FakeMailer を MockMailer に置き換えます。MOCK_METHOD は戻り値の型、名前、括弧で囲んだ引数、修飾子の順に書きます。呼び出しの期待は EXPECT_CALL で先に宣言しておき、モックが破棄されるときに gMock が回数と引数を検証します。言い換えると、sent を数える ASSERT はもう要りません。",
+          "reading": "すばらしいはんだんです。gMock をかつようして、FakeMailer を MockMailer におきかえます。MOCK_METHOD はもどりちのかた、なまえ、かっこでかこんだひきすう、しゅうしょくしのじゅんにかきます。よびだしのきたいは EXPECT_CALL でさきにせんげんしておき、もっくがはきされるときに gMock がかいすうとひきすうをけんしょうします。いいかえると、sent をかぞえる ASSERT はもういりません。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include <gmock/gmock.h>\n#include <gtest/gtest.h>\n\n#include <string>\n\n#include \"notifier.h\"\n\nusing ::testing::_;\nusing ::testing::Return;\n\nclass MockMailer : public Mailer {\n public:\n  MOCK_METHOD(bool, send, (const std::string& to, const std::string& body), (override));\n};\n\nTEST(NotifierTest, SendsToOwner) {\n  MockMailer mailer;\n  EXPECT_CALL(mailer, send(\"owner@example.com\", _)).WillOnce(Return(true));\n  Notifier notifier(mailer);\n  notifier.notify_owner(\"build failed\");\n}\n\nTEST(NotifierTest, RetriesOnceOnFailure) {\n  MockMailer mailer;\n  EXPECT_CALL(mailer, send(_, _)).Times(2).WillOnce(Return(false));\n  Notifier notifier(mailer);\n  notifier.notify_owner(\"build failed\");\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "通るけど RetriesOnceOnFailure で Too few actions specified in EXPECT_CALL(mailer, send(_, _))... って警告出てる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどのコードは正確ではありませんでした。Times(2) に対して WillOnce が 1 つしかないので、2 回目の呼び出しには動作が決まっておらず、gMock は bool の既定値である false を返しています。テストが通っていたのは偶然です。2 回目以降も同じ値を返すように、WillRepeatedly に変えます。",
+          "reading": "もうしわけありません。さきほどのこーどはせいかくではありませんでした。Times(2) にたいして WillOnce が 1 つしかないので、2 かいめのよびだしにはどうさがきまっておらず、gMock は bool のきていちである false をかえしています。てすとがとおっていたのはぐうぜんです。2 かいめいこうもおなじあたいをかえすように、WillRepeatedly にかえます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/\\.Times(2)\\.WillOnce(Return(false))/.Times(2).WillRepeatedly(Return(false))/' tests/notifier_test.cpp"
+        }
+      ]
+    },
+    {
+      "user": "あとリトライで成功したらもう送らない、ってテストもほしい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。WillOnce を 2 つ並べると、Times を書かなくても呼び出し回数はちょうど 2 回に決まります。3 回目が来れば、その場でテストが失敗します。",
+          "reading": "かしこまりました。WillOnce を 2 つならべると、Times をかかなくてもよびだしかいすうはちょうど 2 かいにきまります。3 かいめがくれば、そのばでてすとがしっぱいします。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "TEST(NotifierTest, StopsAfterRetrySucceeds) {\n  MockMailer mailer;\n  EXPECT_CALL(mailer, send(_, _))\n      .WillOnce(Return(false))\n      .WillOnce(Return(true));\n  Notifier notifier(mailer);\n  notifier.notify_owner(\"build failed\");\n}\n"
+        }
+      ]
+    }
+  ]
+}

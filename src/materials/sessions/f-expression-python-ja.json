@@ -1,0 +1,79 @@
+{
+  "id": "f-expression-python-ja",
+  "title": "Django の在庫ずれを F 式と select_for_update で直す",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "python",
+  "summary": "同時注文で在庫が合わない。F 式で UPDATE に寄せ、refresh_from_db の抜けを直し、条件付き update にしてから、1 人 1 個の制限を select_for_update で守る。",
+  "files": [
+    {
+      "path": "shop/models.py",
+      "content": "from django.conf import settings\nfrom django.db import models\n\n\nclass Product(models.Model):\n    name = models.CharField(max_length=200)\n    stock = models.PositiveIntegerField()\n\n\nclass Order(models.Model):\n    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)\n    product = models.ForeignKey(Product, on_delete=models.PROTECT)\n    created_at = models.DateTimeField(auto_now_add=True)\n"
+    },
+    {
+      "path": "shop/views.py",
+      "content": "from django.http import JsonResponse\nfrom django.shortcuts import get_object_or_404\nfrom django.views.decorators.http import require_POST\n\nfrom .models import Product\n\n\n@require_POST\ndef order(request, product_id):\n    product = get_object_or_404(Product, pk=product_id)\n    if product.stock < 1:\n        return JsonResponse({\"error\": \"out of stock\"}, status=409)\n    product.stock -= 1\n    product.save()\n    return JsonResponse({\"stock\": product.stock})\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "セールで 100 個売れたはずなのに在庫が 100 から 37 にしか減ってない。ログ上は全部 200 返してる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい観察です。原因は典型的な lost update です。2 つのリクエストが同じ stock を読み、それぞれ 1 を引いた値で上書きするので、片方の減算が消えます。F(\"stock\") - 1 を代入すると、Python 側で計算せず UPDATE 文の中で stock = stock - 1 として DB に計算させます。これで減算がアトミックになります。",
+          "reading": "すばらしいかんさつです。げんいんはてんけいてきな lost update です。2 つのりくえすとがおなじ stock をよみ、それぞれ 1 をひいたあたいでうわがきするので、かたほうのげんさんがきえます。F(\"stock\") - 1 をだいにゅうすると、Python がわでけいさんせず UPDATE ぶんのなかで stock = stock - 1 として DB にけいさんさせます。これでげんさんがあとみっくになります。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from django.db.models import F\nfrom django.http import JsonResponse\nfrom django.shortcuts import get_object_or_404\nfrom django.views.decorators.http import require_POST\n\nfrom .models import Product\n\n\n@require_POST\ndef order(request, product_id):\n    product = get_object_or_404(Product, pk=product_id)\n    if product.stock < 1:\n        return JsonResponse({\"error\": \"out of stock\"}, status=409)\n    product.stock = F(\"stock\") - 1\n    product.save(update_fields=[\"stock\"])\n    return JsonResponse({\"stock\": product.stock})\n"
+        }
+      ]
+    },
+    {
+      "user": "500 になった。TypeError: Object of type CombinedExpression is not JSON serializable。しかも在庫は減ってる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "失礼しました。F 式を代入した後の product.stock は数値ではなく式オブジェクトのままで、save() しても書き換わりません。UPDATE 自体は autocommit で確定しているので、在庫だけ減って応答が 500 になっていました。save の直後に refresh_from_db で stock を読み直します。",
+          "reading": "しつれいしました。F しきをだいにゅうしたあとの product.stock はすうちではなくしきおぶじぇくとのままで、save() してもかきかわりません。UPDATE じたいは autocommit でかくていしているので、ざいこだけへっておうとうが 500 になっていました。save のちょくごに refresh_from_db で stock をよみなおします。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^\\( *\\)product.save(update_fields=\\[\"stock\"\\])$/&\\n\\1product.refresh_from_db(fields=[\"stock\"])/' shop/views.py"
+        }
+      ]
+    },
+    {
+      "user": "OK。ただ在庫 1 のときに同時に来ると片方 IntegrityError で 500。check constraint がどうとか出てる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、if product.stock < 1 の判定は古い値を見ているので、先ほどの修正でも競合は残っていました。PositiveIntegerField の CHECK 制約が負数を止めてくれていただけです。判定ごと UPDATE の WHERE に入れれば、確認と減算が 1 本の文で済みます。update() は更新した行数を返すので、0 なら在庫切れか商品がないかのどちらかです。",
+          "reading": "あらためてかくにんしたところ、if product.stock < 1 のはんていはふるいあたいをみているので、さきほどのしゅうせいでもきょうごうはのこっていました。PositiveIntegerField の CHECK せいやくがふすうをとめてくれていただけです。はんていごと UPDATE の WHERE にいれれば、かくにんとげんさんが 1 ぽんのぶんですみます。update() はこうしんしたぎょうすうをかえすので、0 ならざいこぎれかしょうひんがないかのどちらかです。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from django.db.models import F\nfrom django.http import JsonResponse\nfrom django.shortcuts import get_object_or_404\nfrom django.views.decorators.http import require_POST\n\nfrom .models import Product\n\n\n@require_POST\ndef order(request, product_id):\n    updated = Product.objects.filter(pk=product_id, stock__gte=1).update(\n        stock=F(\"stock\") - 1\n    )\n    if not updated:\n        get_object_or_404(Product, pk=product_id)\n        return JsonResponse({\"error\": \"out of stock\"}, status=409)\n    product = Product.objects.get(pk=product_id)\n    return JsonResponse({\"stock\": product.stock})\n"
+        }
+      ]
+    },
+    {
+      "user": "やっぱ注文も Order に残したい。あと転売対策で 1 人 1 個まで。ログイン必須で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。「この人がもう買ったか」は別テーブルの確認なので、UPDATE の WHERE には収まりません。transaction.atomic の中で select_for_update を使い、商品の行をロックしてから判定します。同じ商品への注文はロックを待って 1 つずつ進むので、ここは素直に引き算で足ります。Note: 念のため Order に user と product の UniqueConstraint も張っておくことをお勧めします。",
+          "reading": "しょうちしました。「このひとがもうかったか」はべつてーぶるのかくにんなので、UPDATE の WHERE にはおさまりません。transaction.atomic のなかで select_for_update をつかい、しょうひんのぎょうをろっくしてからはんていします。おなじしょうひんへのちゅうもんはろっくをまって 1 つずつすすむので、ここはすなおにひきざんでたります。Note: ねんのため Order に user と product の UniqueConstraint もはっておくことをおすすめします。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from django.contrib.auth.decorators import login_required\nfrom django.db import transaction\nfrom django.http import JsonResponse\nfrom django.shortcuts import get_object_or_404\nfrom django.views.decorators.http import require_POST\n\nfrom .models import Order, Product\n\n\n@require_POST\n@login_required\ndef order(request, product_id):\n    with transaction.atomic():\n        product = get_object_or_404(\n            Product.objects.select_for_update(), pk=product_id\n        )\n        if Order.objects.filter(user=request.user, product=product).exists():\n            return JsonResponse({\"error\": \"already ordered\"}, status=409)\n        if product.stock < 1:\n            return JsonResponse({\"error\": \"out of stock\"}, status=409)\n        product.stock -= 1\n        product.save(update_fields=[\"stock\"])\n        Order.objects.create(user=request.user, product=product)\n    return JsonResponse({\"stock\": product.stock})\n"
+        }
+      ]
+    }
+  ]
+}

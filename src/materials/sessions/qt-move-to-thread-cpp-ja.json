@@ -1,0 +1,94 @@
+{
+  "id": "qt-move-to-thread-cpp-ja",
+  "title": "QThread 継承のインポートを moveToThread に",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "cpp",
+  "summary": "run() を上書きした QThread をワーカーオブジェクトに分けて moveToThread する。親を持つオブジェクトは移せない。",
+  "files": [
+    {
+      "path": "src/import/importthread.h",
+      "content": "#pragma once\n\n#include <QFile>\n#include <QString>\n#include <QThread>\n\nclass ImportThread : public QThread\n{\n    Q_OBJECT\npublic:\n    explicit ImportThread(const QString &path, QObject *parent = nullptr)\n        : QThread(parent), m_path(path)\n    {\n    }\n\nsignals:\n    void progress(int percent);\n    void done(int rows);\n\nprotected:\n    void run() override\n    {\n        QFile file(m_path);\n        if (!file.open(QIODevice::ReadOnly)) {\n            emit done(0);\n            return;\n        }\n        int rows = 0;\n        while (!file.atEnd()) {\n            file.readLine();\n            ++rows;\n            if (rows % 1000 == 0)\n                emit progress(int(file.pos() * 100 / file.size()));\n        }\n        emit done(rows);\n    }\n\nprivate:\n    QString m_path;\n};\n"
+    },
+    {
+      "path": "src/ui/mainwindow.cpp",
+      "content": "#include \"mainwindow.h\"\n\n#include \"import/importthread.h\"\n\nvoid MainWindow::startImport(const QString &path)\n{\n    auto *thread = new ImportThread(path, this);\n    connect(thread, &ImportThread::progress, this, &MainWindow::onImportProgress);\n    connect(thread, &ImportThread::done, this, &MainWindow::onImportDone);\n    thread->start();\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "インポート処理 QThread 継承して run に書いてるんだけど、レビューで moveToThread にしろって言われた。あと何回もインポートするとスレッド溜まってくらしい。まとめて直して",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。QThread のサブクラスはスレッドを管理するオブジェクトであって、それ自体が新しいスレッドに住むわけではありません。ImportThread は作った GUI スレッドに属するので、あとでキャンセル用のスロットなどを足すと、それは GUI スレッドで動きます。加えて、親が this なので、終わったスレッドもウィンドウが閉じるまで残ります。処理を QObject のワーカーに切り出し、QThread はそのまま使うのがベストプラクティスです。",
+          "reading": "しょうちしました。QThread のさぶくらすはすれっどをかんりするおぶじぇくとであって、それじたいがあたらしいすれっどにすむわけではありません。ImportThread はつくった GUI すれっどにぞくするので、あとできゃんせるようのすろっとなどをたすと、それは GUI すれっどでうごきます。くわえて、おやが this なので、おわったすれっどもうぃんどうがとじるまでのこります。しょりを QObject のわーかーにきりだし、QThread はそのままつかうのがべすとぷらくてぃすです。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#pragma once\n\n#include <QObject>\n#include <QString>\n\nclass ImportWorker : public QObject\n{\n    Q_OBJECT\npublic:\n    explicit ImportWorker(QString path, QObject *parent = nullptr);\n\npublic slots:\n    void process();\n\nsignals:\n    void progress(int percent);\n    void done(int rows);\n\nprivate:\n    QString m_path;\n};\n"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "#include \"importworker.h\"\n\n#include <utility>\n\n#include <QFile>\n#include <QThread>\n\nImportWorker::ImportWorker(QString path, QObject *parent)\n    : QObject(parent), m_path(std::move(path))\n{\n}\n\nvoid ImportWorker::process()\n{\n    QFile file(m_path);\n    if (!file.open(QIODevice::ReadOnly)) {\n        emit done(0);\n        return;\n    }\n    int rows = 0;\n    while (!file.atEnd()) {\n        file.readLine();\n        ++rows;\n        if (rows % 1000 == 0)\n            emit progress(int(file.pos() * 100 / file.size()));\n    }\n    emit done(rows);\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "Here's 呼び出し側です。スレッドの finished を deleteLater につなぎ、ワーカーとスレッドの両方が終わったら片付くようにします。",
+          "reading": "Here's よびだしがわです。すれっどの finished を deleteLater につなぎ、わーかーとすれっどのりょうほうがおわったらかたづくようにします。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "void MainWindow::startImport(const QString &path)\n{\n    auto *thread = new QThread(this);\n    auto *worker = new ImportWorker(path, this);\n    worker->moveToThread(thread);\n\n    connect(thread, &QThread::started, worker, &ImportWorker::process);\n    connect(worker, &ImportWorker::progress, this, &MainWindow::onImportProgress);\n    connect(worker, &ImportWorker::done, this, &MainWindow::onImportDone);\n    connect(worker, &ImportWorker::done, thread, &QThread::quit);\n    connect(thread, &QThread::finished, worker, &QObject::deleteLater);\n    connect(thread, &QThread::finished, thread, &QObject::deleteLater);\n\n    thread->start();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "UI 固まるようになった。インポート中ずっと応答なし。出力に QObject::moveToThread: Cannot move objects with a parent って出てる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどのコードで、ワーカーに this を親として渡していました。親を持つ QObject は moveToThread できず、警告を出して GUI スレッドに残ります。すると started からの接続はキュー接続になり、process() が GUI スレッドで最後まで走ってしまいます。ワーカーの寿命は finished から deleteLater で片付けているので、親は要りません。",
+          "reading": "もうしわけありません。さきほどのこーどで、わーかーに this をおやとしてわたしていました。おやをもつ QObject は moveToThread できず、けいこくをだして GUI すれっどにのこります。すると started からのせつぞくはきゅーせつぞくになり、process() が GUI すれっどでさいごまではしってしまいます。わーかーのじゅみょうは finished から deleteLater でかたづけているので、おやはいりません。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "    auto *worker = new ImportWorker(path);\n"
+        }
+      ]
+    },
+    {
+      "user": "動いた。キャンセルボタン付けたい。あ、あと progress 1000 行ごとだとシグナル多すぎるから 1 万で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "良い質問です。QThread には requestInterruption() があり、ワーカー側は QThread::currentThread()->isInterruptionRequested() をループの条件で見るだけで済みます。進捗の間隔と一緒に、importworker.cpp を書き換えます。",
+          "reading": "よいしつもんです。QThread には requestInterruption() があり、わーかーがわは QThread::currentThread()->isInterruptionRequested() をるーぷのじょうけんでみるだけですみます。しんちょくのかんかくといっしょに、importworker.cpp をかきかえます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/rows % 1000 == 0/rows % 10000 == 0/; s/while (!file.atEnd()) {/while (!file.atEnd() \\&\\& !QThread::currentThread()->isInterruptionRequested()) {/' src/import/importworker.cpp"
+        },
+        {
+          "kind": "text",
+          "body": "呼び出し側はスレッドを QPointer で覚えておきます。deleteLater で消えたあとは自動で nullptr になるので、言い換えると、終わったあとにボタンを押しても何も起きません。",
+          "reading": "よびだしがわはすれっどを QPointer でおぼえておきます。deleteLater できえたあとはじどうで nullptr になるので、いいかえると、おわったあとにぼたんをおしてもなにもおきません。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "// mainwindow.h\nQPointer<QThread> m_importThread;\n\n// startImport, just before thread->start()\nm_importThread = thread;\n\nvoid MainWindow::cancelImport()\n{\n    if (m_importThread)\n        m_importThread->requestInterruption();\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "まとめると、キャンセルされたときも done は途中までの行数で届くので、onImportDone 側で区別したい場合は、別のシグナルを足すことをお勧めします。",
+          "reading": "まとめると、きゃんせるされたときも done はとちゅうまでのぎょうすうでとどくので、onImportDone がわでくべつしたいばあいは、べつのしぐなるをたすことをおすすめします。"
+        }
+      ]
+    }
+  ]
+}

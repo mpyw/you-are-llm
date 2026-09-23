@@ -1,0 +1,50 @@
+{
+  "id": "clap-derive-rust-ja",
+  "title": "手書きの引数パースを clap の derive にする",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "rust",
+  "summary": "env::args の添字アクセスをやめて #[derive(Parser)] の構造体にし、出力先を Option で足す。",
+  "files": [
+    {
+      "path": "src/main.rs",
+      "content": "use std::env;\nuse std::process;\n\nfn main() {\n    let args: Vec<String> = env::args().collect();\n    if args.len() < 2 {\n        eprintln!(\"usage: resize <input> [--width N]\");\n        process::exit(2);\n    }\n    let input = &args[1];\n    let mut width = 800;\n    if args.len() > 3 && args[2] == \"--width\" {\n        width = args[3].parse().unwrap();\n    }\n    resize(input, width);\n}\n\nfn resize(input: &str, width: u32) {\n    println!(\"resizing {input} to {width}px\");\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "この CLI、args[1] とか手でパースしてるのつらい。clap にして。--help 出したい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。clap の derive を活用し、引数を構造体として宣言します。言い換えると、手書きの添字アクセスというボイラープレートが消え、--help と --version は clap が生成します。doc コメントがそのままヘルプの説明文になります。",
+          "reading": "しょうちしました。clap の derive をかつようし、ひきすうをこうぞうたいとしてせんげんします。いいかえると、てがきのそえじあくせすというぼいらーぷれーとがきえ、--help と --version は clap がせいせいします。doc こめんとがそのままへるぷのせつめいぶんになります。"
+        },
+        {
+          "kind": "command",
+          "body": "cargo add clap --features derive"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use clap::Parser;\n\n/// Resize an image to a given width\n#[derive(Parser)]\n#[command(version, about)]\nstruct Args {\n    /// Image to resize\n    input: String,\n\n    /// Target width in pixels\n    #[arg(short, long, default_value_t = 800)]\n    width: u32,\n}\n\nfn main() {\n    let args = Args::parse();\n    resize(&args.input, args.width);\n}\n\nfn resize(input: &str, width: u32) {\n    println!(\"resizing {input} to {width}px\");\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "いいね。あと出力先も指定できるように。無ければ標準出力で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Option<PathBuf> にすると、指定が無いときは None になります。Note: default_value_t は付けないので、None のときの扱いは resize 側で決めます。-o と --output の両方で受け付けます。",
+          "reading": "Option<PathBuf> にすると、していがないときは None になります。Note: default_value_t はつけないので、None のときのあつかいは resize がわできめます。-o と --output のりょうほうでうけつけます。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use std::path::{Path, PathBuf};\n\nuse clap::Parser;\n\n/// Resize an image to a given width\n#[derive(Parser)]\n#[command(version, about)]\nstruct Args {\n    /// Image to resize\n    input: String,\n\n    /// Target width in pixels\n    #[arg(short, long, default_value_t = 800)]\n    width: u32,\n\n    /// Write here instead of stdout\n    #[arg(short, long)]\n    output: Option<PathBuf>,\n}\n\nfn main() {\n    let args = Args::parse();\n    resize(&args.input, args.width, args.output.as_deref());\n}\n\nfn resize(input: &str, width: u32, output: Option<&Path>) {\n    match output {\n        Some(path) => println!(\"resizing {input} to {width}px into {}\", path.display()),\n        None => println!(\"resizing {input} to {width}px to stdout\"),\n    }\n}\n"
+        }
+      ]
+    }
+  ]
+}

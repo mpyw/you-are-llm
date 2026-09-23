@@ -1,0 +1,76 @@
+{
+  "id": "controller-advice-java-en",
+  "title": "Move controller try/catch into @RestControllerAdvice",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "java",
+  "summary": "Error handling moves to ProblemDetail, then a handler collides with the one it inherits and the app will not start.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/order/OrderController.java",
+      "content": "package com.example.order;\n\nimport jakarta.validation.Valid;\nimport java.util.Map;\nimport org.springframework.http.HttpStatus;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.web.bind.annotation.GetMapping;\nimport org.springframework.web.bind.annotation.PathVariable;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RequestMapping;\nimport org.springframework.web.bind.annotation.RestController;\n\n@RestController\n@RequestMapping(\"/orders\")\npublic class OrderController {\n    private final OrderService orderService;\n\n    public OrderController(OrderService orderService) {\n        this.orderService = orderService;\n    }\n\n    @GetMapping(\"/{id}\")\n    public ResponseEntity<?> show(@PathVariable long id) {\n        try {\n            return ResponseEntity.ok(orderService.find(id));\n        } catch (OrderNotFoundException e) {\n            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(\"error\", e.getMessage()));\n        }\n    }\n\n    @PostMapping\n    public ResponseEntity<?> place(@Valid @RequestBody OrderRequest request) {\n        try {\n            return ResponseEntity.status(HttpStatus.CREATED).body(orderService.place(request));\n        } catch (OutOfStockException e) {\n            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(\"message\", e.getMessage()));\n        }\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "every method in OrderController has the same try/catch pasted in. and the error json is sometimes error, sometimes message. hate it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great call. Let's move the exception to response mapping into one @RestControllerAdvice and use the ProblemDetail body from Spring 6. It follows RFC 9457, so type, title, status and detail look the same on every endpoint. The controller is left with the happy path only."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.order;\n\nimport org.springframework.http.HttpStatus;\nimport org.springframework.http.ProblemDetail;\nimport org.springframework.web.bind.annotation.ExceptionHandler;\nimport org.springframework.web.bind.annotation.RestControllerAdvice;\n\n@RestControllerAdvice\npublic class ApiExceptionHandler {\n    @ExceptionHandler(OrderNotFoundException.class)\n    public ProblemDetail handleNotFound(OrderNotFoundException e) {\n        return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.getMessage());\n    }\n\n    @ExceptionHandler(OutOfStockException.class)\n    public ProblemDetail handleOutOfStock(OutOfStockException e) {\n        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());\n        problem.setTitle(\"Out of stock\");\n        return problem;\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@GetMapping(\"/{id}\")\npublic OrderResponse show(@PathVariable long id) {\n    return orderService.find(id);\n}\n\n@PostMapping\n@ResponseStatus(HttpStatus.CREATED)\npublic OrderResponse place(@Valid @RequestBody OrderRequest request) {\n    return orderService.place(request);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "nice. oh, frontend wants 422 for out of stock, not 409",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "The mapping lives in one place now, so it is one status to change."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/HttpStatus\\.CONFLICT/HttpStatus.UNPROCESSABLE_ENTITY/' src/main/java/com/example/order/ApiExceptionHandler.java"
+        }
+      ]
+    },
+    {
+      "user": "also the 400 from @Valid still comes back as the old json with timestamp and stuff. make that match too. and say which fields were bad",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. The advice extends ResponseEntityExceptionHandler and gets an @ExceptionHandler for MethodArgumentNotValidException. Field errors go into an errors property on the ProblemDetail. That way every error, the standard Spring MVC ones included, has a single shape."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import org.springframework.web.bind.MethodArgumentNotValidException;\nimport org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;\n\n@RestControllerAdvice\npublic class ApiExceptionHandler extends ResponseEntityExceptionHandler {\n    @ExceptionHandler(MethodArgumentNotValidException.class)\n    public ProblemDetail handleInvalid(MethodArgumentNotValidException e) {\n        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, \"Validation failed\");\n        problem.setProperty(\"errors\", e.getBindingResult().getFieldErrors().stream()\n            .map(error -> error.getField() + \": \" + error.getDefaultMessage())\n            .toList());\n        return problem;\n    }\n"
+        }
+      ]
+    },
+    {
+      "user": "app won't start now. Ambiguous @ExceptionHandler method mapped for MethodArgumentNotValidException",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. ResponseEntityExceptionHandler already maps MethodArgumentNotValidException in its own @ExceptionHandler, so declaring the same exception in the subclass leaves Spring with two candidates, and it refuses to start. Once you extend it, the right move is to override the hook it provides, handleMethodArgumentNotValid. Delete handleInvalid and use this instead. ex.getBody() is already a 400 ProblemDetail, so it only needs the errors added."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import org.springframework.http.HttpHeaders;\nimport org.springframework.http.HttpStatusCode;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.web.context.request.WebRequest;\n\n@Override\nprotected ResponseEntity<Object> handleMethodArgumentNotValid(\n        MethodArgumentNotValidException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {\n    ProblemDetail problem = ex.getBody();\n    problem.setProperty(\"errors\", ex.getBindingResult().getFieldErrors().stream()\n        .map(error -> error.getField() + \": \" + error.getDefaultMessage())\n        .toList());\n    return handleExceptionInternal(ex, problem, headers, status, request);\n}\n"
+        }
+      ]
+    }
+  ]
+}

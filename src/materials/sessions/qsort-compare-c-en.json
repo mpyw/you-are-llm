@@ -2,7 +2,7 @@
   "id": "qsort-compare-c-en",
   "title": "Rebuild the qsort comparison function",
   "language": "en",
-  "difficulty": "hard",
+  "difficulty": "normal",
   "codeLanguage": "c",
   "summary": "Fix the cast and the subtraction in a comparator over a pointer array, then pin the tie order down.",
   "files": [

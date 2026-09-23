@@ -1,0 +1,46 @@
+{
+  "id": "gin-context-copy-go-ja",
+  "title": "goroutine に *gin.Context をそのまま渡さない",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "go",
+  "summary": "ハンドラから起動した goroutine が使い回し後の Context を読んでいたので c.Copy() を渡し、ctx はキャンセルだけ外して渡す。",
+  "files": [
+    {
+      "path": "internal/handler/export.go",
+      "content": "package handler\n\nimport (\n  \"log\"\n  \"net/http\"\n\n  \"github.com/gin-gonic/gin\"\n)\n\ntype Auditor interface {\n  Record(userID, path, ip string) error\n}\n\nfunc Export(a Auditor) gin.HandlerFunc {\n  return func(c *gin.Context) {\n    go func() {\n      if err := a.Record(c.GetString(\"userID\"), c.FullPath(), c.ClientIP()); err != nil {\n        log.Printf(\"audit: %v\", err)\n      }\n    }()\n    c.JSON(http.StatusAccepted, gin.H{\"status\": \"accepted\"})\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "監査ログのユーザーIDがたまに別人になってる。export 叩いてない人が記録されてる。負荷高いときだけ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。Gin は *gin.Context をプールで使い回すので、ハンドラが return した時点で、その c は次のリクエストに渡されます。goroutine が後から c を読むと、別人の userID が見えるわけです。c.Copy() で読み取り専用のコピーを作り、goroutine にはそちらを渡すのがベストプラクティスです。",
+          "reading": "するどいごしてきです。Gin は *gin.Context をぷーるでつかいまわすので、はんどらが return したじてんで、その c はつぎのりくえすとにわたされます。goroutine があとから c をよむと、べつじんの userID がみえるわけです。c.Copy() でよみとりせんようのこぴーをつくり、goroutine にはそちらをわたすのがべすとぷらくてぃすです。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "return func(c *gin.Context) {\n  cp := c.Copy()\n  go func() {\n    if err := a.Record(cp.GetString(\"userID\"), cp.FullPath(), cp.ClientIP()); err != nil {\n      log.Printf(\"audit: %v\", err)\n    }\n  }()\n  c.JSON(http.StatusAccepted, gin.H{\"status\": \"accepted\"})\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "Record に ctx も渡したい。トレースIDが ctx に乗ってるので。cp.Request.Context() 渡せばいい？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: それだと Record が途中で切られることがあります。Copy はリクエストの中身までは複製せず、cp.Request は元と同じものを指しています。net/http はハンドラが終わるとこの ctx をキャンセルするので、Record が context canceled で落ちます。Go 1.21 以降の context.WithoutCancel なら、トレース ID などの値は残したままキャンセルだけを外すことが可能になります。",
+          "reading": "Note: それだと Record がとちゅうできられることがあります。Copy はりくえすとのなかみまではふくせいせず、cp.Request はもととおなじものをさしています。net/http ははんどらがおわるとこの ctx をきゃんせるするので、Record が context canceled でおちます。Go 1.21 いこうの context.WithoutCancel なら、とれーす ID などのあたいはのこしたままきゃんせるだけをはずすことがかのうになります。"
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "type Auditor interface {\n  Record(ctx context.Context, userID, path, ip string) error\n}\n\nfunc Export(a Auditor) gin.HandlerFunc {\n  return func(c *gin.Context) {\n    cp := c.Copy()\n    ctx := context.WithoutCancel(cp.Request.Context())\n    go func() {\n      if err := a.Record(ctx, cp.GetString(\"userID\"), cp.FullPath(), cp.ClientIP()); err != nil {\n        log.Printf(\"audit: %v\", err)\n      }\n    }()\n    c.JSON(http.StatusAccepted, gin.H{\"status\": \"accepted\"})\n  }\n}\n"
+        }
+      ]
+    }
+  ]
+}

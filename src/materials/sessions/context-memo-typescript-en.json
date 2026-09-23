@@ -1,0 +1,69 @@
+{
+  "id": "context-memo-typescript-en",
+  "title": "Stop rebuilding the context value on every render",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "typescript",
+  "summary": "A memoized ProductCard still re-renders on every keystroke in search. Pin the context value, then split the context into items and actions.",
+  "files": [
+    {
+      "path": "src/cart/CartProvider.tsx",
+      "content": "import { createContext, useContext, useState, type ReactNode } from 'react'\n\nexport type Item = { id: string; name: string; price: number }\n\ntype CartContextValue = {\n  items: Item[]\n  addItem: (item: Item) => void\n  removeItem: (id: string) => void\n}\n\nconst CartContext = createContext<CartContextValue | null>(null)\n\nexport function CartProvider({ children }: { children: ReactNode }) {\n  const [items, setItems] = useState<Item[]>([])\n\n  const addItem = (item: Item) => setItems([...items, item])\n  const removeItem = (id: string) => setItems(items.filter((i) => i.id !== id))\n\n  return (\n    <CartContext value={{ items, addItem, removeItem }}>\n      {children}\n    </CartContext>\n  )\n}\n\nexport function useCart() {\n  const cart = useContext(CartContext)\n  if (cart === null) throw new Error('useCart needs a CartProvider')\n  return cart\n}\n"
+    },
+    {
+      "path": "src/components/ProductCard.tsx",
+      "content": "import { memo } from 'react'\nimport { useCart, type Item } from '../cart/CartProvider'\n\nexport const ProductCard = memo(function ProductCard({ item }: { item: Item }) {\n  const { addItem } = useCart()\n  return (\n    <li>\n      {item.name}\n      <button onClick={() => addItem(item)}>Add</button>\n    </li>\n  )\n})\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "put memo on ProductCard and every card still re-renders on each keystroke in the search box. saw it in the Profiler. CartProvider lives inside Shop",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch. When Shop re-renders for query, CartProvider renders again and hands value a brand new object. Context compares value with Object.is, so an object with the same contents still counts as changed, and every component calling useCart re-renders. memo only compares props. In other words, a context update walks straight past it. Let's pin the references with useCallback and useMemo."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'\n\nexport type Item = { id: string; name: string; price: number }\n\ntype CartContextValue = {\n  items: Item[]\n  addItem: (item: Item) => void\n  removeItem: (id: string) => void\n}\n\nconst CartContext = createContext<CartContextValue | null>(null)\n\nexport function CartProvider({ children }: { children: ReactNode }) {\n  const [items, setItems] = useState<Item[]>([])\n\n  const addItem = useCallback((item: Item) => setItems([...items, item]), [items])\n  const removeItem = useCallback(\n    (id: string) => setItems(items.filter((i) => i.id !== id)),\n    [items],\n  )\n\n  const value = useMemo(\n    () => ({ items, addItem, removeItem }),\n    [items, addItem, removeItem],\n  )\n\n  return <CartContext value={value}>{children}</CartContext>\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "search is fine now. but adding one item re-renders every card. there are 100 of them",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "I take that back. useMemo is not enough while items sits in the same value, because every change to items still reaches every consumer. On top of that, addItem depended on items, so it was rebuilt on every add. The fix is to split the context into items and actions. Written as functional updates to setItems, the actions never read items, so useMemo gets an empty dependency list and the reference never changes."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'\n\nexport type Item = { id: string; name: string; price: number }\n\ntype CartActions = {\n  addItem: (item: Item) => void\n  removeItem: (id: string) => void\n}\n\nconst ItemsContext = createContext<Item[] | null>(null)\nconst ActionsContext = createContext<CartActions | null>(null)\n\nexport function CartProvider({ children }: { children: ReactNode }) {\n  const [items, setItems] = useState<Item[]>([])\n\n  const actions = useMemo<CartActions>(\n    () => ({\n      addItem: (item) => setItems((prev) => [...prev, item]),\n      removeItem: (id) => setItems((prev) => prev.filter((i) => i.id !== id)),\n    }),\n    [],\n  )\n\n  return (\n    <ActionsContext value={actions}>\n      <ItemsContext value={items}>{children}</ItemsContext>\n    </ActionsContext>\n  )\n}\n\nexport function useCartItems() {\n  const items = useContext(ItemsContext)\n  if (items === null) throw new Error('useCartItems needs a CartProvider')\n  return items\n}\n\nexport function useCartActions() {\n  const actions = useContext(ActionsContext)\n  if (actions === null) throw new Error('useCartActions needs a CartProvider')\n  return actions\n}\n"
+        },
+        {
+          "kind": "text",
+          "body": "ProductCard only needs the actions. Anything that shows items, such as a count badge, reads useCartItems instead."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/useCart/useCartActions/g' src/components/ProductCard.tsx"
+        }
+      ]
+    },
+    {
+      "user": "rename addItem to addToCart to match the API. both files",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Done in one pass. addItem only appears in these two files, and removeItem does not match the pattern, so it stays as it is."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/addItem/addToCart/g' src/cart/CartProvider.tsx src/components/ProductCard.tsx"
+        }
+      ]
+    }
+  ]
+}

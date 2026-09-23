@@ -1,0 +1,60 @@
+{
+  "id": "pytest-parametrize-python-en",
+  "title": "Fold copied tests into parametrize and a fixture",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "python",
+  "summary": "Merge near identical 422 tests into one, break another test by mutating a shared dict, fix it, then add a case.",
+  "files": [
+    {
+      "path": "tests/test_items.py",
+      "content": "from fastapi.testclient import TestClient\n\nfrom app.main import app\n\n\ndef test_create_item_empty_name():\n    client = TestClient(app)\n    response = client.post(\"/items\", json={\"name\": \"\", \"price\": 100})\n    assert response.status_code == 422\n\n\ndef test_create_item_negative_price():\n    client = TestClient(app)\n    response = client.post(\"/items\", json={\"name\": \"pen\", \"price\": -1})\n    assert response.status_code == 422\n\n\ndef test_create_item_price_not_int():\n    client = TestClient(app)\n    response = client.post(\"/items\", json={\"name\": \"pen\", \"price\": \"abc\"})\n    assert response.status_code == 422\n\n\ndef test_create_item_ok():\n    client = TestClient(app)\n    response = client.post(\"/items\", json={\"name\": \"pen\", \"price\": 100})\n    assert response.status_code == 201\n"
+    },
+    {
+      "path": "app/main.py",
+      "content": "from fastapi import FastAPI\nfrom pydantic import BaseModel, Field\n\napp = FastAPI()\n\n\nclass ItemIn(BaseModel):\n    name: str = Field(min_length=1)\n    price: int = Field(gt=0)\n\n\n@app.post(\"/items\", status_code=201)\ndef create_item(body: ItemIn):\n    return {\"name\": body.name, \"price\": body.price}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "tests/test_items.py is the same test copy pasted 4 times. squash it with parametrize. and the TestClient thats created every time, make it a fixture",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great idea! Only the values differ, so keep one valid payload as VALID and pass the field to break and its value through parametrize. A fixture that yields the TestClient from a with block also runs the lifespan properly. The boilerplate goes away, and a new case is one line."
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "import pytest\nfrom fastapi.testclient import TestClient\n\nfrom app.main import app\n\nVALID = {\"name\": \"pen\", \"price\": 100}\n\n\n@pytest.fixture\ndef client():\n    with TestClient(app) as client:\n        yield client\n\n\n@pytest.mark.parametrize(\n    (\"field\", \"value\"),\n    [\n        (\"name\", \"\"),\n        (\"price\", -1),\n        (\"price\", \"abc\"),\n    ],\n)\ndef test_create_item_rejects(client, field, value):\n    payload = VALID\n    payload[field] = value\n    response = client.post(\"/items\", json=payload)\n    assert response.status_code == 422\n\n\ndef test_create_item_ok(client):\n    response = client.post(\"/items\", json=VALID)\n    assert response.status_code == 201\n"
+        }
+      ]
+    },
+    {
+      "user": "now test_create_item_ok fails with 422. but it passes if i run it alone??",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous code caused this. payload = VALID is not a copy, it is a second name for the same dict, so every case was editing the module level VALID. test_create_item_ok then ran with price still set to \"abc\" from the last case. In other words, the tests depended on their order. This builds a new dict by unpacking and removes the assignment line."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/payload = VALID$/payload = {**VALID, field: value}/' -e '/payload\\[field\\] = value/d' tests/test_items.py"
+        }
+      ]
+    },
+    {
+      "user": "fixed. 0 should be rejected too right? add that case",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "With gt=0, a price of 0 should give 422. The new case goes under the -1 line. Inside a list the indent would not break anything, but the sed captures the leading spaces anyway so the depth matches."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^\\( *\\)(\"price\", -1),$/&\\n\\1(\"price\", 0),/' tests/test_items.py"
+        }
+      ]
+    }
+  ]
+}

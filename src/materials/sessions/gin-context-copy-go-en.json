@@ -1,0 +1,44 @@
+{
+  "id": "gin-context-copy-go-en",
+  "title": "Do not hand *gin.Context to a goroutine",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "go",
+  "summary": "A goroutine read a Context that Gin had already recycled. Pass c.Copy() instead, and a ctx with the cancel taken off.",
+  "files": [
+    {
+      "path": "internal/handler/export.go",
+      "content": "package handler\n\nimport (\n  \"log\"\n  \"net/http\"\n\n  \"github.com/gin-gonic/gin\"\n)\n\ntype Auditor interface {\n  Record(userID, path, ip string) error\n}\n\nfunc Export(a Auditor) gin.HandlerFunc {\n  return func(c *gin.Context) {\n    go func() {\n      if err := a.Record(c.GetString(\"userID\"), c.FullPath(), c.ClientIP()); err != nil {\n        log.Printf(\"audit: %v\", err)\n      }\n    }()\n    c.JSON(http.StatusAccepted, gin.H{\"status\": \"accepted\"})\n  }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "audit log sometimes has the wrong user id. people who never hit export show up. only under load",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch! Gin pools *gin.Context, so the moment the handler returns, that c is handed to the next request. A goroutine reading c after that sees someone else's userID. The best practice is c.Copy(), a read only copy, and the goroutine gets that instead."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "return func(c *gin.Context) {\n  cp := c.Copy()\n  go func() {\n    if err := a.Record(cp.GetString(\"userID\"), cp.FullPath(), cp.ClientIP()); err != nil {\n      log.Printf(\"audit: %v\", err)\n    }\n  }()\n  c.JSON(http.StatusAccepted, gin.H{\"status\": \"accepted\"})\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "want to pass ctx to Record too, trace id lives in there. just cp.Request.Context()?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: that can cut Record off halfway. Copy does not duplicate the request, so cp.Request points at the same one. net/http cancels its context as soon as the handler finishes, and Record fails with context canceled. context.WithoutCancel, from Go 1.21, keeps the values such as the trace ID and drops only the cancel."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "type Auditor interface {\n  Record(ctx context.Context, userID, path, ip string) error\n}\n\nfunc Export(a Auditor) gin.HandlerFunc {\n  return func(c *gin.Context) {\n    cp := c.Copy()\n    ctx := context.WithoutCancel(cp.Request.Context())\n    go func() {\n      if err := a.Record(ctx, cp.GetString(\"userID\"), cp.FullPath(), cp.ClientIP()); err != nil {\n        log.Printf(\"audit: %v\", err)\n      }\n    }()\n    c.JSON(http.StatusAccepted, gin.H{\"status\": \"accepted\"})\n  }\n}\n"
+        }
+      ]
+    }
+  ]
+}

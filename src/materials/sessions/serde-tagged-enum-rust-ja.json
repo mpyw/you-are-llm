@@ -1,0 +1,46 @@
+{
+  "id": "serde-tagged-enum-rust-ja",
+  "title": "type で分岐する JSON を serde の enum で読む",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "rust",
+  "summary": "Value を手で match していたのを、tag = \"type\" の内部タグ付き enum に置き換える。",
+  "files": [
+    {
+      "path": "src/events.rs",
+      "content": "use serde_json::Value;\n\n#[derive(Debug)]\npub enum Event {\n    Click { x: i32, y: i32 },\n    Scroll { delta: i32 },\n}\n\npub fn parse(raw: &str) -> Option<Event> {\n    let value: Value = serde_json::from_str(raw).ok()?;\n    match value.get(\"type\")?.as_str()? {\n        \"click\" => Some(Event::Click {\n            x: value.get(\"x\")?.as_i64()? as i32,\n            y: value.get(\"y\")?.as_i64()? as i32,\n        }),\n        \"scroll\" => Some(Event::Scroll {\n            delta: value.get(\"delta\")?.as_i64()? as i32,\n        }),\n        _ => None,\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "フロントのイベント JSON、{\"type\": \"click\", \"x\": 1, \"y\": 2} みたいなやつ。Value で手で分岐してるんだけど None が返ってくるだけで何がダメなのか分からん。もうちょいマシにならん？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。#[serde(tag = \"type\")] を付けて、内部タグ付きの enum にします。serde が type の値でバリアントを選び、残りのフィールドをそのバリアントに詰めます。rename_all = \"snake_case\" は、Click を click に合わせるためのものです。失敗すると missing field `delta` のように理由付きの Error が返るので、Option を活用した手書きの分岐はまるごと要らなくなります。",
+          "reading": "しょうちしました。#[serde(tag = \"type\")] をつけて、ないぶたぐつきの enum にします。serde が type のあたいでばりあんとをえらび、のこりのふぃーるどをそのばりあんとにつめます。rename_all = \"snake_case\" は、Click を click にあわせるためのものです。しっぱいすると missing field `delta` のようにりゆうつきの Error がかえるので、Option をかつようしたてがきのぶんきはまるごといらなくなります。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use serde::Deserialize;\n\n#[derive(Debug, Deserialize)]\n#[serde(tag = \"type\", rename_all = \"snake_case\")]\npub enum Event {\n    Click { x: i32, y: i32 },\n    Scroll { delta: i32 },\n}\n\npub fn parse(raw: &str) -> serde_json::Result<Event> {\n    serde_json::from_str(raw)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "いい感じ。あ、key_press ってのも来るの忘れてた。あと知らん type が来たらエラーじゃなくて無視したい、アプリ側が勝手に増やすから",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: 知らない type を拾うには、フィールドを持たないユニットバリアントに #[serde(other)] を付けます。内部タグ付きの enum では、そのバリアントに来た余計なフィールドは読み捨てられます。KeyPress は snake_case で key_press になるので、名前はこのままで一致します。",
+          "reading": "Note: しらない type をひろうには、ふぃーるどをもたないゆにっとばりあんとに #[serde(other)] をつけます。ないぶたぐつきの enum では、そのばりあんとにきたよけいなふぃーるどはよみすてられます。KeyPress は snake_case で key_press になるので、なまえはこのままでいっちします。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "#[derive(Debug, Deserialize)]\n#[serde(tag = \"type\", rename_all = \"snake_case\")]\npub enum Event {\n    Click { x: i32, y: i32 },\n    Scroll { delta: i32 },\n    KeyPress { key: String },\n    #[serde(other)]\n    Unknown,\n}\n"
+        }
+      ]
+    }
+  ]
+}

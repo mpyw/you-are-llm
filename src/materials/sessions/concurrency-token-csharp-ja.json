@@ -1,0 +1,73 @@
+{
+  "id": "concurrency-token-csharp-ja",
+  "title": "同時編集の後勝ち上書きを防ぐ",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "csharp",
+  "summary": "記事を同時に編集すると後から保存した側が黙って上書きしていたのを、[Timestamp] の行バージョンで検出し、DbUpdateConcurrencyException を 409 にする。",
+  "files": [
+    {
+      "path": "src/Data/Article.cs",
+      "content": "namespace Acme.Data;\n\npublic class Article\n{\n    public int Id { get; set; }\n    public string Title { get; set; } = \"\";\n    public string Body { get; set; } = \"\";\n}\n"
+    },
+    {
+      "path": "src/Program.cs",
+      "content": "using Acme.Data;\nusing Microsoft.EntityFrameworkCore;\n\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddDbContext<BlogDbContext>(options =>\n    options.UseSqlServer(builder.Configuration.GetConnectionString(\"Blog\")));\n\nvar app = builder.Build();\n\napp.MapPut(\"/articles/{id:int}\", async (int id, ArticleUpdate input, BlogDbContext db) =>\n{\n    var article = await db.Articles.FindAsync(id);\n    if (article is null) return Results.NotFound();\n\n    article.Title = input.Title;\n    article.Body = input.Body;\n    await db.SaveChangesAsync();\n    return Results.NoContent();\n});\n\napp.Run();\n\npublic record ArticleUpdate(string Title, string Body);\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "記事を二人で同時に編集すると、後から保存した人の内容で丸ごと上書きされて先の人の変更が消える。エラーも何も出ない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、楽観的同時実行制御が入っていないのが原因です。今の UPDATE は WHERE Id = @id だけなので、誰かが間に更新していても気づけません。Article に [Timestamp] の RowVersion を足すと SQL Server の rowversion 列になり、EF Core は UPDATE の WHERE にその値を加えます。一致しなければ 0 行更新となり、DbUpdateConcurrencyException が投げられます。クライアントには GET で受け取った RowVersion を PUT で送り返してもらいます。",
+          "reading": "けつろんからいうと、らっかんてきどうじじっこうせいぎょがはいっていないのがげんいんです。いまの UPDATE は WHERE Id = @id だけなので、だれかがあいだにこうしんしていてもきづけません。Article に [Timestamp] の RowVersion をたすと SQL Server の rowversion れつになり、EF Core は UPDATE の WHERE にそのあたいをくわえます。いっちしなければ 0 ぎょうこうしんとなり、DbUpdateConcurrencyException がなげられます。くらいあんとには GET でうけとった RowVersion を PUT でおくりかえしてもらいます。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using System.ComponentModel.DataAnnotations;\n\nnamespace Acme.Data;\n\npublic class Article\n{\n    public int Id { get; set; }\n    public string Title { get; set; } = \"\";\n    public string Body { get; set; } = \"\";\n\n    [Timestamp]\n    public byte[] RowVersion { get; set; } = [];\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "dotnet ef migrations add AddArticleRowVersion"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using Microsoft.AspNetCore.Http.HttpResults;\n\napp.MapPut(\"/articles/{id:int}\", async Task<Results<NoContent, NotFound, Conflict>> (int id, ArticleUpdate input, BlogDbContext db) =>\n{\n    var article = await db.Articles.FindAsync(id);\n    if (article is null) return TypedResults.NotFound();\n\n    article.Title = input.Title;\n    article.Body = input.Body;\n    article.RowVersion = input.RowVersion;\n    try\n    {\n        await db.SaveChangesAsync();\n    }\n    catch (DbUpdateConcurrencyException)\n    {\n        return TypedResults.Conflict();\n    }\n    return TypedResults.NoContent();\n});\n\npublic record ArticleUpdate(string Title, string Body, byte[] RowVersion);\n"
+        }
+      ]
+    },
+    {
+      "user": "古いタブの RowVersion 送ってみたけど普通に保存された。409 にならない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、先ほどの実装は正しくありませんでした。article.RowVersion への代入は現在値を変えるだけで、EF Core が WHERE に使うのは読み込んだ時点の元の値です。FindAsync で読み直した直後なので元の値は常に最新で、比較は必ず通ります。クライアントの値は Entry の OriginalValue に入れる必要がある点に注意することが重要です。",
+          "reading": "あらためてかくにんしたところ、さきほどのじっそうはただしくありませんでした。article.RowVersion へのだいにゅうはげんざいちをかえるだけで、EF Core が WHERE につかうのはよみこんだじてんのもとのあたいです。FindAsync でよみなおしたちょくごなのでもとのあたいはつねにさいしんで、ひかくはかならずとおります。くらいあんとのあたいは Entry の OriginalValue にいれるひつようがあるてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/article\\.RowVersion = input\\.RowVersion;/db.Entry(article).Property(a => a.RowVersion).OriginalValue = input.RowVersion;/' src/Program.cs"
+        }
+      ]
+    },
+    {
+      "user": "409 だけ返されてもフロントで何が変わったのか出せない。今の DB の中身も返して。あと相手が消してたらどうなんの",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、例外の Entries から GetDatabaseValuesAsync で DB の最新値を取り直し、409 の本文に載せます。相手が削除していた場合は null が返るので 404 に倒します。堅牢性の観点から、返す値には最新の RowVersion も含まれるので、クライアントはそれを付けて再送できます。",
+          "reading": "Now、れいがいの Entries から GetDatabaseValuesAsync で DB のさいしんちをとりなおし、409 のほんぶんにのせます。あいてがさくじょしていたばあいは null がかえるので 404 にたおします。けんろうせいのかんてんから、かえすあたいにはさいしんの RowVersion もふくまれるので、くらいあんとはそれをつけてさいそうできます。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "app.MapPut(\"/articles/{id:int}\", async Task<Results<NoContent, NotFound, Conflict<Article>>> (int id, ArticleUpdate input, BlogDbContext db) =>\n{\n    var article = await db.Articles.FindAsync(id);\n    if (article is null) return TypedResults.NotFound();\n\n    article.Title = input.Title;\n    article.Body = input.Body;\n    db.Entry(article).Property(a => a.RowVersion).OriginalValue = input.RowVersion;\n    try\n    {\n        await db.SaveChangesAsync();\n    }\n    catch (DbUpdateConcurrencyException ex)\n    {\n        var current = await ex.Entries.Single().GetDatabaseValuesAsync();\n        if (current is null) return TypedResults.NotFound();\n        return TypedResults.Conflict((Article)current.ToObject());\n    }\n    return TypedResults.NoContent();\n});\n"
+        }
+      ]
+    }
+  ]
+}

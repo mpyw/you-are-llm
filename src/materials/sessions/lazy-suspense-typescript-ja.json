@@ -1,0 +1,84 @@
+{
+  "id": "lazy-suspense-typescript-ja",
+  "title": "重い画面を React.lazy と Suspense で遅延読み込みする",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "typescript",
+  "summary": "名前付き export を lazy に通し、チャンクの読み込み失敗を Error Boundary で受け止める。",
+  "files": [
+    {
+      "path": "src/App.tsx",
+      "content": "import { useState } from 'react'\nimport { ReportPage } from './pages/ReportPage'\n\nexport function App() {\n  const [showReport, setShowReport] = useState(false)\n\n  return (\n    <main>\n      <button onClick={() => setShowReport(true)}>Open report</button>\n      {showReport && <ReportPage />}\n    </main>\n  )\n}\n"
+    },
+    {
+      "path": "src/pages/ReportPage.tsx",
+      "content": "import { ReportChart } from '../charts/ReportChart'\n\nexport function ReportPage() {\n  return (\n    <section>\n      <h1>Monthly report</h1>\n      <ReportChart />\n    </section>\n  )\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "ReportPage がグラフのライブラリ込みで重くて初回ロード遅い。開いたときだけ読み込むようにできる？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい質問です。React.lazy で動的 import を包み、Suspense で読み込み中の表示を出せば、ReportPage は別のチャンクに分かれ、ボタンを押したときに初めて取りに行きます。",
+          "reading": "すばらしいしつもんです。React.lazy でどうてき import をつつみ、Suspense でよみこみちゅうのひょうじをだせば、ReportPage はべつのちゃんくにわかれ、ぼたんをおしたときにはじめてとりにいきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { lazy, Suspense, useState } from 'react'\n\nconst ReportPage = lazy(() => import('./pages/ReportPage'))\n\nexport function App() {\n  const [showReport, setShowReport] = useState(false)\n\n  return (\n    <main>\n      <button onClick={() => setShowReport(true)}>Open report</button>\n      {showReport && (\n        <Suspense fallback={<p>Loading...</p>}>\n          <ReportPage />\n        </Suspense>\n      )}\n    </main>\n  )\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "型エラー。Property 'default' is missing in type ... って",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、先ほどのコードは正確ではありませんでした。lazy は default export を持つモジュールを返す Promise を要求しますが、ReportPage は名前付き export です。ReportPage 側を default export に変える手もありますが、ほかの場所の import が壊れます。then で default に詰め替えれば、ReportPage.tsx には触らずに済みます。",
+          "reading": "あらためてかくにんしたところ、さきほどのこーどはせいかくではありませんでした。lazy は default export をもつもじゅーるをかえす Promise をようきゅうしますが、ReportPage はなまえつき export です。ReportPage がわを default export にかえるてもありますが、ほかのばしょの import がこわれます。then で default につめかえれば、ReportPage.tsx にはさわらずにすみます。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "const ReportPage = lazy(() =>\n  import('./pages/ReportPage').then((m) => ({ default: m.ReportPage })),\n)\n"
+        }
+      ]
+    },
+    {
+      "user": "動いた。けど電車でオフラインのとき開いたら画面ごと真っ白になった",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、Error Boundary が足りていません。チャンクの取得に失敗すると lazy はそのエラーを描画中に投げ、受け止める境界がなければツリー全体がアンマウントされます。Error Boundary は今もクラスコンポーネントでしか書けないので、1 つ用意して Suspense の外側を包みます。Note: lazy は失敗した結果を覚えていて、境界をリセットしても同じエラーが返るため、復帰はページの再読み込みに任せます。",
+          "reading": "けつろんからいうと、Error Boundary がたりていません。ちゃんくのしゅとくにしっぱいすると lazy はそのえらーをびょうがちゅうになげ、うけとめるきょうかいがなければつりーぜんたいがあんまうんとされます。Error Boundary はいまもくらすこんぽーねんとでしかかけないので、1 つよういして Suspense のそとがわをつつみます。Note: lazy はしっぱいしたけっかをおぼえていて、きょうかいをりせっとしてもおなじえらーがかえるため、ふっきはぺーじのさいよみこみにまかせます。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { Component, type ErrorInfo, type ReactNode } from 'react'\n\ntype Props = { fallback: ReactNode; children: ReactNode }\ntype State = { error: Error | null }\n\nexport class ErrorBoundary extends Component<Props, State> {\n  override state: State = { error: null }\n\n  static getDerivedStateFromError(error: Error): State {\n    return { error }\n  }\n\n  override componentDidCatch(error: Error, info: ErrorInfo) {\n    console.error(error, info.componentStack)\n  }\n\n  override render() {\n    if (this.state.error !== null) return this.props.fallback\n    return this.props.children\n  }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { ErrorBoundary } from './components/ErrorBoundary'\n\n{showReport && (\n  <ErrorBoundary\n    fallback={\n      <p role=\"alert\">\n        Could not load the report.{' '}\n        <button onClick={() => location.reload()}>Reload</button>\n      </p>\n    }\n  >\n    <Suspense fallback={<p>Loading...</p>}>\n      <ReportPage />\n    </Suspense>\n  </ErrorBoundary>\n)}\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、pages 整理して ReportPage は pages/reports/ に移した",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。動的 import のパスは 1 か所だけなので sed で書き換えます。以上で、読み込み中も読み込み失敗も画面に出るようになります。",
+          "reading": "しょうちしました。どうてき import のぱすは 1 かしょだけなので sed でかきかえます。いじょうで、よみこみちゅうもよみこみしっぱいもがめんにでるようになります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' \"s#import('./pages/ReportPage')#import('./pages/reports/ReportPage')#\" src/App.tsx"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "id": "tracing-instrument-rust-en",
+  "title": "Moving println! to tracing leaked the API key",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "rust",
+  "summary": "Turn println! into tracing events under #[instrument], then stop the secret and a huge Vec reaching every span with skip.",
+  "files": [
+    {
+      "path": "src/sync.rs",
+      "content": "use serde::Serialize;\n\nuse crate::client::PushError;\n\npub struct Client {\n    pub base_url: String,\n    pub api_key: String,\n}\n\n#[derive(Serialize)]\npub struct Order {\n    pub id: u64,\n    pub total: u64,\n}\n\npub async fn sync_orders(client: &Client, orders: Vec<Order>) -> Result<usize, PushError> {\n    println!(\"sync start: {} orders\", orders.len());\n    let mut sent = 0;\n    for order in &orders {\n        println!(\"sending order {}\", order.id);\n        match client.push(order).await {\n            Ok(()) => sent += 1,\n            Err(error) => println!(\"push failed for order {}: {}\", order.id, error),\n        }\n    }\n    println!(\"sync done: {} sent\", sent);\n    Ok(sent)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "the sync batch logs are all println!, and in prod runs overlap so i cant tell which line belongs to which run. move it to tracing",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the plan. println! becomes info!, debug! and warn!, and sync_orders gets #[instrument]. Every event inside the function then hangs off a sync_orders span, which ensures each run can be told apart even when they overlap. Values go in as structured fields like order_id = order.id instead of being formatted into the message. #[instrument] records arguments with Debug, so I added #[derive(Debug)] to Client and Order. Call tracing_subscriber::fmt::init() once in main."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use serde::Serialize;\nuse tracing::{debug, info, instrument, warn};\n\nuse crate::client::PushError;\n\n#[derive(Debug)]\npub struct Client {\n    pub base_url: String,\n    pub api_key: String,\n}\n\n#[derive(Debug, Serialize)]\npub struct Order {\n    pub id: u64,\n    pub total: u64,\n}\n\n#[instrument]\npub async fn sync_orders(client: &Client, orders: Vec<Order>) -> Result<usize, PushError> {\n    info!(count = orders.len(), \"sync start\");\n    let mut sent = 0;\n    for order in &orders {\n        debug!(order_id = order.id, \"sending\");\n        match client.push(order).await {\n            Ok(()) => sent += 1,\n            Err(error) => warn!(order_id = order.id, %error, \"push failed\"),\n        }\n    }\n    info!(sent, \"sync done\");\n    Ok(sent)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ok logs show up. but in the log backend every single line has the api_key in plain text. and all 10k orders get dumped too, lines are several MB. this is bad",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Important correction. By default #[instrument] records every argument as a field on the span, and every event inside the span is printed with those fields. That is how the api_key and all 10k orders end up on every line. Deriving Debug just to make it compile was my mistake. skip(client, orders) keeps them out, and fields(count = orders.len()) keeps only the count, so the count on sync start goes. The derive on Client goes too, or the next person to write ?client leaks it again. Order derives Debug, Serialize, so the delete leaves it alone."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e '/^#\\[derive(Debug)\\]$/d' -e 's/^#\\[instrument\\]$/#[instrument(skip(client, orders), fields(count = orders.len()))]/' -e 's/info!(count = orders.len(), \"sync start\")/info!(\"sync start\")/' src/sync.rs"
+        }
+      ]
+    },
+    {
+      "user": "fixed. also want a span per order, so logs from inside push say which order. span.enter() is fine for that right?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Caveat: holding the guard from span.enter() across an await leaves the span entered while the task is suspended, so whatever task runs next on that thread logs inside it too. The span should live exactly as long as the future, which is what .instrument(span) does. Wrap push and the warn! in an async block and instrument the block with an order_id span. Add info_span and Instrument to the use line."
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "use tracing::{debug, info, info_span, instrument, warn, Instrument};\n\nfor order in &orders {\n    let span = info_span!(\"push\", order_id = order.id);\n    async {\n        debug!(\"sending\");\n        match client.push(order).await {\n            Ok(()) => sent += 1,\n            Err(error) => warn!(%error, \"push failed\"),\n        }\n    }\n    .instrument(span)\n    .await;\n}\n"
+        }
+      ]
+    }
+  ]
+}

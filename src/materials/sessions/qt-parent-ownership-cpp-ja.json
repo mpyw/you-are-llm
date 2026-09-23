@@ -1,0 +1,50 @@
+{
+  "id": "qt-parent-ownership-cpp-ja",
+  "title": "アプリを閉じるときだけ落ちる",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "cpp",
+  "summary": "スタックの QLabel を親に渡して二重解放、親のないダイアログはリーク。Qt の親子所有に任せる。",
+  "files": [
+    {
+      "path": "src/main.cpp",
+      "content": "#include <QApplication>\n#include <QLabel>\n#include <QStatusBar>\n\n#include \"mainwindow.h\"\n\nint main(int argc, char *argv[])\n{\n    QApplication app(argc, argv);\n\n    QLabel status(QStringLiteral(\"Ready\"));\n    MainWindow window;\n    window.statusBar()->addWidget(&status);\n    window.show();\n\n    return app.exec();\n}\n"
+    },
+    {
+      "path": "src/ui/mainwindow.cpp",
+      "content": "#include \"mainwindow.h\"\n\n#include \"settingsdialog.h\"\n\nvoid MainWindow::openSettings()\n{\n    auto *dialog = new SettingsDialog;\n    dialog->show();\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "アプリ閉じるときだけ落ちる。pointer being freed was not allocated って出てる。main.cpp 見て",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。原因は、スタックに置いた QLabel を親子関係に渡している点です。addWidget はラベルの親をステータスバーに付け替えるので、ラベルの所有権はウィンドウ側に移ります。main を抜けるときは後に宣言した window から破棄され、その子として status も delete されますが、status はスタック上の変数なので、ここで解放できないポインタを解放しようとして落ちます。new で作って親に渡せば、破棄はステータスバーが一度だけ行うことを保証します。",
+          "reading": "しょうちしました。げんいんは、すたっくにおいた QLabel をおやこかんけいにわたしているてんです。addWidget はらべるのおやをすてーたすばーにつけかえるので、らべるのしょゆうけんはうぃんどうがわにうつります。main をぬけるときはあとにせんげんした window からはきされ、そのことして status も delete されますが、status はすたっくじょうのへんすうなので、ここでかいほうできないぽいんたをかいほうしようとしておちます。new でつくっておやにわたせば、はきはすてーたすばーがいちどだけおこなうことをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "int main(int argc, char *argv[])\n{\n    QApplication app(argc, argv);\n\n    MainWindow window;\n    auto *status = new QLabel(QStringLiteral(\"Ready\"));\n    window.statusBar()->addWidget(status);\n    window.show();\n\n    return app.exec();\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "直った。ついでに聞くけど設定画面開くたびにメモリ増えてく気がする。これも同じ系？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "良い質問です。同じ系統ですが、向きが逆です。こちらは親を渡していないので、閉じても誰も delete せず、開くたびに SettingsDialog が一つずつ残ります。this を親にしたうえで、Qt::WA_DeleteOnClose を立てて、閉じたときに自分で消えるようにします。親を渡すだけだと、MainWindow が消えるまで溜まり続ける点に注意することが重要です。",
+          "reading": "よいしつもんです。おなじけいとうですが、むきがぎゃくです。こちらはおやをわたしていないので、とじてもだれも delete せず、ひらくたびに SettingsDialog がひとつずつのこります。this をおやにしたうえで、Qt::WA_DeleteOnClose をたてて、とじたときにじぶんできえるようにします。おやをわたすだけだと、MainWindow がきえるまでたまりつづけるてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "void MainWindow::openSettings()\n{\n    auto *dialog = new SettingsDialog(this);\n    dialog->setAttribute(Qt::WA_DeleteOnClose);\n    dialog->show();\n}\n"
+        }
+      ]
+    }
+  ]
+}

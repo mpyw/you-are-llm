@@ -1,0 +1,46 @@
+{
+  "id": "nlohmann-json-cpp-ja",
+  "title": "設定ファイルにキーが無いと落ちる",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "cpp",
+  "summary": "nlohmann/json の operator[] は無いキーに null を作る。必須は at()、任意は value()、有無は contains() で読む。",
+  "files": [
+    {
+      "path": "src/config/load.cpp",
+      "content": "#include <fstream>\n#include <string>\n\n#include <nlohmann/json.hpp>\n\nusing json = nlohmann::json;\n\nstruct Config {\n  std::string host;\n  int port;\n  int timeout_ms;\n};\n\nConfig load_config(const std::string& path) {\n  std::ifstream in(path);\n  json j = json::parse(in);\n\n  Config config;\n  config.host = j[\"host\"];\n  config.port = j[\"port\"];\n  config.timeout_ms = j[\"timeout_ms\"];\n  return config;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "timeout_ms 書いてない config.json 読ませると type must be number, but is null で落ちる。これ省略可にしたいんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。原因は、const でない json に対する operator[] です。キーが無いとその場で null の要素を挿入して返すので、int への変換で type_error が投げられます。言い換えると、読んだだけで j の中身が書き換わっています。必須の host と port は at() に変えます。無いときは、どのキーが無いかを書いた out_of_range が投げられます。省略できる timeout_ms は value() で既定値を渡します。",
+          "reading": "しょうちしました。げんいんは、const でない json にたいする operator[] です。きーがないとそのばで null のようそをそうにゅうしてかえすので、int へのへんかんで type_error がなげられます。いいかえると、よんだだけで j のなかみがかきかわっています。ひっすの host と port は at() にかえます。ないときは、どのきーがないかをかいた out_of_range がなげられます。しょうりゃくできる timeout_ms は value() できていちをわたします。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "  Config config;\n  config.host = j.at(\"host\").get<std::string>();\n  config.port = j.at(\"port\").get<int>();\n  config.timeout_ms = j.value(\"timeout_ms\", 3000);\n  return config;\n"
+        }
+      ]
+    },
+    {
+      "user": "あ、tls ってブロックがあるときだけ cert のパス読みたい。無ければ平文でいい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Note: 有無の確認に j[\"tls\"].is_null() を使うと、確認しただけで null の tls が作られてしまう点に注意することが重要です。contains() はキーを作りません。Config に std::string cert_path を足して、次のように読みます。",
+          "reading": "Note: うむのかくにんに j[\"tls\"].is_null() をつかうと、かくにんしただけで null の tls がつくられてしまうてんにちゅういすることがじゅうようです。contains() はきーをつくりません。Config に std::string cert_path をたして、つぎのようによみます。"
+        },
+        {
+          "kind": "code",
+          "lang": "cpp",
+          "body": "  if (j.contains(\"tls\")) {\n    config.cert_path = j.at(\"tls\").at(\"cert\").get<std::string>();\n  }\n"
+        }
+      ]
+    }
+  ]
+}

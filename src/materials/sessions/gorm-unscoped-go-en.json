@@ -1,0 +1,82 @@
+{
+  "id": "gorm-unscoped-go-en",
+  "title": "Soft deleted rows break a unique index and a report",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "go",
+  "summary": "Admit a composite unique index lets NULLs through, switch to a partial index, and use Unscoped to count and restore.",
+  "files": [
+    {
+      "path": "internal/user/model.go",
+      "content": "package user\n\nimport \"gorm.io/gorm\"\n\ntype User struct {\n  ID        uint\n  Email     string         `gorm:\"uniqueIndex\"`\n  Plan      string\n  DeletedAt gorm.DeletedAt `gorm:\"index\"`\n}\n"
+    },
+    {
+      "path": "internal/user/report.go",
+      "content": "package user\n\nimport (\n  \"time\"\n\n  \"gorm.io/gorm\"\n)\n\nfunc CountChurned(db *gorm.DB, from, to time.Time) (int64, error) {\n  var n int64\n  err := db.Model(&User{}).\n    Where(\"deleted_at >= ? AND deleted_at < ?\", from, to).\n    Count(&n).Error\n  return n, err\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "user deletes account, signs up again with same email -> duplicate key value violates unique constraint \"idx_users_email\". postgres",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! With gorm.DeletedAt on the model, Delete does not remove the row. It only fills in deleted_at. The row stays, so the unique index on email still collides with the deleted one. Let's put deleted_at into the index and make email and deleted_at unique as a pair. AutoMigrate never drops an old index, so idx_users_email goes by hand."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "type User struct {\n  ID        uint\n  Email     string         `gorm:\"uniqueIndex:idx_users_email_deleted\"`\n  Plan      string\n  DeletedAt gorm.DeletedAt `gorm:\"uniqueIndex:idx_users_email_deleted\"`\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "psql \"$DATABASE_URL\" -c 'DROP INDEX idx_users_email'"
+        }
+      ]
+    },
+    {
+      "user": "now two live users can have the same email. test inserted 2",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "You're right, and my previous answer was incorrect. A PostgreSQL unique index treats every NULL as distinct, so two live rows with deleted_at NULL never collide, whatever their email. Only live rows need protecting, so the index becomes partial, WHERE deleted_at IS NULL. The GORM tag accepts a where option for that."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e '/Email/s/uniqueIndex:idx_users_email_deleted/uniqueIndex:idx_users_email_live,where:deleted_at IS NULL/' -e '/DeletedAt/s/uniqueIndex:idx_users_email_deleted/index/' internal/user/model.go"
+        },
+        {
+          "kind": "command",
+          "body": "psql \"$DATABASE_URL\" -c 'DROP INDEX idx_users_email_deleted'"
+        }
+      ]
+    },
+    {
+      "user": "also the monthly churn report always says 0. pretty sure people left last month",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Here's the cause. GORM adds deleted_at IS NULL to every query on a model with DeletedAt. No row can satisfy that and a deleted_at range at once, so the count is always 0. Unscoped drops that condition when you mean to count deleted rows."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/err := db\\.Model/err := db.Unscoped().Model/' internal/user/report.go"
+        }
+      ]
+    },
+    {
+      "user": "actually when someone comes back, restore the old account instead of making a new one. keep their plan",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Unscoped is needed here too. Note: the soft delete condition is added to Update as well, so without Unscoped it updates 0 rows and says nothing. Someone who left twice has more than one deleted row, so pick the latest. If a live row already exists, the partial index refuses the restore."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "func Restore(db *gorm.DB, email string) error {\n  var u User\n  err := db.Unscoped().\n    Where(\"email = ? AND deleted_at IS NOT NULL\", email).\n    Order(\"deleted_at DESC\").\n    First(&u).Error\n  if err != nil {\n    return err\n  }\n  return db.Unscoped().Model(&u).Update(\"deleted_at\", nil).Error\n}\n"
+        }
+      ]
+    }
+  ]
+}

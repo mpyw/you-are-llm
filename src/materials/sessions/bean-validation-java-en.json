@@ -1,0 +1,52 @@
+{
+  "id": "bean-validation-java-en",
+  "title": "@NotBlank is there and nothing gets validated",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "java",
+  "summary": "The DTO is covered in constraints, but without @Valid an empty value goes straight through.",
+  "files": [
+    {
+      "path": "src/main/java/com/example/user/SignupRequest.java",
+      "content": "package com.example.user;\n\nimport jakarta.validation.constraints.Email;\nimport jakarta.validation.constraints.NotBlank;\nimport jakarta.validation.constraints.Size;\n\npublic record SignupRequest(\n        @NotBlank @Email String email,\n        @NotBlank @Size(min = 8, max = 64) String password,\n        AddressRequest address) {\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/user/AddressRequest.java",
+      "content": "package com.example.user;\n\nimport jakarta.validation.constraints.NotBlank;\n\npublic record AddressRequest(\n        @NotBlank String postalCode,\n        @NotBlank String city) {\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/user/UserController.java",
+      "content": "package com.example.user;\n\nimport org.springframework.http.HttpStatus;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.ResponseStatus;\nimport org.springframework.web.bind.annotation.RestController;\n\n@RestController\npublic class UserController {\n    private final UserService userService;\n\n    public UserController(UserService userService) {\n        this.userService = userService;\n    }\n\n    @PostMapping(\"/users\")\n    @ResponseStatus(HttpStatus.CREATED)\n    public UserResponse signup(@RequestBody SignupRequest request) {\n        return userService.register(request);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "put @NotBlank and @Email on SignupRequest and I can still sign up with an empty string. why",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Short answer: the controller parameter has no @Valid. Constraint annotations do nothing on their own. Spring only validates a parameter marked @Valid or @Validated. With it, a violation throws MethodArgumentNotValidException before the method runs, which guarantees a 400. Note: since Boot 2.3 the validator itself only exists if spring-boot-starter-validation is on the classpath."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import jakarta.validation.Valid;\n\n@PostMapping(\"/users\")\n@ResponseStatus(HttpStatus.CREATED)\npublic UserResponse signup(@Valid @RequestBody SignupRequest request) {\n    return userService.register(request);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "ok 400 now. but an empty postalCode inside address still passes. actually no address at all passes too",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Got it. Validation does not walk into a nested object by itself. Put @Valid on the field too and AddressRequest gets checked. @Valid lets null through, though, so making address required also takes @NotNull."
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import jakarta.validation.Valid;\nimport jakarta.validation.constraints.NotNull;\n\npublic record SignupRequest(\n        @NotBlank @Email String email,\n        @NotBlank @Size(min = 8, max = 64) String password,\n        @Valid @NotNull AddressRequest address) {\n}\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "id": "testify-require-go-en",
+  "title": "Nil pointer panic right after assert.NoError",
+  "language": "en",
+  "difficulty": "easy",
+  "codeLanguage": "go",
+  "summary": "assert keeps going after a failure, so the checks later lines depend on become require.",
+  "files": [
+    {
+      "path": "internal/user/repo_test.go",
+      "content": "package user\n\nimport (\n  \"testing\"\n\n  \"github.com/stretchr/testify/assert\"\n)\n\nfunc TestFindByEmail(t *testing.T) {\n  repo := newTestRepo(t)\n\n  u, err := repo.FindByEmail(\"alice@example.com\")\n  assert.NoError(t, err)\n  assert.Equal(t, \"Alice\", u.Name)\n  assert.Equal(t, \"pro\", u.Plan)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "FindByEmail test panics with nil pointer dereference. and the other tests in the package dont report anything after that",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch. assert.NoError records the failure and lets the test carry on. When err comes back, u is nil, so u.Name on the next line panics and takes the whole test binary down with it. That is why the other tests go quiet. Let's make the preconditions require. require calls t.FailNow the moment it fails and leaves the test function."
+        },
+        {
+          "kind": "code",
+          "lang": "go",
+          "body": "import (\n  \"testing\"\n\n  \"github.com/stretchr/testify/assert\"\n  \"github.com/stretchr/testify/require\"\n)\n\nfunc TestFindByEmail(t *testing.T) {\n  repo := newTestRepo(t)\n\n  u, err := repo.FindByEmail(\"alice@example.com\")\n  require.NoError(t, err)\n  require.NotNil(t, u)\n  assert.Equal(t, \"Alice\", u.Name)\n  assert.Equal(t, \"pro\", u.Plan)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "so just use require everywhere?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: no. The question is whether a later line depends on the result. The Name and Plan checks are independent, so leaving them as assert shows both mismatches in one run. Here's how to find the same shape elsewhere."
+        },
+        {
+          "kind": "command",
+          "body": "grep -rn -A1 'assert.NoError' --include='*_test.go' ."
+        }
+      ]
+    }
+  ]
+}

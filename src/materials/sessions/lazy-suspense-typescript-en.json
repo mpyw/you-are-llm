@@ -1,0 +1,80 @@
+{
+  "id": "lazy-suspense-typescript-en",
+  "title": "Lazy load a heavy page with React.lazy and Suspense",
+  "language": "en",
+  "difficulty": "expert",
+  "codeLanguage": "typescript",
+  "summary": "Pass a named export through lazy, then catch a failed chunk load with an Error Boundary.",
+  "files": [
+    {
+      "path": "src/App.tsx",
+      "content": "import { useState } from 'react'\nimport { ReportPage } from './pages/ReportPage'\n\nexport function App() {\n  const [showReport, setShowReport] = useState(false)\n\n  return (\n    <main>\n      <button onClick={() => setShowReport(true)}>Open report</button>\n      {showReport && <ReportPage />}\n    </main>\n  )\n}\n"
+    },
+    {
+      "path": "src/pages/ReportPage.tsx",
+      "content": "import { ReportChart } from '../charts/ReportChart'\n\nexport function ReportPage() {\n  return (\n    <section>\n      <h1>Monthly report</h1>\n      <ReportChart />\n    </section>\n  )\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "ReportPage pulls in a chart lib and first load is slow. can it load only when opened?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! Wrap a dynamic import in React.lazy and show a fallback with Suspense. ReportPage then lands in its own chunk and is fetched the first time the button is pressed."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { lazy, Suspense, useState } from 'react'\n\nconst ReportPage = lazy(() => import('./pages/ReportPage'))\n\nexport function App() {\n  const [showReport, setShowReport] = useState(false)\n\n  return (\n    <main>\n      <button onClick={() => setShowReport(true)}>Open report</button>\n      {showReport && (\n        <Suspense fallback={<p>Loading...</p>}>\n          <ReportPage />\n        </Suspense>\n      )}\n    </main>\n  )\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "type error. Property 'default' is missing in type ...",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. lazy expects a promise of a module with a default export, and ReportPage is a named export. Making it a default export would work, but it breaks every other import of it. Mapping it onto default in a then leaves ReportPage.tsx untouched."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "const ReportPage = lazy(() =>\n  import('./pages/ReportPage').then((m) => ({ default: m.ReportPage })),\n)\n"
+        }
+      ]
+    },
+    {
+      "user": "works. but opened it offline on the train and the whole screen went blank",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: there is no Error Boundary. When the chunk fails to load, lazy throws that error during render, and with nothing to catch it the whole tree unmounts. Error Boundaries can still only be class components, so write one and wrap it around the Suspense. Note: lazy remembers the failed result, so resetting the boundary just throws the same error again. Recovery is left to a page reload."
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { Component, type ErrorInfo, type ReactNode } from 'react'\n\ntype Props = { fallback: ReactNode; children: ReactNode }\ntype State = { error: Error | null }\n\nexport class ErrorBoundary extends Component<Props, State> {\n  override state: State = { error: null }\n\n  static getDerivedStateFromError(error: Error): State {\n    return { error }\n  }\n\n  override componentDidCatch(error: Error, info: ErrorInfo) {\n    console.error(error, info.componentStack)\n  }\n\n  override render() {\n    if (this.state.error !== null) return this.props.fallback\n    return this.props.children\n  }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { ErrorBoundary } from './components/ErrorBoundary'\n\n{showReport && (\n  <ErrorBoundary\n    fallback={\n      <p role=\"alert\">\n        Could not load the report.{' '}\n        <button onClick={() => location.reload()}>Reload</button>\n      </p>\n    }\n  >\n    <Suspense fallback={<p>Loading...</p>}>\n      <ReportPage />\n    </Suspense>\n  </ErrorBoundary>\n)}\n"
+        }
+      ]
+    },
+    {
+      "user": "oh i reorganized pages, ReportPage is in pages/reports/ now",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Sure. The dynamic import path is in one place, so sed will do. With that, both the loading state and a failed load show up on screen."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' \"s#import('./pages/ReportPage')#import('./pages/reports/ReportPage')#\" src/App.tsx"
+        }
+      ]
+    }
+  ]
+}

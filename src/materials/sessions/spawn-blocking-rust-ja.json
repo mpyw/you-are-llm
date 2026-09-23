@@ -1,0 +1,60 @@
+{
+  "id": "spawn-blocking-rust-ja",
+  "title": "bcrypt がランタイムを詰まらせる",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "rust",
+  "summary": "async ハンドラで直に回していた bcrypt を spawn_blocking に逃がし、move の付け忘れで E0373 を出す。",
+  "files": [
+    {
+      "path": "src/handlers.rs",
+      "content": "use axum::{http::StatusCode, Json};\nuse serde::Deserialize;\n\nuse crate::db;\n\n#[derive(Deserialize)]\npub struct SignUp {\n    pub email: String,\n    pub password: String,\n}\n\npub async fn sign_up(Json(body): Json<SignUp>) -> Result<StatusCode, StatusCode> {\n    let hash = bcrypt::hash(&body.password, 12).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;\n    db::save_user(&body.email, &hash)\n        .await\n        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;\n    Ok(StatusCode::CREATED)\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "サインアップが混むと /health まで返ってこなくなる。DB は暇そうなんだけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、原因は bcrypt::hash です。cost 12 のハッシュは 1 回で数百ミリ秒 CPU を占有し、その間 await に到達しないので、同じワーカースレッドに載った他のタスクが一切進みません。tokio::task::spawn_blocking でブロッキング用のスレッドプールに逃がすのがベストプラクティスです。await の結果は JoinError と BcryptError の二重の Result になるので、map_err を 2 回かけます。",
+          "reading": "けつろんからいうと、げんいんは bcrypt::hash です。cost 12 のはっしゅは 1 かいですうひゃくみりびょう CPU をせんゆうし、そのあいだ await にとうたつしないので、おなじわーかーすれっどにのったほかのたすくがいっさいすすみません。tokio::task::spawn_blocking でぶろっきんぐようのすれっどぷーるににがすのがべすとぷらくてぃすです。await のけっかは JoinError と BcryptError のにじゅうの Result になるので、map_err を 2 かいかけます。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "pub async fn sign_up(Json(body): Json<SignUp>) -> Result<StatusCode, StatusCode> {\n    let hash = tokio::task::spawn_blocking(|| bcrypt::hash(&body.password, 12))\n        .await\n        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?\n        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;\n    db::save_user(&body.email, &hash)\n        .await\n        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;\n    Ok(StatusCode::CREATED)\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "cargo build したら E0373。closure may outlive the current function, but it borrows `body.password` だって",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどのクロージャに move を付け忘れていました。spawn_blocking は別スレッドで動くので、クロージャに 'static を要求します。借用のままだと、ハンドラが先に返った後も body.password を指し続けられてしまうため、コンパイラが止めます。move を付けても、Rust 2021 以降のクロージャはフィールド単位でキャプチャするので、ムーブされるのは body.password だけです。後ろの body.email はそのまま使えます。",
+          "reading": "もうしわけありません。さきほどのくろーじゃに move をつけわすれていました。spawn_blocking はべつすれっどでうごくので、くろーじゃに 'static をようきゅうします。しゃくようのままだと、はんどらがさきにかえったあとも body.password をさしつづけられてしまうため、こんぱいらがとめます。move をつけても、Rust 2021 いこうのくろーじゃはふぃーるどたんいできゃぷちゃするので、むーぶされるのは body.password だけです。うしろの body.email はそのままつかえます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/spawn_blocking(|| /spawn_blocking(move || /' src/handlers.rs"
+        }
+      ]
+    },
+    {
+      "user": "通った。ログインの verify も同じくらい重いんだよね？そっちもお願い。あ、ユーザーいなかったら 401 で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "おっしゃるとおり、bcrypt::verify は保存済みのハッシュと同じ cost で計算し直すので、hash と同じだけ重いです。同じ形で spawn_blocking に載せ、ハッシュも move でクロージャに渡します。db::find_hash は Option<String> を返す想定で、ユーザーが見つからなければ ok_or で 401 を返します。言い換えると、ログインが何件来ても /health は返り続けます。",
+          "reading": "おっしゃるとおり、bcrypt::verify はほぞんずみのはっしゅとおなじ cost でけいさんしなおすので、hash とおなじだけおもいです。おなじかたちで spawn_blocking にのせ、はっしゅも move でくろーじゃにわたします。db::find_hash は Option<String> をかえすそうていで、ゆーざーがみつからなければ ok_or で 401 をかえします。いいかえると、ろぐいんがなんけんきても /health はかえりつづけます。"
+        },
+        {
+          "kind": "code",
+          "lang": "rust",
+          "body": "#[derive(Deserialize)]\npub struct Login {\n    pub email: String,\n    pub password: String,\n}\n\npub async fn login(Json(body): Json<Login>) -> Result<StatusCode, StatusCode> {\n    let hash = db::find_hash(&body.email)\n        .await\n        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?\n        .ok_or(StatusCode::UNAUTHORIZED)?;\n    let matched = tokio::task::spawn_blocking(move || bcrypt::verify(&body.password, &hash))\n        .await\n        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?\n        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;\n    if matched {\n        Ok(StatusCode::NO_CONTENT)\n    } else {\n        Err(StatusCode::UNAUTHORIZED)\n    }\n}\n"
+        }
+      ]
+    }
+  ]
+}

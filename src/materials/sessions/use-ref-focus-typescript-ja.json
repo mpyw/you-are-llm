@@ -1,0 +1,46 @@
+{
+  "id": "use-ref-focus-typescript-ja",
+  "title": "getElementById のフォーカスを useRef に置き換える",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "typescript",
+  "summary": "2 つ置くと片方にしかフォーカスが行かない検索欄を、ref で自分の input を掴むように直す。",
+  "files": [
+    {
+      "path": "src/components/SearchBox.tsx",
+      "content": "import { useEffect } from 'react'\n\nexport function SearchBox() {\n  useEffect(() => {\n    document.getElementById('search')?.focus()\n  }, [])\n\n  return <input id=\"search\" type=\"search\" />\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "SearchBox ヘッダーとページ両方に置いたら、ページ側のやつにフォーカスいかない",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。document.getElementById は同じ id が 2 つあっても最初の 1 つしか返しません。2 つの SearchBox の effect がどちらもヘッダー側の input を掴んでいるので、ページ側には届きません。useRef を使えば、コンポーネントごとに自分の input を指す参照を持てます。",
+          "reading": "するどいごしてきです。document.getElementById はおなじ id が 2 つあってもさいしょの 1 つしかかえしません。2 つの SearchBox の effect がどちらもへっだーがわの input をつかんでいるので、ぺーじがわにはとどきません。useRef をつかえば、こんぽーねんとごとにじぶんの input をさすさんしょうをもてます。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "import { useEffect, useRef } from 'react'\n\nexport function SearchBox() {\n  const inputRef = useRef<HTMLInputElement>(null)\n\n  useEffect(() => {\n    inputRef.current?.focus()\n  }, [])\n\n  return <input ref={inputRef} type=\"search\" />\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あとクリアボタンほしい。押したら空にしてすぐまた打てるやつ",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。同じ ref を使って、値を空にしてからフォーカスを戻します。この input は state で値を持たない非制御のままで、DOM が値の正本になっているので、直接書き込みます。ref.current は null になりうる点に注意することが重要です。",
+          "reading": "しょうちしました。おなじ ref をつかって、あたいをからにしてからふぉーかすをもどします。この input は state であたいをもたないひせいぎょのままで、DOM があたいのせいほんになっているので、ちょくせつかきこみます。ref.current は null になりうるてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "typescript",
+          "body": "function clear() {\n  const input = inputRef.current\n  if (input === null) return\n  input.value = ''\n  input.focus()\n}\n\nreturn (\n  <div>\n    <input ref={inputRef} type=\"search\" />\n    <button type=\"button\" onClick={clear}>Clear</button>\n  </div>\n)\n"
+        }
+      ]
+    }
+  ]
+}

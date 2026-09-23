@@ -1,0 +1,83 @@
+{
+  "id": "rest-client-java-ja",
+  "title": "RestTemplate を RestClient に置き換える",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "java",
+  "summary": "404 を Optional.empty にしようと何もしない onStatus を足したら、エラー本文が在庫 0 の Stock として読まれていた。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/inventory/InventoryClient.java",
+      "content": "package com.example.inventory;\n\nimport org.springframework.boot.web.client.RestTemplateBuilder;\nimport org.springframework.stereotype.Component;\nimport org.springframework.web.client.HttpServerErrorException;\nimport org.springframework.web.client.RestTemplate;\n\n@Component\npublic class InventoryClient {\n    private final RestTemplate restTemplate;\n\n    public InventoryClient(RestTemplateBuilder builder) {\n        this.restTemplate = builder.rootUri(\"https://inventory.internal\").build();\n    }\n\n    public Stock fetch(String sku) {\n        try {\n            return restTemplate.getForObject(\"/stocks/{sku}\", Stock.class, sku);\n        } catch (HttpServerErrorException e) {\n            throw new InventoryUnavailableException(sku, e.getStatusCode());\n        }\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/inventory/Stock.java",
+      "content": "package com.example.inventory;\n\npublic record Stock(String sku, int quantity) {\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/inventory/InventoryUnavailableException.java",
+      "content": "package com.example.inventory;\n\nimport org.springframework.http.HttpStatusCode;\n\npublic class InventoryUnavailableException extends RuntimeException {\n    public InventoryUnavailableException(String sku, HttpStatusCode status) {\n        super(\"inventory returned \" + status + \" for \" + sku);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "RestTemplate もうメンテモードらしいので RestClient にしたい。Boot 3.3。5xx を InventoryUnavailableException にしてるのはそのままで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's 置き換えます。Boot 3.2 以降は RestClient.Builder が自動構成されるので、コンストラクタでそれを受け取ります。自動構成された Builder を受け取るのがベストプラクティスで、Boot のメッセージコンバータの設定もそのまま引き継がれます。try/catch で包んでいた 5xx の変換は onStatus に移します。ハンドラの中で投げた例外は、そのまま呼び出し元に届きます。",
+          "reading": "Let's おきかえます。Boot 3.2 いこうは RestClient.Builder がじどうこうせいされるので、コンストラクタでそれをうけとります。じどうこうせいされた Builder をうけとるのがベストプラクティスで、Boot のメッセージコンバータのせっていもそのままひきつがれます。try/catch でつつんでいた 5xx のへんかんは onStatus にうつします。ハンドラのなかでなげたれいがいは、そのままよびだしもとにとどきます。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "private final RestClient restClient;\n\npublic InventoryClient(RestClient.Builder builder) {\n    this.restClient = builder.baseUrl(\"https://inventory.internal\").build();\n}\n\npublic Stock fetch(String sku) {\n    return restClient.get()\n        .uri(\"/stocks/{sku}\", sku)\n        .retrieve()\n        .onStatus(HttpStatusCode::is5xxServerError, (request, response) -> {\n            throw new InventoryUnavailableException(sku, response.getStatusCode());\n        })\n        .body(Stock.class);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あと在庫マスタにない SKU は 404 が来る。例外じゃなくて Optional.empty にして",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい要件です。404 用に何もしない onStatus を足します。ハンドラが例外を投げなければエラー扱いにならず、body は null を返すので、Optional.ofNullable で包めば 404 は Optional.empty になります。",
+          "reading": "すばらしいようけんです。404 ようになにもしない onStatus をたします。ハンドラがれいがいをなげなければエラーあつかいにならず、body は null をかえすので、Optional.ofNullable でつつめば 404 は Optional.empty になります。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "public Optional<Stock> fetch(String sku) {\n    return Optional.ofNullable(restClient.get()\n        .uri(\"/stocks/{sku}\", sku)\n        .retrieve()\n        .onStatus(HttpStatusCode::is5xxServerError, (request, response) -> {\n            throw new InventoryUnavailableException(sku, response.getStatusCode());\n        })\n        .onStatus(status -> status.value() == 404, (request, response) -> {})\n        .body(Stock.class));\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "empty 来ない。sku が null で quantity 0 の Stock が返ってきて、商品ページが売り切れ表示になってた",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。先ほどの説明は正確ではありませんでした。onStatus のハンドラが例外を投げないと、RestClient はエラーを処理済みとみなし、そのまま 404 の本文を Stock として読みます。在庫サービスのエラー JSON には sku も quantity もないので、null と 0 が詰まった Stock ができていました。言い換えると、404 を在庫 0 の成功として扱っていました。404 は既定のハンドラに任せて HttpClientErrorException.NotFound を投げさせ、それを捕まえて Optional.empty を返します。",
+          "reading": "もうしわけありません。さきほどのせつめいはせいかくではありませんでした。onStatus のハンドラがれいがいをなげないと、RestClient はエラーをしょりずみとみなし、そのまま 404 のほんぶんを Stock としてよみます。ざいこサービスのエラー JSON には sku も quantity もないので、null と 0 がつまった Stock ができていました。いいかえると、404 をざいこ 0 のせいこうとしてあつかっていました。404 はきていのハンドラにまかせて HttpClientErrorException.NotFound をなげさせ、それをつかまえて Optional.empty をかえします。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "public Optional<Stock> fetch(String sku) {\n    try {\n        return Optional.ofNullable(restClient.get()\n            .uri(\"/stocks/{sku}\", sku)\n            .retrieve()\n            .onStatus(HttpStatusCode::is5xxServerError, (request, response) -> {\n                throw new InventoryUnavailableException(sku, response.getStatusCode());\n            })\n            .body(Stock.class));\n    } catch (HttpClientErrorException.NotFound e) {\n        return Optional.empty();\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "在庫側に聞いたら廃番 SKU は 410 返してるらしい。それも empty で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。catch をマルチキャッチにして HttpClientErrorException.Gone も受けます。どちらも HttpClientErrorException の兄弟クラスなので、1 つの catch に並べられます。以上で、在庫マスタにない SKU と廃番の SKU は、どちらも Optional.empty になります。",
+          "reading": "かしこまりました。catch をマルチキャッチにして HttpClientErrorException.Gone もうけます。どちらも HttpClientErrorException のきょうだいクラスなので、1 つの catch にならべられます。いじょうで、ざいこマスタにない SKU とはいばんの SKU は、どちらも Optional.empty になります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/catch (HttpClientErrorException\\.NotFound e)/catch (HttpClientErrorException.NotFound | HttpClientErrorException.Gone e)/' src/main/java/com/example/inventory/InventoryClient.java"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,87 @@
+{
+  "id": "policy-authorize-php-ja",
+  "title": "if での権限チェックを PostPolicy に移す",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "update と destroy に重複した 403 判定を Policy に寄せ、Laravel 11 以降の空のベースコントローラで authorize() を踏む。",
+  "files": [
+    {
+      "path": "app/Http/Controllers/PostController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse App\\Http\\Requests\\UpdatePostRequest;\nuse App\\Models\\Post;\nuse Illuminate\\Http\\Request;\n\nclass PostController extends Controller\n{\n    public function update(UpdatePostRequest $request, Post $post)\n    {\n        if ($request->user()->id !== $post->user_id && ! $request->user()->is_admin) {\n            abort(403);\n        }\n\n        $post->update($request->validated());\n\n        return redirect()->route('posts.show', $post);\n    }\n\n    public function destroy(Request $request, Post $post)\n    {\n        if ($request->user()->id !== $post->user_id && ! $request->user()->is_admin) {\n            abort(403);\n        }\n\n        $post->delete();\n\n        return redirect()->route('posts.index');\n    }\n}\n"
+    },
+    {
+      "path": "app/Http/Controllers/Controller.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nabstract class Controller\n{\n    //\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "PostController の update と destroy、同じ if で 403 してるの Policy にまとめて。Laravel 12",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。関心の分離の観点から、権限の判定を PostPolicy に集約します。app/Policies に置けばモデル名から自動で検出されるので、登録は不要です。",
+          "reading": "しょうちしました。かんしんのぶんりのかんてんから、けんげんのはんていを PostPolicy にしゅうやくします。app/Policies におけばモデルめいからじどうでけんしゅつされるので、とうろくはふようです。"
+        },
+        {
+          "kind": "command",
+          "body": "php artisan make:policy PostPolicy --model=Post"
+        },
+        {
+          "kind": "text",
+          "body": "雛形には viewAny から forceDelete まで 7 つのメソッドが並びますが、使う 2 つだけ残します。コントローラの destroy に対応するのは delete である点に注意することが重要です。",
+          "reading": "ひながたには viewAny から forceDelete まで 7 つのメソッドがならびますが、つかう 2 つだけのこします。コントローラの destroy にたいおうするのは delete であるてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "class PostPolicy\n{\n    public function update(User $user, Post $post): bool\n    {\n        return $user->id === $post->user_id || $user->is_admin;\n    }\n\n    public function delete(User $user, Post $post): bool\n    {\n        return $user->id === $post->user_id || $user->is_admin;\n    }\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function update(UpdatePostRequest $request, Post $post)\n{\n    $this->authorize('update', $post);\n\n    $post->update($request->validated());\n\n    return redirect()->route('posts.show', $post);\n}\n\npublic function destroy(Post $post)\n{\n    $this->authorize('delete', $post);\n\n    $post->delete();\n\n    return redirect()->route('posts.index');\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "Call to undefined method App\\Http\\Controllers\\PostController::authorize() って出た",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "申し訳ありません。私の誤りでした。Laravel 11 から、雛形の Controller は何も継承しない空の抽象クラスになり、authorize() を持つ AuthorizesRequests トレイトも入っていません。10 までの書き方をそのまま持ち込んでいました。",
+          "reading": "もうしわけありません。わたしのあやまりでした。Laravel 11 から、ひながたの Controller はなにもけいしょうしないからのちゅうしょうクラスになり、authorize() をもつ AuthorizesRequests トレイトもはいっていません。10 までのかきかたをそのままもちこんでいました。"
+        },
+        {
+          "kind": "text",
+          "body": "直し方は 2 つあります。呼び出しを Gate::authorize() に書き換えるか、トレイトをベースに戻すかです。コントローラが増えても同じ書き方で済むよう、ベースに戻すことをお勧めします。",
+          "reading": "なおしかたは 2 つあります。よびだしを Gate::authorize() にかきかえるか、トレイトをベースにもどすかです。コントローラがふえてもおなじかきかたですむよう、ベースにもどすことをおすすめします。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse Illuminate\\Foundation\\Auth\\Access\\AuthorizesRequests;\n\nabstract class Controller\n{\n    use AuthorizesRequests;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "あと admin でも他人の記事は消せないようにしたい。前にそれで事故った。編集は今まで通りで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "delete からだけ is_admin の条件を外します。update はそのままなので、管理者は引き続き他人の記事を編集できます。",
+          "reading": "delete からだけ is_admin のじょうけんをはずします。update はそのままなので、かんりしゃはひきつづきたにんのきじをへんしゅうできます。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' '/function delete/,/}/s/ || \\$user->is_admin//' app/Policies/PostPolicy.php"
+        },
+        {
+          "kind": "command",
+          "body": "grep -n \"is_admin\" app/Policies/PostPolicy.php"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "id": "bean-validation-java-ja",
+  "title": "@NotBlank を付けたのに何も検証されない",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "java",
+  "summary": "DTO に制約を並べたのに @Valid が無く、空の値がそのまま登録されていた。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/user/SignupRequest.java",
+      "content": "package com.example.user;\n\nimport jakarta.validation.constraints.Email;\nimport jakarta.validation.constraints.NotBlank;\nimport jakarta.validation.constraints.Size;\n\npublic record SignupRequest(\n        @NotBlank @Email String email,\n        @NotBlank @Size(min = 8, max = 64) String password,\n        AddressRequest address) {\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/user/AddressRequest.java",
+      "content": "package com.example.user;\n\nimport jakarta.validation.constraints.NotBlank;\n\npublic record AddressRequest(\n        @NotBlank String postalCode,\n        @NotBlank String city) {\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/user/UserController.java",
+      "content": "package com.example.user;\n\nimport org.springframework.http.HttpStatus;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.ResponseStatus;\nimport org.springframework.web.bind.annotation.RestController;\n\n@RestController\npublic class UserController {\n    private final UserService userService;\n\n    public UserController(UserService userService) {\n        this.userService = userService;\n    }\n\n    @PostMapping(\"/users\")\n    @ResponseStatus(HttpStatus.CREATED)\n    public UserResponse signup(@RequestBody SignupRequest request) {\n        return userService.register(request);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "SignupRequest に @NotBlank とか @Email 付けたのに、空文字のまま普通に登録できちゃう。なんで？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、コントローラの引数に @Valid がありません。制約アノテーションは付けただけでは何もせず、Spring は @Valid か @Validated が付いた引数だけを検証します。付ければ、違反があるとメソッドに入る前に MethodArgumentNotValidException が投げられ、400 が返ることを保証します。なお Boot 2.3 以降は spring-boot-starter-validation を依存に入れないと、検証器そのものが居ません。",
+          "reading": "けつろんからいうと、コントローラのひきすうに @Valid がありません。せいやくアノテーションはつけただけではなにもせず、Spring は @Valid か @Validated がついたひきすうだけをけんしょうします。つければ、いはんがあるとメソッドにはいるまえに MethodArgumentNotValidException がなげられ、400 がかえることをほしょうします。なお Boot 2.3 いこうは spring-boot-starter-validation をいぞんにいれないと、けんしょうきそのものがいません。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import jakarta.validation.Valid;\n\n@PostMapping(\"/users\")\n@ResponseStatus(HttpStatus.CREATED)\npublic UserResponse signup(@Valid @RequestBody SignupRequest request) {\n    return userService.register(request);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "400 になった。けど address の中の postalCode が空でも通る。てか address ごと無くても通る",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。ポイントは、検証がネストしたオブジェクトまで自動では降りていかない点です。フィールドの側にも @Valid を付けると、AddressRequest の中まで検証されます。ただし @Valid は null を素通りさせるので、address 自体を必須にするには @NotNull も要ります。",
+          "reading": "しょうちしました。ポイントは、けんしょうがネストしたオブジェクトまでじどうではおりていかないてんです。フィールドのがわにも @Valid をつけると、AddressRequest のなかまでけんしょうされます。ただし @Valid は null をすどおりさせるので、address じたいをひっすにするには @NotNull もいります。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import jakarta.validation.Valid;\nimport jakarta.validation.constraints.NotNull;\n\npublic record SignupRequest(\n        @NotBlank @Email String email,\n        @NotBlank @Size(min = 8, max = 64) String password,\n        @Valid @NotNull AddressRequest address) {\n}\n"
+        }
+      ]
+    }
+  ]
+}

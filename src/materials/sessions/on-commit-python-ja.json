@@ -1,0 +1,78 @@
+{
+  "id": "on-commit-python-ja",
+  "title": "Celery タスクを transaction.on_commit でコミット後に投げる",
+  "language": "ja",
+  "difficulty": "expert",
+  "codeLanguage": "python",
+  "summary": "コミット前に delay してワーカーが Order を見失うのを on_commit で直し、ループの lambda で明細を取り違え、テストでコールバックを走らせる。",
+  "files": [
+    {
+      "path": "orders/views.py",
+      "content": "import json\n\nfrom django.db import transaction\nfrom django.http import JsonResponse\n\nfrom .models import Order, OrderLine\nfrom .tasks import send_order_confirmation\n\n\n@transaction.atomic\ndef create_order(request):\n    order = Order.objects.create(status=\"pending\")\n    for item in json.loads(request.body)[\"lines\"]:\n        OrderLine.objects.create(\n            order=order,\n            product_id=item[\"product_id\"],\n            quantity=item[\"quantity\"],\n        )\n    send_order_confirmation.delay(order.id)\n    return JsonResponse({\"id\": order.id}, status=201)\n"
+    },
+    {
+      "path": "orders/tasks.py",
+      "content": "from celery import shared_task\n\nfrom .models import Order, OrderLine\nfrom .services import reserve, send_confirmation_mail\n\n\n@shared_task\ndef send_order_confirmation(order_id):\n    order = Order.objects.get(pk=order_id)\n    send_confirmation_mail(order)\n\n\n@shared_task\ndef reserve_stock(line_id):\n    line = OrderLine.objects.get(pk=line_id)\n    reserve(line.product_id, line.quantity)\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "注文確定メール、たまに celery 側で Order matching query does not exist で落ちる。リトライすると通る。なんで？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、コミット前にタスクを投げています。create_order は transaction.atomic の中なので、delay した時点では Order はまだコミットされていません。ワーカーが先に動くと、別の接続からはその行が見えません。transaction.on_commit に渡せば、一番外側の atomic がコミットされた後に呼ばれることを保証します。ロールバックされたときは呼ばれません。",
+          "reading": "けつろんからいうと、こみっとまえにたすくをなげています。create_order は transaction.atomic のなかなので、delay したじてんでは Order はまだこみっとされていません。わーかーがさきにうごくと、べつのせつぞくからはそのぎょうがみえません。transaction.on_commit にわたせば、いちばんそとがわの atomic がこみっとされたあとによばれることをほしょうします。ろーるばっくされたときはよばれません。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/^\\( *\\)send_order_confirmation.delay(order.id)$/\\1transaction.on_commit(lambda: send_order_confirmation.delay(order.id))/' orders/views.py"
+        }
+      ]
+    },
+    {
+      "user": "直ったっぽい。ついでに明細ごとに reserve_stock も投げたい。これもコミット後で",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "かしこまりました。create の戻り値を line で受け、ループの中で 1 明細ずつ on_commit に登録します。コールバックは登録した順に実行されるので、在庫の引き当てが確認メールより先に投げられます。",
+          "reading": "かしこまりました。create のもどりちを line でうけ、るーぷのなかで 1 めいさいずつ on_commit にとうろくします。こーるばっくはとうろくしたじゅんにじっこうされるので、ざいこのひきあてがかくにんめーるよりさきになげられます。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "from .tasks import reserve_stock, send_order_confirmation\n\n\n@transaction.atomic\ndef create_order(request):\n    order = Order.objects.create(status=\"pending\")\n    for item in json.loads(request.body)[\"lines\"]:\n        line = OrderLine.objects.create(\n            order=order,\n            product_id=item[\"product_id\"],\n            quantity=item[\"quantity\"],\n        )\n        transaction.on_commit(lambda: reserve_stock.delay(line.id))\n    transaction.on_commit(lambda: send_order_confirmation.delay(order.id))\n    return JsonResponse({\"id\": order.id}, status=201)\n"
+        }
+      ]
+    },
+    {
+      "user": "在庫引当、3 明細の注文で 3 回とも最後の明細に行ってる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "重要な訂正があります。先ほどの lambda は line の値ではなく変数そのものを捕まえていました。呼ばれるのはコミット後、つまりループが終わった後なので、3 つとも最後の line を見ます。Python のクロージャの遅延束縛という非自明な挙動です。functools.partial ならその場で line.id を束縛します。order のほうは再代入されないので lambda のままで問題ありません。",
+          "reading": "じゅうようなていせいがあります。さきほどの lambda は line のあたいではなくへんすうそのものをつかまえていました。よばれるのはこみっとご、つまりるーぷがおわったあとなので、3 つともさいごの line をみます。Python のくろーじゃのちえんそくばくというひじめいなきょどうです。functools.partial ならそのばで line.id をそくばくします。order のほうはさいだいにゅうされないので lambda のままでもんだいありません。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' -e 's/^import json$/&\\nfrom functools import partial/' -e 's/lambda: reserve_stock.delay(line.id)/partial(reserve_stock.delay, line.id)/' orders/views.py"
+        }
+      ]
+    },
+    {
+      "user": "テスト書いたら delay が 0 回呼ばれたって言われて落ちる。本番では動いてるのに",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Django の TestCase はテストごとにトランザクションを張ってロールバックするので、コミットが起きず on_commit も呼ばれません。captureOnCommitCallbacks(execute=True) で囲めば、ブロックを抜けるときに溜まったコールバックを実行します。タスクは orders.views から見た名前で mock.patch して、ブローカーには触らせません。これで期待どおりに動作します。",
+          "reading": "Django の TestCase はてすとごとにとらんざくしょんをはってろーるばっくするので、こみっとがおきず on_commit もよばれません。captureOnCommitCallbacks(execute=True) でかこめば、ぶろっくをぬけるときにたまったこーるばっくをじっこうします。たすくは orders.views からみたなまえで mock.patch して、ぶろーかーにはさわらせません。これできたいどおりにどうさします。"
+        },
+        {
+          "kind": "code",
+          "lang": "python",
+          "body": "import json\nfrom unittest import mock\n\nfrom django.test import TestCase\n\n\nclass CreateOrderTests(TestCase):\n    @mock.patch(\"orders.views.reserve_stock\")\n    @mock.patch(\"orders.views.send_order_confirmation\")\n    def test_dispatches_after_commit(self, confirm, reserve):\n        body = {\"lines\": [{\"product_id\": 7, \"quantity\": 2}]}\n        with self.captureOnCommitCallbacks(execute=True):\n            response = self.client.post(\n                \"/orders\", json.dumps(body), content_type=\"application/json\"\n            )\n        confirm.delay.assert_called_once_with(response.json()[\"id\"])\n        reserve.delay.assert_called_once()\n"
+        }
+      ]
+    }
+  ]
+}

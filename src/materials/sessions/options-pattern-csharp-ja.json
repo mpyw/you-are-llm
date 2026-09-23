@@ -1,0 +1,50 @@
+{
+  "id": "options-pattern-csharp-ja",
+  "title": "SMTP の設定漏れを起動時に止める",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "csharp",
+  "summary": "IConfiguration を直に読んでいた SMTP 設定を IOptions にまとめ、ValidateDataAnnotations と ValidateOnStart で起動時に検証する。",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using Acme.Mail;\n\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddSingleton<SmtpSender>();\n\nvar app = builder.Build();\n\napp.MapPost(\"/alerts\", async (SmtpSender mail, CancellationToken ct) =>\n{\n    await mail.SendAsync(\"ops@example.com\", \"disk almost full\", ct);\n    return Results.Accepted();\n});\n\napp.Run();\n"
+    },
+    {
+      "path": "src/Mail/SmtpSender.cs",
+      "content": "using System.Net.Mail;\n\nnamespace Acme.Mail;\n\npublic sealed class SmtpSender(IConfiguration config)\n{\n    public async Task SendAsync(string to, string subject, CancellationToken ct)\n    {\n        var host = config[\"Smtp:Host\"];\n        var port = int.Parse(config[\"Smtp:Port\"]!);\n        var from = config[\"Smtp:From\"]!;\n\n        using var client = new SmtpClient(host, port);\n        using var message = new MailMessage(from, to, subject, \"\");\n        await client.SendMailAsync(message, ct);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "Smtp:Port 入れ忘れてて、本番で最初のアラート飛ぶタイミングで FormatException で死んだ。起動の時点で気づきたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。IConfiguration のインデクサは、キーが無くても null を返すだけで何も言いません。設定を SmtpOptions というクラスに束ねて DataAnnotations で検証し、ValidateOnStart で起動時に評価させます。言い換えると、設定漏れは「デプロイ直後にホストが起動しない」という形で表に出ます。",
+          "reading": "しょうちしました。IConfiguration のインデクサは、キーがなくても null をかえすだけでなにもいいません。せっていを SmtpOptions というクラスにたばねて DataAnnotations でけんしょうし、ValidateOnStart できどうじにひょうかさせます。いいかえると、せっていもれは「デプロイちょくごにホストがきどうしない」というかたちでおもてにでます。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using System.ComponentModel.DataAnnotations;\n\nnamespace Acme.Mail;\n\npublic sealed class SmtpOptions\n{\n    public const string Section = \"Smtp\";\n\n    [Required]\n    public string Host { get; set; } = \"\";\n\n    [Range(1, 65535)]\n    public int Port { get; set; }\n\n    [Required, EmailAddress]\n    public string From { get; set; } = \"\";\n}\n\n// src/Program.cs\nbuilder.Services.AddOptions<SmtpOptions>()\n    .BindConfiguration(SmtpOptions.Section)\n    .ValidateDataAnnotations()\n    .ValidateOnStart();\n"
+        }
+      ]
+    },
+    {
+      "user": "SmtpSender まだ config[\"Smtp:Host\"] 読んでるけど",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "SmtpSender は IOptions<SmtpOptions> を受け取る形にします。起動時の検証を通った値しか届かないので、int.Parse も ! 演算子も要りません。これで SmtpOptions が SMTP 設定の唯一の情報源になります。ポイントは、Value をコンストラクタで一度だけ読むことです。",
+          "reading": "SmtpSender は IOptions<SmtpOptions> をうけとるかたちにします。きどうじのけんしょうをとおったあたいしかとどかないので、int.Parse も ! えんざんしもいりません。これで SmtpOptions が SMTP せっていのゆいいつのじょうほうげんになります。ポイントは、Value をコンストラクタでいちどだけよむことです。"
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "using System.Net.Mail;\nusing Microsoft.Extensions.Options;\n\nnamespace Acme.Mail;\n\npublic sealed class SmtpSender(IOptions<SmtpOptions> options)\n{\n    private readonly SmtpOptions _smtp = options.Value;\n\n    public async Task SendAsync(string to, string subject, CancellationToken ct)\n    {\n        using var client = new SmtpClient(_smtp.Host, _smtp.Port);\n        using var message = new MailMessage(_smtp.From, to, subject, \"\");\n        await client.SendMailAsync(message, ct);\n    }\n}\n"
+        }
+      ]
+    }
+  ]
+}

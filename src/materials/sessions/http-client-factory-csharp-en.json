@@ -1,0 +1,69 @@
+{
+  "id": "http-client-factory-csharp-en",
+  "title": "Stop creating an HttpClient per call",
+  "language": "en",
+  "difficulty": "hard",
+  "codeLanguage": "csharp",
+  "summary": "A new HttpClient per call exhausts sockets. Move to a typed client with AddHttpClient, then give the one a singleton captures a PooledConnectionLifetime so it follows DNS changes.",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using Acme.Weather;\n\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddSingleton<WeatherClient>();\nbuilder.Services.AddSingleton<ForecastCache>();\n\nvar app = builder.Build();\n\napp.MapGet(\"/forecast/{city}\", async (string city, ForecastCache forecasts, CancellationToken ct) =>\n    await forecasts.GetAsync(city, ct) is { } forecast\n        ? Results.Ok(forecast)\n        : Results.NotFound());\n\napp.Run();\n"
+    },
+    {
+      "path": "src/Weather/WeatherClient.cs",
+      "content": "using System.Net.Http.Json;\n\nnamespace Acme.Weather;\n\npublic sealed class WeatherClient\n{\n    public async Task<Forecast?> GetAsync(string city, CancellationToken ct)\n    {\n        using var http = new HttpClient();\n        http.BaseAddress = new Uri(\"https://api.example.com/\");\n        return await http.GetFromJsonAsync<Forecast>($\"v1/forecast?city={Uri.EscapeDataString(city)}\", ct);\n    }\n}\n\npublic sealed record Forecast(string City, double TemperatureC);\n"
+    },
+    {
+      "path": "src/Weather/ForecastCache.cs",
+      "content": "using System.Collections.Concurrent;\n\nnamespace Acme.Weather;\n\npublic sealed class ForecastCache(WeatherClient weather)\n{\n    private readonly ConcurrentDictionary<string, Forecast> _latest = new();\n\n    public async Task<Forecast?> GetAsync(string city, CancellationToken ct)\n    {\n        if (_latest.TryGetValue(city, out var cached)) return cached;\n\n        var forecast = await weather.GetAsync(city, ct);\n        if (forecast is not null) _latest[city] = forecast;\n        return forecast;\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "load test spews SocketException. netstat shows a crazy amount of TIME_WAIT",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "TL;DR: WeatherClient builds and throws away an HttpClient on every call. Dispose closes the connection, but the socket stays in TIME_WAIT for a while, so under load the ports run out first. WeatherClient should take its HttpClient from DI as a typed client registered with AddHttpClient. IHttpClientFactory manages handler lifetimes, so ForecastCache can stay exactly as it is."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "public sealed class WeatherClient(HttpClient http)\n{\n    public Task<Forecast?> GetAsync(string city, CancellationToken ct) =>\n        http.GetFromJsonAsync<Forecast>($\"v1/forecast?city={Uri.EscapeDataString(city)}\", ct);\n}\n"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's|AddSingleton<WeatherClient>()|AddHttpClient<WeatherClient>(c => c.BaseAddress = new Uri(\"https://api.example.com/\"))|' src/Program.cs"
+        }
+      ]
+    },
+    {
+      "user": "sockets are fine now. but after they switched DNS we kept hitting the old IP until a restart",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, my previous answer was incorrect. ForecastCache is a singleton, so it keeps the WeatherClient it got in its constructor, and the HttpClient inside it, until the process exits. The factory only rotates handlers for clients it creates from now on, and the captured one keeps its old connections. The shape Microsoft recommends here is to give the connections themselves a lifetime with PooledConnectionLifetime on SocketsHttpHandler, and switch off the factory rotation."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "builder.Services.AddHttpClient<WeatherClient>(c => c.BaseAddress = new Uri(\"https://api.example.com/\"))\n    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler\n    {\n        PooledConnectionLifetime = TimeSpan.FromMinutes(2)\n    })\n    .SetHandlerLifetime(Timeout.InfiniteTimeSpan);\n"
+        }
+      ]
+    },
+    {
+      "user": "their failover flips in 30s apparently. 2 minutes is too long",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Only the connection lifetime changes. More reconnects, but the client follows a failover within 30 seconds."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/TimeSpan\\.FromMinutes(2)/TimeSpan.FromSeconds(30)/' src/Program.cs"
+        }
+      ]
+    }
+  ]
+}

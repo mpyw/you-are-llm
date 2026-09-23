@@ -1,0 +1,46 @@
+{
+  "id": "sqlite-transaction-c-ja",
+  "title": "1 万行の INSERT をトランザクションで囲む",
+  "language": "ja",
+  "difficulty": "normal",
+  "codeLanguage": "c",
+  "summary": "1 行ずつ自動コミットしていた INSERT を BEGIN と COMMIT で囲み、ロック待ちも足す。",
+  "files": [
+    {
+      "path": "src/db/import.c",
+      "content": "#include <stddef.h>\n#include <sqlite3.h>\n\nint import_scores(sqlite3 *db, const int *scores, int n) {\n  sqlite3_stmt *stmt = NULL;\n  int rc = sqlite3_prepare_v2(db, \"INSERT INTO scores (value) VALUES (?)\", -1, &stmt, NULL);\n  if (rc != SQLITE_OK) return rc;\n  for (int i = 0; i < n; i++) {\n    sqlite3_bind_int(stmt, 1, scores[i]);\n    rc = sqlite3_step(stmt);\n    if (rc != SQLITE_DONE) break;\n    sqlite3_reset(stmt);\n  }\n  sqlite3_finalize(stmt);\n  return rc == SQLITE_DONE ? SQLITE_OK : rc;\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "import_scores、1万件入れるのに40秒くらいかかる。prepare は使い回してるのになんで？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "素晴らしい質問です。prepare の使い回しは効いていますが、遅さの原因は別にあります。明示的なトランザクションがないと、SQLite は INSERT 1 回ごとに自動でコミットし、そのたびにジャーナルをディスクへ同期します。1 万行なら同期も 1 万回です。全体を BEGIN と COMMIT で囲めば同期は 1 回で済みます。途中で失敗したときは ROLLBACK で全体を取り消すので、半端に入った状態が残らないことを保証します。",
+          "reading": "すばらしいしつもんです。prepare のつかいまわしはきいていますが、おそさのげんいんはべつにあります。めいじてきなとらんざくしょんがないと、SQLite は INSERT 1 かいごとにじどうでこみっとし、そのたびにじゃーなるをでぃすくへどうきします。1 まんぎょうならどうきも 1 まんかいです。ぜんたいを BEGIN と COMMIT でかこめばどうきは 1 かいですみます。とちゅうでしっぱいしたときは ROLLBACK でぜんたいをとりけすので、はんぱにはいったじょうたいがのこらないことをほしょうします。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "int import_scores(sqlite3 *db, const int *scores, int n) {\n  sqlite3_stmt *stmt = NULL;\n  int rc = sqlite3_exec(db, \"BEGIN\", NULL, NULL, NULL);\n  if (rc != SQLITE_OK) return rc;\n  rc = sqlite3_prepare_v2(db, \"INSERT INTO scores (value) VALUES (?)\", -1, &stmt, NULL);\n  if (rc != SQLITE_OK) {\n    sqlite3_exec(db, \"ROLLBACK\", NULL, NULL, NULL);\n    return rc;\n  }\n  for (int i = 0; i < n; i++) {\n    sqlite3_bind_int(stmt, 1, scores[i]);\n    rc = sqlite3_step(stmt);\n    if (rc != SQLITE_DONE) break;\n    sqlite3_reset(stmt);\n  }\n  sqlite3_finalize(stmt);\n  if (rc != SQLITE_DONE && n > 0) {\n    sqlite3_exec(db, \"ROLLBACK\", NULL, NULL, NULL);\n    return rc;\n  }\n  return sqlite3_exec(db, \"COMMIT\", NULL, NULL, NULL);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "速くなった！けど夜間バッチと被ると database is locked で落ちる",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。database is locked は SQLITE_BUSY です。既定では、ほかの接続がロックを握っていると SQLite は待たずにすぐエラーを返します。接続を開いた直後に sqlite3_busy_timeout を呼べば、最大 5 秒までロックが空くのを待ちながら再試行します。Note: これは接続ごとの設定なので、import_scores の中ではなく sqlite3_open_v2 の隣に置くのが関心の分離の観点から自然です。",
+          "reading": "しょうちしました。database is locked は SQLITE_BUSY です。きていでは、ほかのせつぞくがろっくをにぎっていると SQLite はまたずにすぐえらーをかえします。せつぞくをひらいたちょくごに sqlite3_busy_timeout をよべば、さいだい 5 びょうまでろっくがあくのをまちながらさいしこうします。Note: これはせつぞくごとのせっていなので、import_scores のなかではなく sqlite3_open_v2 のとなりにおくのがかんしんのぶんりのかんてんからしぜんです。"
+        },
+        {
+          "kind": "code",
+          "lang": "c",
+          "body": "sqlite3 *db = NULL;\nint rc = sqlite3_open_v2(path, &db, SQLITE_OPEN_READWRITE, NULL);\nif (rc != SQLITE_OK) return rc;\nsqlite3_busy_timeout(db, 5000);\n"
+        }
+      ]
+    }
+  ]
+}

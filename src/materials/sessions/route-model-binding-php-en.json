@@ -1,0 +1,52 @@
+{
+  "id": "route-model-binding-php-en",
+  "title": "Replace find and abort(404) with route model binding",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "php",
+  "summary": "Let implicit binding load the Post the controller fetched by hand, then switch the URL to a slug.",
+  "files": [
+    {
+      "path": "routes/web.php",
+      "content": "<?php\n\nuse App\\Http\\Controllers\\PostController;\nuse Illuminate\\Support\\Facades\\Route;\n\nRoute::get('/posts/{id}', [PostController::class, 'show'])->name('posts.show');\n"
+    },
+    {
+      "path": "app/Http/Controllers/PostController.php",
+      "content": "<?php\n\nnamespace App\\Http\\Controllers;\n\nuse App\\Models\\Post;\n\nclass PostController extends Controller\n{\n    public function show(int $id)\n    {\n        $post = Post::find($id);\n\n        if ($post === null) {\n            abort(404);\n        }\n\n        return view('posts.show', ['post' => $post]);\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "PostController show does find() then abort(404) if null. I write this in every controller. there's a laravel way right?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great question! Implicit route model binding does this for you. Name the route segment {post}, type the argument as Post $post, and Laravel looks it up by primary key and answers 404 when it is missing. Note: if the two names differ, there is no error. You just get an empty Post."
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "Route::get('/posts/{post}', [PostController::class, 'show'])->name('posts.show');\n"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function show(Post $post)\n{\n    return view('posts.show', ['post' => $post]);\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "oh the url should use the slug actually. like /posts/hello-world",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Let's tell the route which column to look up. The controller stays as it is. Put a unique index on slug too, or two posts with the same slug will quietly return whichever comes first."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/{post}/{post:slug}/' routes/web.php"
+        }
+      ]
+    }
+  ]
+}

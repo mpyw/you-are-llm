@@ -1,0 +1,64 @@
+{
+  "id": "configuration-properties-java-ja",
+  "title": "散らばった @Value を @ConfigurationProperties にまとめる",
+  "language": "ja",
+  "difficulty": "easy",
+  "codeLanguage": "java",
+  "summary": "mail.port のデフォルトが二か所で食い違っていたので record に寄せたら、今度は設定漏れで起動が止まらなくなった。",
+  "files": [
+    {
+      "path": "src/main/java/com/example/mail/MailService.java",
+      "content": "package com.example.mail;\n\nimport org.springframework.beans.factory.annotation.Value;\nimport org.springframework.stereotype.Service;\n\n@Service\npublic class MailService {\n    @Value(\"${mail.host}\")\n    private String host;\n\n    @Value(\"${mail.port:587}\")\n    private int port;\n\n    @Value(\"${mail.from}\")\n    private String from;\n\n    public void send(String to, String subject, String body) {\n        SmtpClient.connect(host, port).send(from, to, subject, body);\n    }\n}\n"
+    },
+    {
+      "path": "src/main/java/com/example/mail/DigestJob.java",
+      "content": "package com.example.mail;\n\nimport org.springframework.beans.factory.annotation.Value;\nimport org.springframework.scheduling.annotation.Scheduled;\nimport org.springframework.stereotype.Component;\n\n@Component\npublic class DigestJob {\n    @Value(\"${mail.host}\")\n    private String host;\n\n    @Value(\"${mail.port:25}\")\n    private int port;\n\n    @Value(\"${mail.from}\")\n    private String from;\n\n    @Scheduled(cron = \"0 0 8 * * *\")\n    public void run() {\n        SmtpClient client = SmtpClient.connect(host, port);\n        DigestQueue.drain().forEach(digest -> client.send(from, digest.to(), \"Daily digest\", digest.body()));\n    }\n}\n"
+    },
+    {
+      "path": "src/main/resources/application.yml",
+      "content": "mail:\n  host: smtp.example.com\n  from: noreply@example.com\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "mail.* の @Value があっちこっちにあって、MailService は port のデフォルト 587 なのに DigestJob は 25 になってた。まとめたい",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "承知しました。mail.* を 1 つの record にまとめ、@ConfigurationProperties で束ねます。これが設定の唯一の情報源になるので、デフォルト値の食い違いは構造的に起きなくなります。Boot 3 ではコンストラクタが 1 つの record は @ConstructorBinding なしでそのまま束縛されます。登録はアプリケーションクラスの @ConfigurationPropertiesScan で行います。",
+          "reading": "しょうちしました。mail.* を 1 つの record にまとめ、@ConfigurationProperties でたばねます。これがせっていのゆいいつのじょうほうげんになるので、デフォルトちのくいちがいはこうぞうてきにおきなくなります。Boot 3 ではコンストラクタが 1 つの record は @ConstructorBinding なしでそのままそくばくされます。とうろくはアプリケーションクラスの @ConfigurationPropertiesScan でおこないます。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "package com.example.mail;\n\nimport org.springframework.boot.context.properties.ConfigurationProperties;\nimport org.springframework.boot.context.properties.bind.DefaultValue;\n\n@ConfigurationProperties(prefix = \"mail\")\npublic record MailProperties(String host, @DefaultValue(\"587\") int port, String from) {\n}\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@SpringBootApplication\n@ConfigurationPropertiesScan\npublic class Application {\n"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "@Service\npublic class MailService {\n    private final MailProperties mail;\n\n    public MailService(MailProperties mail) {\n        this.mail = mail;\n    }\n\n    public void send(String to, String subject, String body) {\n        SmtpClient.connect(mail.host(), mail.port()).send(mail.from(), to, subject, body);\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "DigestJob も同じにした。けどステージングで mail.host 入れ忘れてたのに普通に起動して、送信したとこで落ちた。前は起動時に怒られてたよね？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "鋭いご指摘です。見落としていました。@Value はプレースホルダが解決できないと起動時に失敗しますが、record への束縛ではキーがなければ null が入るだけです。@Validated と @NotBlank を付けると起動時に検証され、値がなければ起動が止まります。spring-boot-starter-validation が依存にあることが前提という点に注意することが重要です。",
+          "reading": "するどいごしてきです。みおとしていました。@Value はプレースホルダがかいけつできないときどうじにしっぱいしますが、record へのそくばくではキーがなければ null がはいるだけです。@Validated と @NotBlank をつけるときどうじにけんしょうされ、あたいがなければきどうがとまります。spring-boot-starter-validation がいぞんにあることがぜんていというてんにちゅういすることがじゅうようです。"
+        },
+        {
+          "kind": "code",
+          "lang": "java",
+          "body": "import jakarta.validation.constraints.NotBlank;\nimport org.springframework.validation.annotation.Validated;\n\n@Validated\n@ConfigurationProperties(prefix = \"mail\")\npublic record MailProperties(@NotBlank String host, @DefaultValue(\"587\") int port, @NotBlank String from) {\n}\n"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "id": "background-service-csharp-en",
+  "title": "OutboxRelay takes the host down",
+  "language": "en",
+  "difficulty": "normal",
+  "codeLanguage": "csharp",
+  "summary": "An ExecuteAsync that never reaches its first await blocks startup, and an exception it throws stops the host. Switch to PeriodicTimer, catch per tick, and keep shutdown cancellation out of the error log.",
+  "files": [
+    {
+      "path": "src/Program.cs",
+      "content": "using Acme.Outbox;\nusing Acme.Workers;\n\nvar builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddSingleton<IOutboxStore, SqlOutboxStore>();\nbuilder.Services.AddSingleton<IMessageBus, RabbitMessageBus>();\nbuilder.Services.AddHostedService<OutboxRelay>();\n\nvar app = builder.Build();\n\napp.MapGet(\"/healthz\", () => Results.Ok());\n\napp.Run();\n"
+    },
+    {
+      "path": "src/Workers/OutboxRelay.cs",
+      "content": "using Acme.Outbox;\n\nnamespace Acme.Workers;\n\npublic sealed class OutboxRelay(IOutboxStore outbox, IMessageBus bus, ILogger<OutboxRelay> logger)\n    : BackgroundService\n{\n    protected override async Task ExecuteAsync(CancellationToken stoppingToken)\n    {\n        while (true)\n        {\n            foreach (var message in outbox.Pending(100))\n            {\n                await bus.PublishAsync(message);\n                outbox.MarkSent(message.Id);\n            }\n            Thread.Sleep(5000);\n        }\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "app wont start locally anymore, never gets to Application started. remove OutboxRelay and it boots. staging is fine",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Great catch on staging. It works there because it has unsent messages. Up to .NET 9, ExecuteAsync runs synchronously on the thread that starts the host until it reaches its first await. Locally Pending is empty, so no await ever comes, Thread.Sleep keeps it spinning, and StartAsync never returns. A PeriodicTimer puts a wait in from the first tick and honors stoppingToken at the same time."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "protected override async Task ExecuteAsync(CancellationToken stoppingToken)\n{\n    using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));\n    while (await timer.WaitForNextTickAsync(stoppingToken))\n    {\n        foreach (var message in outbox.Pending(100))\n        {\n            await bus.PublishAsync(message, stoppingToken);\n            outbox.MarkSent(message.Id);\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "boots now. but killing RabbitMQ took the whole API down with it. just set BackgroundServiceExceptionBehavior to Ignore?",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Since .NET 6 an exception that escapes ExecuteAsync stops the whole host, because the default is StopHost. With Ignore the host survives, but OutboxRelay dies silently while the health check keeps answering 200. It looks defensive and actually hides the outage. Best practice is to catch per tick, log it, and retry on the next tick."
+        },
+        {
+          "kind": "code",
+          "lang": "csharp",
+          "body": "protected override async Task ExecuteAsync(CancellationToken stoppingToken)\n{\n    using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));\n    while (await timer.WaitForNextTickAsync(stoppingToken))\n    {\n        try\n        {\n            foreach (var message in outbox.Pending(100))\n            {\n                await bus.PublishAsync(message, stoppingToken);\n                outbox.MarkSent(message.Id);\n            }\n        }\n        catch (Exception ex)\n        {\n            logger.LogError(ex, \"Outbox relay failed, retrying on the next tick\");\n        }\n    }\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "now every deploy logs Outbox relay failed with a TaskCanceledException. that pages people, kill it",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Apologies, I missed that. On shutdown PublishAsync throws OperationCanceledException from stoppingToken, and the catch logs it as a failure. An exception filter lets cancellation during shutdown pass through. When ExecuteAsync ends as canceled, the host does not treat it as an error."
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/catch (Exception ex)$/catch (Exception ex) when (!stoppingToken.IsCancellationRequested)/' src/Workers/OutboxRelay.cs"
+        }
+      ]
+    }
+  ]
+}

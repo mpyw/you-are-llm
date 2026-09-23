@@ -1,0 +1,68 @@
+{
+  "id": "chunk-by-id-php-ja",
+  "title": "trial の失効バッチが行を飛ばす",
+  "language": "ja",
+  "difficulty": "hard",
+  "codeLanguage": "php",
+  "summary": "絞り込みに使う列を更新しながら chunk() で回して取りこぼす。chunkById に直し、lazy() で書き直して同じ穴に落ち、lazyById で塞ぐ。",
+  "files": [
+    {
+      "path": "app/Console/Commands/ExpireTrials.php",
+      "content": "<?php\n\nnamespace App\\Console\\Commands;\n\nuse App\\Models\\Subscription;\nuse Illuminate\\Console\\Command;\n\nclass ExpireTrials extends Command\n{\n    protected $signature = 'trials:expire';\n\n    protected $description = 'Expire trials whose end date has passed';\n\n    public function handle(): int\n    {\n        Subscription::where('status', 'trial')\n            ->where('trial_ends_at', '<', now())\n            ->chunk(500, function ($subscriptions) {\n                foreach ($subscriptions as $subscription) {\n                    $subscription->update(['status' => 'expired']);\n                }\n            });\n\n        return self::SUCCESS;\n    }\n}\n"
+    }
+  ],
+  "turns": [
+    {
+      "user": "trials:expire 毎晩回してるのに期限切れの trial がごっそり残ってる。手でもう一回叩くと減る。エラーは出てない。1件ずつ update なのは observer でメール送ってるからなのでそこはそのままで",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "結論から言うと、chunk() がページを offset で数えているのが原因です。1 ページ目の 500 件を expired にすると、その 500 件は where('status', 'trial') から外れます。2 ページ目は offset 500 で取りにいくので、前に詰めてきた未処理の 500 件を読み飛ばします。",
+          "reading": "けつろんからいうと、chunk() がページを offset でかぞえているのがげんいんです。1 ページめの 500 けんを expired にすると、その 500 けんは where('status', 'trial') からはずれます。2 ページめは offset 500 でとりにいくので、まえにつめてきたみしょりの 500 けんをよみとばします。"
+        },
+        {
+          "kind": "text",
+          "body": "chunkById() は offset を使わず、直前のページの最後の id より大きい行を取りにいきます。処理済みの行が条件から外れても、次のページの起点がずれないことを保証します。observer を通る update はそのまま残ります。",
+          "reading": "chunkById() は offset をつかわず、ちょくぜんのページのさいごの id よりおおきいぎょうをとりにいきます。しょりずみのぎょうがじょうけんからはずれても、つぎのページのきてんがずれないことをほしょうします。observer をとおる update はそのままのこります。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/->chunk(500,/->chunkById(500,/' app/Console/Commands/ExpireTrials.php"
+        }
+      ]
+    },
+    {
+      "user": "直った。けどクロージャの中に foreach ってネスト深くて読みにくい。lazy() でフラットにできるって聞いた。あと何件 expire したかログ出して",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "Now、lazy() は内部で 500 件ずつ取得しながら、LazyCollection で 1 件ずつ返します。取り方は chunkById() と同じままで、コールバックの入れ子だけが foreach 1 つに平らになります。件数は変数で数えて最後に出します。",
+          "reading": "Now、lazy() はないぶで 500 けんずつしゅとくしながら、LazyCollection で 1 けんずつかえします。とりかたは chunkById() とおなじままで、コールバックのいれこだけが foreach 1 つにたいらになります。けんすうはへんすうでかぞえてさいごにだします。"
+        },
+        {
+          "kind": "code",
+          "lang": "php",
+          "body": "public function handle(): int\n{\n    $expired = 0;\n\n    $trials = Subscription::where('status', 'trial')\n        ->where('trial_ends_at', '<', now())\n        ->lazy(500);\n\n    foreach ($trials as $subscription) {\n        $subscription->update(['status' => 'expired']);\n        $expired++;\n    }\n\n    $this->info(\"Expired {$expired} trials.\");\n\n    return self::SUCCESS;\n}\n"
+        }
+      ]
+    },
+    {
+      "user": "昨夜 1200 件対象だったのに Expired 700 trials. って出て 500 件残ってる。戻ってない？",
+      "assistant": [
+        {
+          "kind": "text",
+          "body": "改めて確認したところ、先ほどの説明は正確ではありませんでした。lazy() は chunk() と同じく offset でページを進めます。chunkById() から書き換えた時点で、直したはずの取りこぼしを戻していました。言い換えると、1 ページ目の 500 件を失効させたあと、2 ページ目は残り 700 件の 501 件目から読むので 200 件しか拾えません。条件に使う列を更新しながら回すなら、lazyById() を使うのがベストプラクティスです。",
+          "reading": "あらためてかくにんしたところ、さきほどのせつめいはせいかくではありませんでした。lazy() は chunk() とおなじく offset でページをすすめます。chunkById() からかきかえたじてんで、なおしたはずのとりこぼしをもどしていました。いいかえると、1 ページめの 500 けんをしっこうさせたあと、2 ページめはのこり 700 けんの 501 けんめからよむので 200 けんしかひろえません。じょうけんにつかうれつをこうしんしながらまわすなら、lazyById() をつかうのがベストプラクティスです。"
+        },
+        {
+          "kind": "command",
+          "body": "sed -i '' 's/->lazy(500)/->lazyById(500)/' app/Console/Commands/ExpireTrials.php"
+        },
+        {
+          "kind": "command",
+          "body": "php artisan trials:expire"
+        }
+      ]
+    }
+  ]
+}

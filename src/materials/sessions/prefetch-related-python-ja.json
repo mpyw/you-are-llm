@@ -2,7 +2,7 @@
   "id": "prefetch-related-python-ja",
   "title": "Django の N+1 を select_related と Prefetch で潰す",
   "language": "ja",
-  "difficulty": "expert",
+  "difficulty": "hard",
   "codeLanguage": "python",
   "summary": "201 本のクエリを 2 本にし、filter で N+1 を戻してしまい、Prefetch で直してからレビュー数を足す。",
   "files": [
