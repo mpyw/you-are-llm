@@ -1,4 +1,6 @@
-# Notes for future agents
+# Implementation notes
+
+The short, always-loaded instructions are in [AGENTS.md](../AGENTS.md). Read the relevant section before changing the engine, content, or build setup.
 
 ## Do not try to make typescript-eslint see TypeScript 7
 
