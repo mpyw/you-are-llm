@@ -187,25 +187,19 @@ Every session also gets a real page written at build time, under both `/sessions
 > The domain comes from `mpyw/mpyw.github.io`, which owns `mpyw.me`. Project sites under the same
 > account are served below it automatically. This repository holds no `CNAME` file.
 
-## TypeScript 7 and ESLint
+## TypeScript 7 and linting
 
-The app runs on TypeScript 7. typescript-eslint cannot.
+The app runs on TypeScript 7 only. Linting uses [oxlint](https://oxc.rs/docs/guide/usage/linter) with
+[`oxlint-tsgolint`](https://github.com/oxc-project/tsgolint) for type-aware rules.
 
-| Package | Version here | Why |
-| --- | --- | --- |
-| `typescript` (root) | 7.0.2 | Compiles and typechecks the app |
-| `typescript` (in `tools/eslint-config`) | 6.0.3 | The last release with the JavaScript compiler API |
-| `typescript-eslint` | 8.70.0 | Pinned below the 8.70.1 supply-chain cutoff |
+| Package | Role |
+| --- | --- |
+| `typescript` | Compiles and typechecks the app |
+| `oxlint` | Runs the lint rules, set in `.oxlintrc.json` |
+| `oxlint-tsgolint` | Runs type-aware rules such as `no-floating-promises` on `typescript-go` |
 
-TypeScript 7 exports only `./lib/version.cjs` from its main entry. The old `ts.createProgram` API is
-gone. typescript-eslint imports that API directly, so it needs a JavaScript build of TypeScript.
+typescript-eslint needs the JavaScript compiler API, which TypeScript 7 does not ship. tsgolint is
+built on the Go compiler itself, so it needs no second TypeScript install.
 
-pnpm resolves a peer dependency per workspace package. So `tools/eslint-config` pins TypeScript 6.0.3
-for itself, and the app keeps TypeScript 7. Both live in one repository.
-
-> [!IMPORTANT]
-> Never add `typescript-eslint` to the root `package.json`. It would resolve the root TypeScript 7 and
-> break. Lint plugins belong in `tools/eslint-config`.
-
-Run `pnpm lint` to confirm the split still works. Type-aware rules such as `no-floating-promises`
-only fire when typescript-eslint has a working compiler.
+The rule set mirrors the old typescript-eslint `strictTypeChecked` and `stylisticTypeChecked`
+presets, plus the React Hooks and React Refresh rules.
