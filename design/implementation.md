@@ -2,33 +2,21 @@
 
 The short, always-loaded instructions are in [AGENTS.md](../AGENTS.md). Read the relevant section before changing the engine, content, or build setup.
 
-## Do not try to make typescript-eslint see TypeScript 7
+## Lint with oxlint, not typescript-eslint
 
 `typescript@7` ships a Go binary. Its main entry exports only a version string, so every classic
-compiler API is gone. typescript-eslint imports that API, so no amount of version juggling helps.
-A JavaScript build of TypeScript (6.0.3 is the last one) has to be reachable as bare `typescript`
-from inside typescript-eslint.
+compiler API is gone, and typescript-eslint cannot load. An earlier setup kept TypeScript 6.0.3 in
+a separate workspace package just for typescript-eslint. It was replaced by oxlint with
+`oxlint-tsgolint`, which runs type-aware rules on `typescript-go` directly.
 
-These were all tried against pnpm 12.5.1 and all failed:
-
-| Approach | What actually happened |
-| --- | --- |
-| `pnpm.overrides` in `package.json` | pnpm 12 ignores the `pnpm` field entirely. Settings moved to `pnpm-workspace.yaml`. |
-| `overrides: { 'typescript-eslint>typescript': 6.0.3 }` | Rewrites the printed peer range only. The link still points at the root 7.0.2. |
-| `packageExtensions` adding `typescript` as a real dependency | Ignored. The existing `peerDependencies` entry wins, and 6.0.3 is never fetched. |
-| Root alias `"typescript7": "npm:typescript@^7.0.2"` | pnpm matches peers by real package name, so the alias still satisfies the peer as 7.0.2. |
-
-What works is the workspace split in `tools/eslint-config`. pnpm resolves peers per workspace
-package, so that package pins 6.0.3 for itself while the root stays on 7.0.2.
-
-Alternatives if the split ever becomes a burden: oxlint with `oxlint-tsgolint`, which tracks
-TypeScript 7 and needs no JavaScript compiler API at all.
+Keep the rules in `.oxlintrc.json`. Rules that oxlint marks as nursery (`no-unnecessary-condition`,
+`prefer-optional-chain`, `no-undef`, `no-useless-assignment`) are left out until they are stable.
 
 ## pnpm 12 rejects fresh releases
 
-A supply-chain policy blocks packages published within roughly the last day. `typescript-eslint`
-is therefore pinned to an exact version rather than a range. Bumping it needs a version older than
-the cutoff, or the install fails with a lockfile policy error.
+A supply-chain policy blocks packages published within roughly the last day. Bumping `oxlint` or
+`oxlint-tsgolint` needs a version older than the cutoff, or the install fails with a lockfile
+policy error.
 
 ## Engine invariants worth keeping
 
